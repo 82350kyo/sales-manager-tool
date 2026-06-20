@@ -412,6 +412,43 @@ function sendApproachNotification() {
 
 
 // ============================================
+// 【初回セットアップ用】顧客情報ヘッダー列を追加する
+// 一度だけ手動実行してください。既存列は変更しません。
+// ============================================
+function addCustomerInfoHeaders() {
+  const sheet = getSheet();
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h).trim());
+
+  const newHeaders = [
+    'アップセル見込み',
+    '断り理由',
+    '資金状況',
+    '行動の障壁',
+    'アプローチ目安',
+    '次回アプローチ予定日',
+    '備考／所感'
+  ];
+
+  let addedCount = 0;
+  newHeaders.forEach(header => {
+    if (!headers.includes(header)) {
+      const nextCol = sheet.getLastColumn() + 1;
+      sheet.getRange(1, nextCol).setValue(header);
+      headers.push(header);
+      addedCount++;
+      console.log('追加: ' + header);
+    } else {
+      console.log('スキップ（既存）: ' + header);
+    }
+  });
+
+  SpreadsheetApp.flush();
+  console.log('完了：' + addedCount + '列を追加しました。');
+}
+
+
+// ============================================
 // 動作テスト用関数
 // ============================================
 function testWrite() {
