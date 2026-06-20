@@ -35,10 +35,10 @@ function buildResponse(data) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-// シート取得
+// シート取得（売上報告タブを使用）
 function getSheet() {
   const ss = SpreadsheetApp.openById(SS_ID);
-  return ss.getSheetByName('シート1');
+  return ss.getSheetByName('売上報告');
 }
 
 
