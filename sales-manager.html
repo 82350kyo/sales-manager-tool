@@ -3091,9 +3091,33 @@ function syncFromSheet() {
   const status = document.getElementById('sync-status');
   status.textContent = '同期中...';
 
-  fetch(GAS_URL)
-    .then(r => r.json())
-    .then(rows => {
+  // GASを経由せずスプレッドシートから直接取得（gviz API）
+  const GVIZ_URL = 'https://docs.google.com/spreadsheets/d/1BMptkze_WyYL6TRG5Jzugy8aYT-AL4F4O7gnmFPKXRw/gviz/tq?tqx=out:json&gid=65933176';
+  // gviz の Date(year,month0indexed,day) → YYYY-MM-DD に変換
+  const parseGvizDate = v => {
+    if (!v || typeof v !== 'string') return '';
+    const m = v.match(/^Date\((\d+),(\d+),(\d+)/);
+    if (!m) return String(v);
+    return `${m[1]}-${String(Number(m[2])+1).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
+  };
+
+  fetch(GVIZ_URL)
+    .then(r => r.text())
+    .then(text => {
+      const json = JSON.parse(text.slice(text.indexOf('(')+1, text.lastIndexOf(')')));
+      const { cols, rows: gRows } = json.table;
+      // 列ラベルをキーにしたオブジェクト配列に変換
+      const rows = gRows.map((r, idx) => {
+        const obj = { _rowIdx: idx };
+        cols.forEach((col, i) => {
+          if (!col.label) return;
+          const cell = r.c[i];
+          const v = cell ? cell.v : null;
+          obj[col.label] = (col.type === 'date' || col.type === 'datetime') ? parseGvizDate(v) : (v === null || v === undefined ? '' : v);
+        });
+        return obj;
+      });
+
       // スプシ由来データを全削除して再構築
       data.sales = data.sales.filter(s => s.source !== 'sheet');
       let addedSales = 0, addedMembers = 0;
@@ -3191,7 +3215,7 @@ function syncFromSheet() {
           const m = v.match(/sale-[a-z0-9.]+/i);
           return m ? m[0] : null;
         }, null);
-        const saleId = foundSaleId || String(row['ID'] || row['管理ID'] || row['id'] || row['タイムスタンプ'] || ('sale-' + Date.now() + Math.floor(Math.random()*1e9)));
+        const saleId = foundSaleId || (row['ID'] ? 'sheet-id-' + String(Number(row['ID'])) : null) || ('sheet-row-' + row['_rowIdx']);
         // 着金日を読み込む（UTC ISO対応）
         const payDateRaw = row['着金日'] || '';
         let paymentDate = '';
