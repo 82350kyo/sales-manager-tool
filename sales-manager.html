@@ -1729,12 +1729,16 @@ function addSale() {
     .then(r => r.json())
     .then(res => {
       console.log('GAS Response:', res);
-      if(res.status === 'ok' || res.success === true) {
-        showAlert('sales-alert', 'success', '保存完了！スプシとLINEに反映されました ✨');
+      if (res.ok === false) {
+        // GASでエラーが発生した場合（スプシ書き込み失敗など）
+        console.error('GAS書き込みエラー:', res.error);
+        showAlert('sales-alert', 'error', '⚠️ スプレッドシートへの保存に失敗しました。管理者に連絡してください。エラー: ' + (res.error || '不明'));
+      } else {
+        showAlert('sales-alert', 'success', '✅ 保存・LINE送信完了！スプレッドシートにも記録されました。');
       }
     })
     .catch(err => {
-      console.error('GAS Error:', err);
+      console.error('GAS通信エラー:', err);
       showAlert('sales-alert', 'error', '通信エラーが発生しましたが、アプリ内には保存されました。');
     });
 
