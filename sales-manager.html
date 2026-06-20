@@ -1,0 +1,3712 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>チーム売上管理</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --primary: #4f46e5;
+      --primary-light: #818cf8;
+      --primary-dark: #3730a3;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --surface2: #f1f5f9;
+      --border: #e2e8f0;
+      --text: #1e293b;
+      --text-muted: #64748b;
+      --radius: 12px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    /* Layout */
+    .app { display: flex; min-height: 100vh; }
+    .sidebar { width: 240px; background: var(--primary-dark); color: white; display: flex; flex-direction: column; flex-shrink: 0; }
+    .sidebar-header { padding: 24px 20px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+    .sidebar-title { font-size: 18px; font-weight: 700; }
+    .sidebar-sub { font-size: 12px; opacity: 0.7; margin-top: 4px; }
+    .sidebar-nav { flex: 1; padding: 12px 0; }
+    .nav-item { display: flex; align-items: center; gap: 12px; padding: 12px 20px; cursor: pointer; transition: background 0.15s; font-size: 14px; font-weight: 500; }
+    .nav-item:hover { background: rgba(255,255,255,0.1); }
+    .nav-item.active { background: rgba(255,255,255,0.2); }
+    .nav-icon { font-size: 18px; width: 24px; text-align: center; }
+    .main { flex: 1; overflow-y: auto; }
+    .page { display: none; padding: 32px; max-width: 1200px; }
+    .page.active { display: block; }
+
+    /* Header */
+    .page-header { margin-bottom: 24px; }
+    .page-title { font-size: 24px; font-weight: 700; }
+    .page-desc { color: var(--text-muted); font-size: 14px; margin-top: 4px; }
+
+    /* Cards */
+    .card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 24px; }
+    .card-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; color: var(--text); }
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .stat-card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px; }
+    .stat-label { font-size: 13px; color: var(--text-muted); font-weight: 500; }
+    .stat-value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+    .stat-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+    .stat-change { font-size: 12px; font-weight: 600; margin-top: 4px; }
+    .stat-change.up { color: var(--success); }
+    .stat-change.down { color: var(--danger); }
+
+    /* Forms */
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    .form-group.full { grid-column: 1 / -1; }
+    label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+    input, select, textarea { border: 1.5px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 14px; color: var(--text); background: var(--surface); transition: border-color 0.15s; }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); }
+    textarea { resize: vertical; min-height: 80px; }
+
+    /* Buttons */
+    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 10px 18px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all 0.15s; }
+    .btn-primary { background: var(--primary); color: white; }
+    .btn-primary:hover { background: var(--primary-dark); }
+    .btn-success { background: var(--success); color: white; }
+    .btn-success:hover { background: #059669; }
+    .btn-danger { background: var(--danger); color: white; }
+    .btn-danger:hover { background: #dc2626; }
+    .btn-outline { background: transparent; color: var(--primary); border: 1.5px solid var(--primary); }
+    .btn-outline:hover { background: var(--primary); color: white; }
+    .btn-sm { padding: 6px 12px; font-size: 13px; }
+    .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    /* Tables */
+    .table-wrap { overflow-x: auto; margin-top: 16px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th { text-align: left; padding: 10px 12px; background: var(--surface2); color: var(--text-muted); font-weight: 600; font-size: 13px; border-bottom: 1px solid var(--border); }
+    td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--surface2); }
+
+    /* Progress */
+    .progress-bar { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+    .progress-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
+    .progress-fill.good { background: var(--success); }
+    .progress-fill.warn { background: var(--warning); }
+    .progress-fill.bad { background: var(--danger); }
+
+    /* Badge */
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+    .badge-success { background: #d1fae5; color: #065f46; }
+    .badge-warning { background: #fef3c7; color: #92400e; }
+    .badge-danger { background: #fee2e2; color: #991b1b; }
+    .badge-info { background: #dbeafe; color: #1e40af; }
+
+    /* Color dots */
+    .member-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
+    .member-name-cell { display: flex; align-items: center; }
+
+    /* Charts */
+    .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 24px; margin-bottom: 24px; }
+    .chart-card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 24px; }
+    .chart-card canvas { max-height: 300px; }
+
+    /* Sale Group List */
+    .sale-group-card { transition: transform 0.2s, box-shadow 0.2s; }
+    .sale-group-card:hover { transform: translateY(-3px); box-shadow: 0 10px 30px rgba(0,0,0,0.1) !important; }
+    .sale-timeline > div:last-child { border-bottom: none !important; }
+    .edit-btn-mini { background: none; border: none; cursor: pointer; font-size: 11px; color: var(--primary); padding: 4px; border-radius: 4px; }
+    .edit-btn-mini:hover { background: var(--surface); }
+    .history-tag { background: #eff6ff; color: #1d4ed8; padding: 2px 8px; border-radius: 6px; font-size: 10px; font-weight: 600; cursor: help; border: 1px solid #dbeafe; }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 2px solid var(--border); }
+    .tab { padding: 10px 16px; cursor: pointer; font-size: 14px; font-weight: 500; color: var(--text-muted); border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.15s; }
+    .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* Month nav */
+    .month-nav { display: flex; align-items: center; gap: 12px; }
+    .month-nav span { font-weight: 600; font-size: 16px; min-width: 120px; text-align: center; }
+    .month-nav .btn { padding: 6px 12px; }
+
+    /* Alert */
+    .alert { padding: 12px 16px; border-radius: 8px; font-size: 14px; margin-bottom: 16px; }
+    .alert-success { background: #d1fae5; color: #065f46; }
+    .alert-error { background: #fee2e2; color: #991b1b; }
+
+    /* Empty state */
+    .empty-state { text-align: center; padding: 48px 24px; color: var(--text-muted); }
+    .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+    .empty-state p { font-size: 15px; }
+
+    /* Modal */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+    .modal-overlay.open { display: flex; }
+    .modal { background: white; border-radius: var(--radius); padding: 28px; width: 100%; max-width: 480px; box-shadow: var(--shadow-lg); }
+    .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 20px; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+    /* Ranking */
+    .ranking-period-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; }
+    .period-btn { padding: 8px 18px; border-radius: 999px; border: 1.5px solid var(--border); background: var(--surface); font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; color: var(--text-muted); }
+    .period-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
+    .ranking-list { display: flex; flex-direction: column; gap: 12px; }
+    .ranking-row { display: flex; align-items: center; gap: 16px; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px 20px; }
+    .ranking-row.rank-1 { border-left: 4px solid #f59e0b; }
+    .ranking-row.rank-2 { border-left: 4px solid #94a3b8; }
+    .ranking-row.rank-3 { border-left: 4px solid #b45309; }
+    .ranking-medal { font-size: 28px; width: 40px; text-align: center; flex-shrink: 0; }
+    .ranking-num { font-size: 20px; font-weight: 700; color: var(--text-muted); width: 40px; text-align: center; flex-shrink: 0; }
+    .ranking-info { flex: 1; min-width: 0; }
+    .ranking-name { font-size: 16px; font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+    .ranking-bar-wrap { display: flex; align-items: center; gap: 10px; }
+    .ranking-bar { flex: 1; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+    .ranking-bar-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease; }
+    .ranking-amount { font-size: 18px; font-weight: 700; color: var(--primary); white-space: nowrap; flex-shrink: 0; }
+    .ranking-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+    /* Project cards */
+    .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+    .project-card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px; cursor: pointer; transition: box-shadow 0.15s, transform 0.15s; border-left: 4px solid var(--border); }
+    .project-card:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); }
+    .project-card.priority-high { border-left-color: var(--danger); }
+    .project-card.priority-medium { border-left-color: var(--warning); }
+    .project-card.priority-low { border-left-color: var(--success); }
+    .project-card.status-done { opacity: 0.6; }
+    .project-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+    .project-card-name { font-size: 15px; font-weight: 700; }
+    .project-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+    .priority-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+    .priority-badge.high { background: #fee2e2; color: #991b1b; }
+    .priority-badge.medium { background: #fef3c7; color: #92400e; }
+    .priority-badge.low { background: #d1fae5; color: #065f46; }
+    .status-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    .status-badge.planning { background: #dbeafe; color: #1e40af; }
+    .status-badge.active { background: #e0e7ff; color: #3730a3; }
+    .status-badge.done { background: #d1fae5; color: #065f46; }
+    .project-progress { margin: 10px 0; }
+    .project-progress-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+    .project-members { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 10px; }
+    .project-member-dot { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; color: white; font-size: 11px; font-weight: 700; }
+    .project-deadline { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+    .project-deadline.overdue { color: var(--danger); font-weight: 600; }
+
+    /* Project modal */
+    .proj-modal { background: white; border-radius: var(--radius); padding: 28px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; box-shadow: var(--shadow-lg); }
+    .task-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+    .task-item:last-child { border-bottom: none; }
+    .task-item input[type=checkbox] { width: 18px; height: 18px; cursor: pointer; flex-shrink: 0; accent-color: var(--primary); }
+    .task-item label { flex: 1; font-size: 14px; cursor: pointer; }
+    .task-item label.done { text-decoration: line-through; color: var(--text-muted); }
+    .task-delete { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; padding: 0 4px; }
+    .task-delete:hover { color: var(--danger); }
+    .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+
+    /* Team Tasks */
+    .tt-list { display: flex; flex-direction: column; gap: 6px; }
+    .tt-item { display: flex; align-items: center; gap: 12px; background: var(--surface); border-radius: 10px; padding: 14px 16px; box-shadow: var(--shadow); transition: opacity 0.2s; }
+    .tt-item.done { opacity: 0.45; }
+    .tt-check { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--border); background: white; cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
+    .tt-check:hover { border-color: var(--primary); }
+    .tt-check.checked { background: var(--success); border-color: var(--success); color: white; font-size: 13px; }
+    .tt-body { flex: 1; min-width: 0; }
+    .tt-text { font-size: 14px; font-weight: 500; }
+    .tt-text.done { text-decoration: line-through; color: var(--text-muted); }
+    .tt-meta { display: flex; gap: 10px; margin-top: 4px; flex-wrap: wrap; align-items: center; }
+    .tt-assignee { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-muted); }
+    .tt-deadline { font-size: 12px; font-weight: 500; }
+    .tt-section-title { font-size: 13px; font-weight: 700; color: var(--text-muted); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .tt-add-box { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px; margin-bottom: 20px; }
+    .tt-member-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+    .tt-member-tab { padding: 6px 14px; border-radius: 999px; border: 1.5px solid var(--border); background: var(--surface); font-size: 13px; cursor: pointer; transition: all 0.15s; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+    .tt-member-tab.active { background: var(--primary); color: white; border-color: var(--primary); }
+
+    /* Customer info section */
+    .customer-info-box { margin-top: 16px; padding: 16px; border-radius: 12px; border: 1.5px solid var(--border); }
+    .customer-info-box.contract { border-color: #a7f3d0; background: #f0fdf4; }
+    .customer-info-box.non-contract { border-color: #fde68a; background: #fffbeb; }
+    .customer-info-title { font-size: 13px; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; color: var(--text); }
+    .approach-alert-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+    .approach-alert-badge.overdue { background: #fee2e2; color: #991b1b; }
+    .approach-alert-badge.soon { background: #fef3c7; color: #92400e; }
+    .approach-alert-badge.upcoming { background: #dbeafe; color: #1e40af; }
+    .approach-highlight-overdue { border-left: 6px solid var(--danger) !important; background: #fff5f5; }
+    .approach-highlight-soon { border-left: 6px solid var(--warning) !important; background: #fffbeb; }
+
+    /* Daily report grid */
+    .dr-grid { grid-template-columns: 1fr 1fr; }
+    @media (max-width: 900px) { .dr-grid { grid-template-columns: 1fr; } }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .app { flex-direction: column; }
+
+      /* サイドバーを下部ナビに変更 */
+      .sidebar { width: 100%; flex-direction: row; height: 60px; order: 2; position: fixed; bottom: 0; left: 0; z-index: 100; }
+      .sidebar-header { display: none; }
+      .sidebar-nav { display: flex; flex-direction: row; padding: 0; overflow-x: auto; }
+      .sidebar-footer { display: none; }
+      .nav-item { flex-direction: column; justify-content: center; align-items: center; padding: 8px 12px; gap: 2px; min-width: 60px; flex: 1; }
+      .nav-item span { display: block; font-size: 10px; }
+      .nav-icon { font-size: 20px; width: auto; }
+
+      /* メインコンテンツ */
+      .main { order: 1; padding-bottom: 70px; }
+      .page { padding: 12px; max-width: 100%; }
+      .page-title { font-size: 18px; }
+
+      /* カード */
+      .card { padding: 16px; margin-bottom: 12px; }
+      .card-title { font-size: 14px; }
+
+      /* 統計グリッド：2列 */
+      .stat-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px; }
+      .stat-card { padding: 14px; }
+      .stat-value { font-size: 20px; }
+      .stat-label { font-size: 12px; }
+
+      /* グラフ：1列 */
+      .chart-grid { grid-template-columns: 1fr; gap: 12px; margin-bottom: 12px; }
+      .chart-card { padding: 16px; }
+      .chart-card canvas { max-height: 200px; }
+
+      /* テーブル */
+      .table-wrap { margin-top: 8px; }
+      table { font-size: 12px; }
+      th, td { padding: 8px 6px; }
+
+      /* ボタン */
+      .btn { padding: 8px 12px; font-size: 13px; }
+      .btn-group { gap: 6px; }
+
+      /* month nav */
+      .month-nav span { font-size: 14px; min-width: 90px; }
+
+      /* フォーム */
+      .form-grid { grid-template-columns: 1fr; }
+
+      /* モーダル */
+      .modal { margin: 12px; max-width: calc(100% - 24px); }
+      
+      /* アポリスト・チェックリスト */
+      .appointment-card {
+        background: var(--surface);
+        border: 1.5px solid var(--border);
+        border-radius: 16px;
+        padding: 16px;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        transition: all 0.2s;
+        cursor: pointer;
+      }
+      .appointment-card:hover { border-color: var(--primary); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+      .appointment-card.done { opacity: 0.6; background: #f8fafc; border-color: transparent; }
+      .appointment-icon { 
+        width: 44px; height: 44px; border-radius: 12px; 
+        display: flex; align-items: center; justify-content: center; 
+        font-size: 20px; background: var(--surface2);
+      }
+      .appointment-info { flex: 1; }
+      .appointment-title { font-weight: 700; font-size: 15px; margin-bottom: 2px; }
+      .appointment-time { font-size: 12px; color: var(--text-muted); }
+      .appointment-status {
+        padding: 4px 10px; border-radius: 8px; font-size: 11px; font-weight: 700;
+      }
+      .status-waiting { background: #fee2e2; color: #991b1b; }
+      .status-done { background: #d1fae5; color: #065f46; }
+      
+      /* アニメーション */
+      @keyframes pulse-red {
+        0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+        70% { transform: scale(1.02); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+        100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+      }
+      .status-waiting.badge-alert { animation: pulse-red 2s infinite; }
+    }
+  </style>
+</head>
+<body>
+<div id="loading-overlay" style="position:fixed;inset:0;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;gap:16px;">
+  <div style="font-size:32px;">📊</div>
+  <div style="font-size:18px;font-weight:600;color:#1e293b;">データを読み込み中...</div>
+  <div style="font-size:14px;color:#94a3b8;">スプレッドシートと同期しています</div>
+  <div style="width:200px;height:4px;background:#e2e8f0;border-radius:4px;overflow:hidden;margin-top:8px;">
+    <div style="height:100%;width:40%;background:#4f46e5;border-radius:4px;animation:loading-bar 1.2s ease-in-out infinite;"></div>
+  </div>
+</div>
+<style>
+@keyframes loading-bar {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(600%); }
+}
+</style>
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-title">📊 売上管理</div>
+      <div class="sidebar-sub">Bチーム売上管理</div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-item active" onclick="showPage('dashboard')">
+        <span class="nav-icon">🏠</span><span>Bチーム</span>
+      </div>
+      <div class="nav-item" onclick="showPage('sales')">
+        <span class="nav-icon">💰</span><span>売上入力</span>
+      </div>
+      <div class="nav-item" onclick="showPage('members')">
+        <span class="nav-icon">👥</span><span>メンバー管理</span>
+      </div>
+      <div class="nav-item" onclick="showPage('goals')">
+        <span class="nav-icon">🎯</span><span>目標管理</span>
+      </div>
+      <div class="nav-item" onclick="showPage('reports')">
+        <span class="nav-icon">📈</span><span>レポート</span>
+      </div>
+      <div class="nav-item" onclick="showPage('ranking')">
+        <span class="nav-icon">🏆</span><span>ランキング</span>
+      </div>
+      <div class="nav-item" onclick="showPage('seminar')">
+        <span class="nav-icon">🎓</span><span>セミナー集計</span>
+      </div>
+      <div class="nav-item" onclick="showPage('projects')">
+        <span class="nav-icon">📋</span><span>プロジェクト</span>
+      </div>
+      <div class="nav-item" onclick="showPage('teamtasks')">
+        <span class="nav-icon">✅</span><span>タスク</span>
+      </div>
+
+      <div class="nav-item" onclick="showPage('settings')">
+        <span class="nav-icon">⚙️</span><span>設定</span>
+      </div>
+    </nav>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <!-- Dashboard -->
+    <div id="page-dashboard" class="page active">
+      <div class="page-header">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+          <div>
+            <div class="page-title">Bチーム</div>
+            <div class="page-desc">チームの売上状況を一覧表示</div>
+          </div>
+          <div class="month-nav">
+            <button class="btn btn-outline btn-sm" onclick="changeMonth(-1)">◀</button>
+            <span id="current-month-label"></span>
+            <button class="btn btn-outline btn-sm" onclick="changeMonth(1)">▶</button>
+          </div>
+        </div>
+      </div>
+      <div id="vision-banner"></div>
+      <div class="sales-grid">
+        <div class="stat-grid" id="dashboard-stats"></div>
+      </div>
+      <div class="chart-grid">
+        <div class="chart-card">
+          <div class="card-title">メンバー別売上</div>
+          <canvas id="chart-member-bar"></canvas>
+        </div>
+        <div class="chart-card">
+          <div class="card-title">目標達成率</div>
+          <canvas id="chart-achievement"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">導線別集計</div>
+        <div style="display:flex;gap:8px;margin-bottom:16px;">
+          <button id="tab-all" class="btn btn-primary" onclick="setBusinessTab('合計')">合計</button>
+          <button id="tab-busB" class="btn btn-outline" onclick="setBusinessTab('物販')">物販</button>
+          <button id="tab-busA" class="btn btn-outline" onclick="setBusinessTab('AI')">AI</button>
+        </div>
+        <div class="table-wrap" id="dashboard-category-table"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">メンバー別達成状況</div>
+        <div style="display:flex;gap:8px;margin-bottom:16px;">
+          <button id="mtab-all" class="btn btn-primary" onclick="setMemberTab('合計')">合計</button>
+          <button id="mtab-busB" class="btn btn-outline" onclick="setMemberTab('物販')">物販</button>
+          <button id="mtab-busA" class="btn btn-outline" onclick="setMemberTab('AI')">AI</button>
+        </div>
+        <div class="table-wrap" id="dashboard-member-table"></div>
+      </div>
+      <div class="chart-card" style="margin-bottom:24px;">
+        <div class="card-title">月別売上推移</div>
+        <canvas id="chart-monthly-trend"></canvas>
+      </div>
+    </div>
+
+    <!-- Sales Entry -->
+    <div id="page-sales" class="page">
+      <div class="page-header">
+        <div class="page-title">面談報告</div>
+        <div class="page-desc">入力するだけで自動的にLINEメッセージが生成されます</div>
+      </div>
+
+      <!-- アポ報告チェックリスト（非表示化） -->
+      <div id="appointment-checklist-container" style="display:none;"></div>
+      <div id="appointment-list" style="display:none;"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px;" class="dr-grid">
+        <!-- 入力フォーム -->
+        <div class="card" id="report-form-card">
+          <div class="card-title">面談内容を入力</div>
+          <div id="sales-alert"></div>
+          
+          <!-- 連動中メッセージ -->
+          <div id="installment-header" style="display:none;margin-bottom:16px;padding:12px 16px;background:var(--primary-light, #eef2ff);border:2px solid var(--primary);border-radius:12px;display:flex;align-items:center;justify-content:space-between;animation: fadeIn 0.3s ease;">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-size:20px;">🔗</span>
+              <div>
+                <div style="font-size:11px;color:var(--primary);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">追加入金を報告中</div>
+                <div id="installment-customer-name" style="font-size:15px;font-weight:800;color:var(--text-main);">○○ 様</div>
+              </div>
+            </div>
+            <button onclick="clearInstallmentMode()" class="btn btn-outline btn-sm" style="background:white;padding:4px 12px;font-size:11px;">解除して新規入力</button>
+          </div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>担当者 *</label>
+              <select id="sale-member" onchange="previewSaleReport()">
+                <option value="">選択してください</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>日時 *</label>
+              <div style="display:flex;gap:6px;">
+                <input type="date" id="sale-date" style="flex:1;" oninput="calcNextApproachDate();previewSaleReport()">
+                <input type="time" id="sale-time" style="flex:0 0 96px;" oninput="previewSaleReport()">
+              </div>
+            </div>
+            <div class="form-group">
+              <label>導線</label>
+              <select id="sale-category" onchange="previewSaleReport();toggleCategoryCustom()">
+                <option value="">なし</option>
+                <optgroup label="── 物販 ──">
+                  <option value="個別相談(物販)">個別相談(物販)</option>
+                  <option value="広告(物販)">広告(物販)</option>
+                  <option value="磯貝さんSNS(物販)">磯貝さんSNS(物販)</option>
+                  <option value="かずさんSNS(物販)">かずさんSNS(物販)</option>
+                </optgroup>
+                <optgroup label="── AI ──">
+                  <option value="個別相談(AI)">個別相談(AI)</option>
+                  <option value="広告(AI)">広告(AI)</option>
+                  <option value="かずさんSNS(AI)">かずさんSNS(AI)</option>
+                  <option value="美奈子さんSNS(AI)">美奈子さんSNS(AI)</option>
+                  <option value="的場導線(AI)">的場導線(AI)</option>
+                  <option value="デベロゴンセミナー(AI)">デベロゴンセミナー(AI)</option>
+                </optgroup>
+                <option value="その他">その他（自由入力）</option>
+              </select>
+              <input type="text" id="sale-category-custom" placeholder="導線を入力..." style="display:none;margin-top:6px;" oninput="previewSaleReport()">
+            </div>
+            <div class="form-group">
+              <label>LINE名（顧客名）</label>
+              <input type="text" id="sale-linename" placeholder="まりちゃん" oninput="previewSaleReport()">
+            </div>
+            <div class="form-group">
+              <label>結果</label>
+              <select id="sale-result" onchange="previewSaleReport();updateCustomerInfoSection()">
+                <option value="成約">成約</option>
+                <option value="未成約" selected>未成約</option>
+                <option value="2回目遷移">2回目遷移</option>
+                <option value="決済待ち">決済待ち</option>
+                <option value="キャンセル">キャンセル</option>
+                <option value="追加決済">追加決済</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>商品</label>
+              <input type="text" id="sale-product" placeholder="商品名" oninput="previewSaleReport()">
+            </div>
+            <div class="form-group">
+              <label>売上金額 (円)</label>
+              <input type="number" id="sale-amount" placeholder="0" min="0" oninput="previewSaleReport()">
+            </div>
+            <div class="form-group">
+              <label>着金金額 (円)</label>
+              <input type="number" id="sale-payment" placeholder="0" min="0" oninput="previewSaleReport()">
+            </div>
+            <div class="form-group">
+              <label>着金日</label>
+              <input type="date" id="sale-payment-date" oninput="previewSaleReport()">
+            </div>
+            <div class="form-group full">
+              <label>メモ</label>
+              <textarea id="sale-note" placeholder="メモを入力" oninput="previewSaleReport()"></textarea>
+            </div>
+            <div class="form-group full">
+              <label>録画URL</label>
+              <input type="url" id="sale-recording" placeholder="https://youtu.be/..." oninput="previewSaleReport()">
+            </div>
+          </div>
+
+          <!-- 顧客情報セクション -->
+          <div id="customer-info-section" style="display:none;">
+            <!-- 成約の場合 -->
+            <div id="customer-info-contract" class="customer-info-box contract" style="display:none;">
+              <div class="customer-info-title">📈 顧客情報（成約）</div>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label>アップセル見込み</label>
+                  <select id="sale-upsell" onchange="previewSaleReport()">
+                    <option value="">未設定</option>
+                    <option value="あり">あり</option>
+                    <option value="なし">なし</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>アプローチ目安</label>
+                  <select id="sale-approach-months" onchange="calcNextApproachDate()">
+                    <option value="">未設定</option>
+                    <option value="1">1ヶ月後</option>
+                    <option value="2">2ヶ月後</option>
+                    <option value="3">3ヶ月後</option>
+                    <option value="4">4ヶ月後</option>
+                    <option value="5">5ヶ月後</option>
+                    <option value="6">6ヶ月後</option>
+                    <option value="7">7ヶ月後</option>
+                    <option value="8">8ヶ月後</option>
+                    <option value="9">9ヶ月後</option>
+                    <option value="10">10ヶ月後</option>
+                    <option value="11">11ヶ月後</option>
+                    <option value="12">12ヶ月後</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>次回アプローチ予定日</label>
+                  <input type="date" id="sale-next-approach" style="background:#e8f5e9;" oninput="previewSaleReport()">
+                  <span style="font-size:11px;color:var(--text-muted);">アプローチ目安から自動計算</span>
+                </div>
+                <div class="form-group full">
+                  <label>備考</label>
+                  <textarea id="sale-customer-memo" placeholder="顧客メモ（アップセル商品候補など）" oninput="previewSaleReport()"></textarea>
+                </div>
+              </div>
+            </div>
+
+            <!-- 未成約の場合 -->
+            <div id="customer-info-non-contract" class="customer-info-box non-contract" style="display:none;">
+              <div class="customer-info-title">📝 顧客情報（未成約）</div>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label>断り理由</label>
+                  <select id="sale-rejection" onchange="previewSaleReport()">
+                    <option value="">未選択</option>
+                    <option value="資金不足">資金不足</option>
+                    <option value="タイミング">タイミング</option>
+                    <option value="必要性を感じない">必要性を感じない</option>
+                    <option value="検討中">検討中</option>
+                    <option value="その他">その他</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>資金状況</label>
+                  <select id="sale-financial" onchange="previewSaleReport()">
+                    <option value="">未選択</option>
+                    <option value="余裕あり">余裕あり</option>
+                    <option value="余裕なし">余裕なし</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>行動の障壁</label>
+                  <select id="sale-barrier" onchange="previewSaleReport()">
+                    <option value="">未選択</option>
+                    <option value="高">高</option>
+                    <option value="中">中</option>
+                    <option value="低">低</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>アプローチ目安</label>
+                  <select id="sale-approach-months-nc" onchange="calcNextApproachDate()">
+                    <option value="">未設定</option>
+                    <option value="1">1ヶ月後</option>
+                    <option value="2">2ヶ月後</option>
+                    <option value="3">3ヶ月後</option>
+                    <option value="4">4ヶ月後</option>
+                    <option value="5">5ヶ月後</option>
+                    <option value="6">6ヶ月後</option>
+                    <option value="7">7ヶ月後</option>
+                    <option value="8">8ヶ月後</option>
+                    <option value="9">9ヶ月後</option>
+                    <option value="10">10ヶ月後</option>
+                    <option value="11">11ヶ月後</option>
+                    <option value="12">12ヶ月後</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>次回アプローチ予定日</label>
+                  <input type="date" id="sale-next-approach-nc" style="background:#fffde7;" oninput="previewSaleReport()">
+                  <span style="font-size:11px;color:var(--text-muted);">アプローチ目安から自動計算</span>
+                </div>
+                <div class="form-group full">
+                  <label>2回目アプローチ後の所感</label>
+                  <textarea id="sale-second-note" placeholder="2回目アプローチ時の手応えや所感を入力" oninput="previewSaleReport()"></textarea>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-primary" onclick="addSale()">💾 保存 ＋ LINE送信</button>
+            <button class="btn btn-outline" onclick="copySaleReport()">📋 コピーのみ</button>
+          </div>
+        </div>
+        <!-- LINEプレビュー -->
+        <div class="card">
+          <div class="card-title">LINEメッセージプレビュー</div>
+          <div style="background:#e9f5ee;border-radius:16px;padding:16px;font-size:14px;line-height:1.9;white-space:pre-wrap;min-height:300px;font-family:-apple-system,sans-serif;color:#1a1a1a;border:1px solid #c3e6cb;" id="sale-preview">← 左に入力すると自動でプレビューされます</div>
+          <div style="margin-top:12px;font-size:12px;color:var(--text-muted);">💡「保存＋LINE送信」でGASを通じてグループに自動送信されます</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:12px;">
+          <div class="card-title" style="margin-bottom:0;">売上一覧</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <select id="filter-month" style="font-size:13px;padding:6px 10px;border-radius:6px;border:1.5px solid var(--border);" onchange="renderSalesList()">
+              <option value="">全期間</option>
+            </select>
+            <select id="filter-member" style="font-size:13px;padding:6px 10px;border-radius:6px;border:1.5px solid var(--border);" onchange="renderSalesList()">
+              <option value="">全員</option>
+            </select>
+          </div>
+        </div>
+        <div class="table-wrap" id="sales-list"></div>
+      </div>
+    </div>
+
+    <!-- Members -->
+    <div id="page-members" class="page">
+      <div class="page-header">
+        <div class="page-title">メンバー管理</div>
+        <div class="page-desc">チームメンバーを登録・管理します</div>
+      </div>
+      <div class="card" style="margin-bottom:24px;">
+        <div class="card-title">メンバーを追加</div>
+        <div id="member-alert"></div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>名前 *</label>
+            <input type="text" id="member-name" placeholder="山田 太郎">
+          </div>
+          <div class="form-group">
+            <label>役職</label>
+            <input type="text" id="member-role" placeholder="営業担当">
+          </div>
+          <div class="form-group">
+            <label>カラー</label>
+            <input type="color" id="member-color" value="#4f46e5" style="height:42px;padding:4px;">
+          </div>
+        </div>
+        <div style="margin-top:16px;">
+          <button class="btn btn-primary" onclick="addMember()">+ メンバーを追加</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">メンバー一覧</div>
+        <div id="member-list"></div>
+      </div>
+    </div>
+
+    <!-- Goals -->
+    <div id="page-goals" class="page">
+      <div class="page-header">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+          <div>
+            <div class="page-title">目標管理</div>
+            <div class="page-desc">月次売上目標を設定します</div>
+          </div>
+          <div class="month-nav">
+            <button class="btn btn-outline btn-sm" onclick="changeGoalMonth(-1)">◀</button>
+            <span id="goal-month-label"></span>
+            <button class="btn btn-outline btn-sm" onclick="changeGoalMonth(1)">▶</button>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="margin-bottom:24px;">
+        <div class="card-title">チーム全体目標</div>
+        <div id="team-goal-section"></div>
+      </div>
+      <div class="card" style="margin-bottom:24px;">
+        <div class="card-title">チームKPI目標</div>
+        <div id="team-kpi-section"></div>
+      </div>
+      <div class="card" style="margin-bottom:24px;">
+        <div class="card-title">メンバー別目標</div>
+        <div id="member-goal-section"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">メンバー別KPI目標</div>
+        <div id="member-kpi-section"></div>
+      </div>
+    </div>
+
+    <!-- Reports -->
+    <div id="page-reports" class="page">
+      <div class="page-header">
+        <div class="page-title">レポート</div>
+        <div class="page-desc">売上データを分析・エクスポートします</div>
+      </div>
+      <div class="tabs">
+        <div class="tab active" onclick="showTab('monthly')">月次レポート</div>
+        <div class="tab" onclick="showTab('member')">メンバー別</div>
+        <div class="tab" onclick="showTab('export')">エクスポート</div>
+      </div>
+      <div id="tab-monthly" class="tab-content active">
+        <div class="card" style="margin-bottom:24px;">
+          <div class="card-title">月次サマリー</div>
+          <div id="monthly-summary"></div>
+        </div>
+      </div>
+      <div id="tab-member" class="tab-content">
+        <div class="card">
+          <div class="card-title">メンバー別累計</div>
+          <div id="member-report"></div>
+        </div>
+      </div>
+      <div id="tab-export" class="tab-content">
+        <div class="card">
+          <div class="card-title">データエクスポート</div>
+          <p style="font-size:14px;color:var(--text-muted);margin-bottom:20px;">売上データをCSV形式またはJSON形式でダウンロードできます。</p>
+          <div class="btn-group">
+            <button class="btn btn-success" onclick="exportCSV()">📥 CSV でダウンロード</button>
+            <button class="btn btn-outline" onclick="exportJSON()">📥 JSON でダウンロード</button>
+          </div>
+          <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border);">
+            <div class="card-title">データインポート</div>
+            <p style="font-size:14px;color:var(--text-muted);margin-bottom:12px;">JSONファイルからデータをインポートします。</p>
+            <input type="file" id="import-file" accept=".json" onchange="importJSON(event)" style="font-size:14px;">
+          </div>
+          <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border);">
+            <div class="card-title" style="color:var(--danger);">データリセット</div>
+            <p style="font-size:14px;color:var(--text-muted);margin-bottom:12px;">全データを削除します。この操作は元に戻せません。</p>
+            <button class="btn btn-danger" onclick="resetData()">🗑️ 全データをリセット</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ranking -->
+    <div id="page-ranking" class="page">
+      <div class="page-header">
+        <div class="page-title">🏆 売上ランキング</div>
+        <div class="page-desc">チームメンバーの売上順位を表示します</div>
+      </div>
+      <div class="ranking-period-bar" id="ranking-period-bar">
+        <button class="period-btn" onclick="setRankingPeriod('week',this)">今週</button>
+        <button class="period-btn active" onclick="setRankingPeriod('month',this)">今月</button>
+        <button class="period-btn" onclick="setRankingPeriod('last',this)">先月</button>
+        <button class="period-btn" onclick="setRankingPeriod('3month',this)">直近3ヶ月</button>
+        <button class="period-btn" onclick="setRankingPeriod('year',this)">今年</button>
+        <button class="period-btn" onclick="setRankingPeriod('all',this)">全期間</button>
+      </div>
+      <div id="ranking-list" class="ranking-list"></div>
+    </div>
+
+    <!-- Seminar Ranking -->
+    <div id="page-seminar" class="page">
+      <div class="page-header">
+        <div class="page-title">🎓 セミナー選抜集計</div>
+        <div class="page-desc">セミナー（アクセサリーセミナー等）の成績をランキング形式で表示します</div>
+      </div>
+      
+      <div style="display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap;align-items:center;">
+        <div class="form-group">
+          <label>対象セミナー</label>
+          <select id="seminar-select" onchange="renderSeminarPage()" style="min-width:240px;"></select>
+        </div>
+      </div>
+
+      <!-- Seminar Overview -->
+      <div id="seminar-overview" class="stat-grid"></div>
+
+      <!-- Seminar Leaderboard -->
+      <div class="card">
+        <div class="card-title">セミナー選抜ランキング</div>
+        <div id="seminar-leaderboard" class="ranking-list"></div>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div id="page-settings" class="page">
+      <div class="page-header">
+        <div class="page-title">設定</div>
+        <div class="page-desc">アプリの設定を変更します</div>
+      </div>
+      <div class="card" style="margin-bottom:24px;">
+        <div class="card-title">チームビジョン・スローガン</div>
+        <p style="font-size:14px;color:var(--text-muted);margin-bottom:16px;">ダッシュボードの上部に表示されます。</p>
+        <div class="form-group" style="margin-bottom:12px;">
+          <label>ビジョン / スローガン</label>
+          <input type="text" id="vision-input" placeholder="例：全員で目標達成！チームで日本一へ" value="${data.teamVision||''}">
+        </div>
+        <button class="btn btn-primary" onclick="saveVision()">保存</button>
+      </div>
+      <div class="card" style="margin-bottom:24px;">
+        <div class="card-title">スプレッドシート同期</div>
+        <p style="font-size:14px;color:var(--text-muted);margin-bottom:16px;">Googleスプレッドシートの売上データを取り込みます。</p>
+        <div id="sync-alert"></div>
+        <button class="btn btn-primary" onclick="syncFromSheet()">🔄 スプシから同期</button>
+        <div id="sync-status" style="margin-top:12px;font-size:13px;color:var(--text-muted);"></div>
+      </div>
+
+      <div class="card" style="margin-bottom:24px;">
+        <div class="card-title">カテゴリ管理</div>
+        <div id="category-alert"></div>
+        <div class="form-grid" style="margin-bottom:12px;">
+          <div class="form-group">
+            <label>カテゴリ名</label>
+            <input type="text" id="category-name" placeholder="新規開拓, 既存顧客...">
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="addCategory()">+ カテゴリを追加</button>
+        <div id="category-list" style="margin-top:16px;"></div>
+      </div>
+    </div>
+
+    <!-- Projects -->
+    <div id="page-projects" class="page">
+      <div class="page-header">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+          <div>
+            <div class="page-title">📋 プロジェクト管理</div>
+            <div class="page-desc">チームのプロジェクトを管理します</div>
+          </div>
+          <button class="btn btn-primary" onclick="openProjectForm()">＋ 新規プロジェクト</button>
+        </div>
+      </div>
+      <div class="filter-bar">
+        <select id="proj-filter-status" onchange="renderProjects()" style="padding:8px 12px;border-radius:8px;border:1.5px solid var(--border);font-size:13px;">
+          <option value="">全ステータス</option>
+          <option value="企画中">企画中</option>
+          <option value="進行中">進行中</option>
+          <option value="完了">完了</option>
+        </select>
+        <select id="proj-filter-priority" onchange="renderProjects()" style="padding:8px 12px;border-radius:8px;border:1.5px solid var(--border);font-size:13px;">
+          <option value="">全優先度</option>
+          <option value="high">🔴 高</option>
+          <option value="medium">🟡 中</option>
+          <option value="low">🟢 低</option>
+        </select>
+        <select id="proj-filter-category" onchange="renderProjects()" style="padding:8px 12px;border-radius:8px;border:1.5px solid var(--border);font-size:13px;">
+          <option value="">全カテゴリ</option>
+          <option value="セミナー">セミナー</option>
+          <option value="マーケ">マーケ</option>
+          <option value="営業">営業</option>
+          <option value="改善">改善</option>
+          <option value="SNS">SNS</option>
+          <option value="その他">その他</option>
+        </select>
+      </div>
+      <div id="project-list" class="project-grid"></div>
+    </div>
+    <!-- Team Tasks -->
+    <div id="page-teamtasks" class="page">
+      <div class="page-header">
+        <div class="page-title">✅ タスク管理</div>
+        <div class="page-desc">チームのタスクを管理します</div>
+      </div>
+      <!-- Add form -->
+      <div class="tt-add-box">
+        <div class="form-grid" style="margin-bottom:10px;">
+          <div class="form-group full">
+            <input type="text" id="tt-new-text" placeholder="タスク内容を入力..." onkeydown="if(event.key==='Enter')addTeamTask()">
+          </div>
+        </div>
+        <div style="margin-bottom:10px;">
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;">担当者（複数選択可）</div>
+          <div id="tt-assignee-checks" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <select id="tt-new-creator" style="flex:1;min-width:130px;padding:9px 12px;border-radius:8px;border:1.5px solid var(--border);font-size:13px;">
+            <option value="">依頼者を選択</option>
+          </select>
+          <input type="date" id="tt-new-deadline" style="flex:1;min-width:130px;">
+          <button class="btn btn-primary" onclick="addTeamTask()">＋ 追加</button>
+        </div>
+      </div>
+      <!-- Filter tabs -->
+      <div id="tt-member-tabs" class="tt-member-tabs"></div>
+      <!-- Task lists -->
+      <div id="tt-task-list"></div>
+    </div>
+
+
+
+  </main>
+</div>
+
+<!-- Project Form Modal -->
+<div class="modal-overlay" id="project-form-modal">
+  <div class="proj-modal">
+    <div class="modal-title" id="proj-form-title">新規プロジェクト</div>
+    <input type="hidden" id="proj-edit-id">
+    <div class="form-grid" style="margin-bottom:16px;">
+      <div class="form-group full">
+        <label>プロジェクト名</label>
+        <input type="text" id="proj-name" placeholder="例：アクセサリーセミナー">
+      </div>
+      <div class="form-group">
+        <label>カテゴリ</label>
+        <select id="proj-category">
+          <option value="セミナー">セミナー</option>
+          <option value="マーケ">マーケ</option>
+          <option value="営業">営業</option>
+          <option value="改善">改善</option>
+          <option value="SNS">SNS</option>
+          <option value="その他">その他</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>優先度</label>
+        <select id="proj-priority">
+          <option value="high">🔴 高</option>
+          <option value="medium">🟡 中</option>
+          <option value="low">🟢 低</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>ステータス</label>
+        <select id="proj-status">
+          <option value="企画中">企画中</option>
+          <option value="進行中">進行中</option>
+          <option value="完了">完了</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>最終責任者</label>
+        <select id="proj-owner"></select>
+      </div>
+      <div class="form-group">
+        <label>開始日</label>
+        <input type="date" id="proj-startdate">
+      </div>
+      <div class="form-group">
+        <label>想定終了日</label>
+        <input type="date" id="proj-deadline">
+      </div>
+      <div class="form-group full">
+        <label>担当メンバー</label>
+        <div id="proj-member-checkboxes" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;"></div>
+      </div>
+      <div class="form-group full">
+        <label>メモ</label>
+        <textarea id="proj-memo" placeholder="自由記述"></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeProjectForm()">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveProject()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Project Detail Modal -->
+<div class="modal-overlay" id="project-detail-modal">
+  <div class="proj-modal">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:12px;">
+      <div class="modal-title" id="proj-detail-name" style="margin-bottom:0;"></div>
+      <div style="display:flex;gap:8px;flex-shrink:0;">
+        <button class="btn btn-outline btn-sm" onclick="editProject()">編集</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteProjectFromDetail()">削除</button>
+        <button class="btn btn-outline btn-sm" onclick="closeProjectDetail()">✕</button>
+      </div>
+    </div>
+    <div id="proj-detail-badges" style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap;"></div>
+    <div id="proj-detail-info" style="font-size:13px;color:var(--text-muted);margin-bottom:16px;"></div>
+    <div id="proj-detail-progress" style="margin-bottom:20px;"></div>
+    <div style="font-weight:600;font-size:14px;margin-bottom:10px;">タスク</div>
+    <div id="proj-task-list"></div>
+    <div style="margin-top:12px;padding:12px;background:var(--surface2);border-radius:8px;display:flex;flex-direction:column;gap:8px;">
+      <input type="text" id="new-task-input" placeholder="タスク名を入力..." style="width:100%;" onkeydown="if(event.key==='Enter')addTask()">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <select id="new-task-member" style="flex:1;min-width:120px;padding:8px 10px;border-radius:8px;border:1.5px solid var(--border);font-size:13px;">
+          <option value="">担当者（任意）</option>
+        </select>
+        <input type="date" id="new-task-deadline" style="flex:1;min-width:120px;" title="期限">
+        <button class="btn btn-primary btn-sm" onclick="addTask()">追加</button>
+      </div>
+    </div>
+    <div id="proj-detail-memo" style="margin-top:20px;"></div>
+  </div>
+</div>
+
+<!-- Delete Confirm Modal -->
+<div class="modal-overlay" id="delete-modal">
+  <div class="modal">
+    <div class="modal-title">削除の確認</div>
+    <p id="delete-modal-msg" style="font-size:14px;color:var(--text-muted);"></p>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal()">キャンセル</button>
+      <button class="btn btn-danger" id="delete-confirm-btn">削除する</button>
+    </div>
+  </div>
+</div>
+
+<!-- Sale Edit Modal -->
+<div class="modal-overlay" id="sale-edit-modal">
+  <div style="background:var(--surface);padding:30px;border-radius:24px;box-shadow:0 30px 100px rgba(0,0,0,0.5);min-width:320px;max-width:90%;border:1px solid var(--border);position:relative;" onclick="event.stopPropagation()">
+    <div style="font-size:20px;font-weight:900;margin-bottom:20px;color:var(--primary);border-bottom:3px solid var(--surface2);padding-bottom:12px;display:flex;justify-content:space-between;align-items:center;">
+      売上情報の編集
+      <span id="sale-edit-id-display" style="font-size:12px;color:var(--text-muted);font-weight:normal;"></span>
+    </div>
+    <input type="hidden" id="sale-edit-id">
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;font-weight:700;">結果</div>
+    <select id="sale-edit-result" style="width:100%;font-size:15px;padding:12px;border-radius:12px;border:2px solid var(--primary);margin-bottom:15px;background:var(--surface2);">
+      <option value="成約">成約</option>
+      <option value="追加決済">追加決済</option>
+      <option value="未成約">未成約</option>
+      <option value="2回目遷移">2回目遷移</option>
+      <option value="決済待ち">決済待ち</option>
+      <option value="キャンセル">キャンセル</option>
+      <option value="クーリングオフ">クーリングオフ</option>
+    </select>
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;font-weight:700;">商品名</div>
+    <input type="text" id="sale-edit-product" style="width:100%;font-size:15px;padding:12px;border-radius:12px;border:1.5px solid var(--border);margin-bottom:15px;">
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;font-weight:700;">売上金額 (円)</div>
+    <input type="number" id="sale-edit-amount" style="width:100%;font-size:15px;padding:12px;border-radius:12px;border:1.5px solid var(--border);margin-bottom:15px;">
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;font-weight:700;">着金 (円)</div>
+    <input type="number" id="sale-edit-payment" style="width:100%;font-size:15px;padding:12px;border-radius:12px;border:1.5px solid var(--border);margin-bottom:15px;">
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;font-weight:700;">着金日</div>
+    <input type="date" id="sale-edit-payment-date" style="width:100%;font-size:15px;padding:12px;border-radius:12px;border:1.5px solid var(--border);margin-bottom:25px;">
+    <div style="display:flex;gap:15px;">
+      <button onclick="saveResultChange()" class="btn btn-primary" style="flex:1;padding:14px;font-weight:800;font-size:16px;box-shadow:0 4px 15px var(--primary-light);">保存する</button>
+      <button onclick="closeSaleEditModal()" class="btn btn-outline" style="flex:1;padding:14px;font-weight:700;">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ==================== DATA ====================
+const COLORS = ['#4f46e5','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#84cc16','#f97316','#6366f1'];
+
+let data = {
+  members: [],
+  sales: [],
+  goals: {},
+  categories: ['新規開拓', '既存顧客', 'リピート', 'その他'],
+  teamVision: '',
+  projects: [],
+  teamTasks: [],
+  dailyReports: []
+};
+
+function saveData() {
+  localStorage.setItem('sales-manager-data', JSON.stringify(data));
+}
+
+const MEMBER_ORDER = ['岡崎', '廣瀬', '木元', '的場', '西澤', '山本', '円石', '若松', '與田', '大槻'];
+
+function loadData() {
+  const saved = localStorage.getItem('sales-manager-data');
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      data = { ...data, ...parsed };
+    } catch(e) {}
+  }
+  // IDに小数点が含まれている場合に修正（旧バグのマイグレーション）
+  const fixId = id => String(id).replace('.', '');
+  const idMap = {};
+  data.members.forEach(m => {
+    if (String(m.id).includes('.')) {
+      const newId = fixId(m.id);
+      idMap[m.id] = newId;
+      m.id = newId;
+    }
+  });
+  data.sales.forEach(s => {
+    if (String(s.id).includes('.')) s.id = fixId(s.id);
+    if (idMap[s.memberId]) s.memberId = idMap[s.memberId];
+  });
+  // 指定順に並び替え
+  data.members.sort((a, b) => {
+    const ai = MEMBER_ORDER.findIndex(n => a.name.includes(n));
+    const bi = MEMBER_ORDER.findIndex(n => b.name.includes(n));
+    const ar = ai === -1 ? 999 : ai;
+    const br = bi === -1 ? 999 : bi;
+    return ar - br;
+  });
+  saveData();
+}
+
+// ==================== NAVIGATION ====================
+function showPage(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
+  event.currentTarget.classList.add('active');
+  if (page === 'dashboard') renderDashboard();
+  if (page === 'sales') renderSalesPage();
+  if (page === 'members') renderMemberList();
+  if (page === 'goals') renderGoalsPage();
+  if (page === 'reports') renderReports();
+  if (page === 'ranking') renderRanking();
+  if (page === 'seminar') renderSeminarPage();
+  if (page === 'projects') renderProjects();
+  if (page === 'teamtasks') renderTeamTasks();
+
+  if (page === 'settings') renderSettings();
+}
+
+function showTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  event.currentTarget.classList.add('active');
+  if (tab === 'monthly') renderMonthlySummary();
+  if (tab === 'member') renderMemberReport();
+}
+
+// ==================== MONTH NAVIGATION ====================
+let currentViewMonth = new Date();
+let currentBusinessTab = '合計';
+function setBusinessTab(tab) {
+  currentBusinessTab = tab;
+  document.getElementById('tab-all').className = tab==='合計' ? 'btn btn-primary' : 'btn btn-outline';
+  document.getElementById('tab-busA').className = tab==='AI' ? 'btn btn-primary' : 'btn btn-outline';
+  document.getElementById('tab-busB').className = tab==='物販' ? 'btn btn-primary' : 'btn btn-outline';
+  renderDashboard();
+}
+function toggleMemberDetail(el) {
+  const memberId = el.getAttribute('data-member-id');
+  const rows = document.querySelectorAll('tr.member-detail-row[data-member-id="' + memberId + '"]');
+  const isHidden = rows[0] && rows[0].style.display === 'none';
+  rows.forEach(function(r) { r.style.display = isHidden ? '' : 'none'; });
+  const arrow = el.querySelector('.member-arrow');
+  if (arrow) arrow.textContent = isHidden ? '▼' : '▶';
+}
+
+let currentMemberTab = '合計';
+function setMemberTab(tab) {
+  currentMemberTab = tab;
+  document.getElementById('mtab-all').className = tab==='合計' ? 'btn btn-primary' : 'btn btn-outline';
+  document.getElementById('mtab-busA').className = tab==='AI' ? 'btn btn-primary' : 'btn btn-outline';
+  document.getElementById('mtab-busB').className = tab==='物販' ? 'btn btn-primary' : 'btn btn-outline';
+  renderDashboard();
+}
+let goalViewMonth = new Date();
+
+function getMonthKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+
+function formatMonth(d) {
+  return `${d.getFullYear()}年${d.getMonth()+1}月`;
+}
+
+function changeMonth(dir) {
+  currentViewMonth = new Date(currentViewMonth.getFullYear(), currentViewMonth.getMonth() + dir, 1);
+  renderDashboard();
+}
+
+function changeGoalMonth(dir) {
+  goalViewMonth = new Date(goalViewMonth.getFullYear(), goalViewMonth.getMonth() + dir, 1);
+  renderGoalsPage();
+}
+
+// ==================== MEMBERS ====================
+function addMember() {
+  const name = document.getElementById('member-name').value.trim();
+  const role = document.getElementById('member-role').value.trim();
+  const color = document.getElementById('member-color').value;
+  if (!name) { showAlert('member-alert', 'error', '名前を入力してください'); return; }
+  const id = 'member-' + Date.now();
+  data.members.push({ id, name, role, color });
+  saveData();
+  document.getElementById('member-name').value = '';
+  document.getElementById('member-role').value = '';
+  document.getElementById('member-color').value = COLORS[data.members.length % COLORS.length];
+  showAlert('member-alert', 'success', `${name} を追加しました`);
+  renderMemberList();
+  updateMemberSelects();
+}
+
+function deleteMember(id) {
+  const m = data.members.find(m => m.id === id);
+  confirmDelete(`${m.name} を削除しますか？関連する売上データは保持されます。`, () => {
+    data.members = data.members.filter(m => m.id !== id);
+    saveData();
+    renderMemberList();
+    updateMemberSelects();
+  });
+}
+
+function renderMemberList() {
+  const el = document.getElementById('member-list');
+  if (!data.members.length) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">👥</div><p>まだメンバーが登録されていません</p></div>';
+    return;
+  }
+  el.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th></th><th>名前</th><th>役職</th><th>累計売上</th><th></th></tr></thead>
+    <tbody>${data.members.map(m => {
+      const total = data.sales.filter(s => s.memberId === m.id).reduce((a,s) => a + s.amount, 0);
+      return `<tr>
+        <td><span class="member-dot" style="background:${m.color}"></span></td>
+        <td><strong>${esc(m.name)}</strong></td>
+        <td>${esc(m.role || '-')}</td>
+        <td>${fmt(total)}</td>
+        <td><button class="btn btn-danger btn-sm" onclick="deleteMember('${m.id}')">削除</button></td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table></div>`;
+}
+
+function updateMemberSelects() {
+  ['sale-member', 'filter-member'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const firstOpt = id === 'filter-member' ? '<option value="">全員</option>' : '<option value="">選択してください</option>';
+    el.innerHTML = firstOpt + data.members.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
+  });
+}
+
+// ==================== SALES ====================
+function buildSaleReportMsg() {
+  const memberId  = document.getElementById('sale-member')?.value;
+  const member    = data.members.find(m => m.id === memberId);
+  const date      = document.getElementById('sale-date')?.value || '';
+  const time      = document.getElementById('sale-time')?.value || '';
+  const category  = getSaleCategory();
+  const lineName  = document.getElementById('sale-linename')?.value.trim() || '';
+  const result    = document.getElementById('sale-result')?.value || '';
+  const product   = document.getElementById('sale-product')?.value.trim() || '';
+  const amount    = parseInt(document.getElementById('sale-amount')?.value) || 0;
+  const payment   = parseInt(document.getElementById('sale-payment')?.value) || 0;
+  const paymentDate = document.getElementById('sale-payment-date')?.value || '';
+  const note      = document.getElementById('sale-note')?.value.trim() || '';
+  const recording = document.getElementById('sale-recording')?.value.trim() || '';
+  const memberName = member ? member.name.split('(')[0].trim() : '';
+  const dateStr = date ? (date.slice(5).replace('-','/') + (time ? ' ' + time : '')) : '';
+  let msg = `【報告】${memberName}\n`;
+  msg += `日時：${dateStr}\n`;
+  msg += `導線：${category}\n`;
+  msg += `LINE名：${lineName}\n`;
+  msg += `結果：${result}\n`;
+  msg += `商品：${product}\n`;
+  msg += `売上金額：${amount ? '¥' + amount.toLocaleString() : ''}\n`;
+  msg += `着金：${payment ? '¥' + payment.toLocaleString() : ''}\n`;
+  msg += `メモ：${note}\n`;
+  msg += `録画：${recording}`;
+
+  // 顧客情報を追記
+  const isContract = result === '成約' || result === '追加決済';
+  const isNonContract = result === '未成約' || result === '2回目遷移' || result === '決済待ち';
+  if (isContract) {
+    const upsell = document.getElementById('sale-upsell')?.value;
+    const nextApproach = document.getElementById('sale-next-approach')?.value;
+    const customerMemo = document.getElementById('sale-customer-memo')?.value.trim();
+    if (upsell || nextApproach || customerMemo) {
+      msg += '\n\n【顧客情報】\n';
+      if (upsell) msg += `アップセル見込み：${upsell}\n`;
+      if (nextApproach) msg += `次回アプローチ：${nextApproach}\n`;
+      if (customerMemo) msg += `備考：${customerMemo}`;
+    }
+  } else if (isNonContract) {
+    const rejection = document.getElementById('sale-rejection')?.value;
+    const financial = document.getElementById('sale-financial')?.value;
+    const barrier = document.getElementById('sale-barrier')?.value;
+    const nextApproach = document.getElementById('sale-next-approach-nc')?.value;
+    const secondNote = document.getElementById('sale-second-note')?.value.trim();
+    if (rejection || financial || barrier || nextApproach || secondNote) {
+      msg += '\n\n【顧客情報】\n';
+      if (rejection) msg += `断り理由：${rejection}\n`;
+      if (financial) msg += `資金状況：${financial}\n`;
+      if (barrier) msg += `行動の障壁：${barrier}\n`;
+      if (nextApproach) msg += `次回アプローチ：${nextApproach}\n`;
+      if (secondNote) msg += `所感：${secondNote}`;
+    }
+  }
+  return msg;
+}
+
+function updateCustomerInfoSection() {
+  const result = document.getElementById('sale-result')?.value || '';
+  const section = document.getElementById('customer-info-section');
+  const contractBox = document.getElementById('customer-info-contract');
+  const nonContractBox = document.getElementById('customer-info-non-contract');
+  if (!section) return;
+  const isContract = result === '成約' || result === '追加決済';
+  const isNonContract = result === '未成約' || result === '2回目遷移' || result === '決済待ち';
+  section.style.display = (isContract || isNonContract) ? 'block' : 'none';
+  contractBox.style.display = isContract ? 'block' : 'none';
+  nonContractBox.style.display = isNonContract ? 'block' : 'none';
+}
+
+function calcNextApproachDate() {
+  const baseDate = document.getElementById('sale-date')?.value;
+  if (!baseDate) return;
+  const base = new Date(baseDate);
+
+  // 成約側
+  const mC = parseInt(document.getElementById('sale-approach-months')?.value || '0');
+  if (mC > 0) {
+    const d = new Date(base.getFullYear(), base.getMonth() + mC, base.getDate());
+    const str = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    const el = document.getElementById('sale-next-approach');
+    if (el) el.value = str;
+  }
+  // 未成約側
+  const mNC = parseInt(document.getElementById('sale-approach-months-nc')?.value || '0');
+  if (mNC > 0) {
+    const d = new Date(base.getFullYear(), base.getMonth() + mNC, base.getDate());
+    const str = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    const el = document.getElementById('sale-next-approach-nc');
+    if (el) el.value = str;
+  }
+  previewSaleReport();
+}
+
+function previewSaleReport() {
+  const preview = document.getElementById('sale-preview');
+  if (!preview) return;
+  const memberId = document.getElementById('sale-member')?.value;
+  if (!memberId) { preview.textContent = '← 担当者を選択してください'; return; }
+  preview.textContent = buildSaleReportMsg();
+}
+
+function copySaleReport() {
+  const msg = document.getElementById('sale-preview')?.textContent;
+  if (!msg || msg.startsWith('←')) { showAlert('sales-alert', 'error', '担当者を選択してください'); return; }
+  const fallback = () => {
+    const ta = document.createElement('textarea');
+    ta.value = msg; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+  };
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(msg).then(() => showAlert('sales-alert', 'success', 'コピーしました！LINEに貼り付けてください 📋')).catch(fallback);
+  } else { fallback(); showAlert('sales-alert', 'success', 'コピーしました！'); }
+}
+
+function addSale() {
+  const date      = document.getElementById('sale-date').value;
+  const memberId  = document.getElementById('sale-member').value;
+  const amount    = parseInt(document.getElementById('sale-amount').value) || 0;
+  const payment   = parseInt(document.getElementById('sale-payment').value) || 0;
+  const paymentDate = document.getElementById('sale-payment-date').value || (payment > 0 ? date : '');
+  const category  = getSaleCategory();
+  const lineName  = document.getElementById('sale-linename').value.trim();
+  const result    = document.getElementById('sale-result').value;
+  const product   = document.getElementById('sale-product').value.trim();
+  const note      = document.getElementById('sale-note').value.trim();
+  const recording = document.getElementById('sale-recording').value.trim();
+  const time      = document.getElementById('sale-time').value;
+
+  if (!date) { showAlert('sales-alert', 'error', '日付を入力してください'); return; }
+  if (!memberId) { showAlert('sales-alert', 'error', '担当者を選択してください'); return; }
+
+  const member = data.members.find(m => m.id === memberId);
+  const id = 'sale-' + Date.now();
+  const rowType = result === '追加決済' ? '追加決済' : undefined;
+
+  // 顧客情報を取得
+  const isContract = result === '成約' || result === '追加決済';
+  const isNonContract = result === '未成約' || result === '2回目遷移' || result === '決済待ち';
+  const customerInfo = {};
+  if (isContract) {
+    customerInfo.upsell = document.getElementById('sale-upsell')?.value || '';
+    customerInfo.approachMonths = document.getElementById('sale-approach-months')?.value || '';
+    customerInfo.nextApproachDate = document.getElementById('sale-next-approach')?.value || '';
+    customerInfo.customerMemo = document.getElementById('sale-customer-memo')?.value.trim() || '';
+  } else if (isNonContract) {
+    customerInfo.rejection = document.getElementById('sale-rejection')?.value || '';
+    customerInfo.financial = document.getElementById('sale-financial')?.value || '';
+    customerInfo.barrier = document.getElementById('sale-barrier')?.value || '';
+    customerInfo.approachMonths = document.getElementById('sale-approach-months-nc')?.value || '';
+    customerInfo.nextApproachDate = document.getElementById('sale-next-approach-nc')?.value || '';
+    customerInfo.secondNote = document.getElementById('sale-second-note')?.value.trim() || '';
+  }
+
+  data.sales.push({ id, date, time, memberId, amount, payment, paymentDate, category, result, note: lineName, memo: note, product, recording, source: 'local', customerInfo, ...(rowType ? { rowType } : {}) });
+  data.sales.sort((a,b) => b.date.localeCompare(a.date));
+  saveData();
+
+  // LINEメッセージ生成
+  const msg = buildSaleReportMsg();
+  
+  // GASへ送信
+  const payload = {
+    type: 'saleReport',
+    id,
+    text: msg,
+    memberName: member ? member.name.split('(')[0].trim() : '',
+    date,
+    category,
+    lineName,
+    result,
+    product,
+    amount,
+    payment,
+    paymentDate,
+    note,
+    recording,
+    customerInfo  // 顧客情報（アップセル見込み・断り理由・資金状況等）をGASへ送信
+  };
+  
+  fetch(GAS_URL + '?payload=' + encodeURIComponent(JSON.stringify(payload)))
+    .then(r => r.json())
+    .then(res => {
+      console.log('GAS Response:', res);
+      if(res.status === 'ok' || res.success === true) {
+        showAlert('sales-alert', 'success', '保存完了！スプシとLINEに反映されました ✨');
+      }
+    })
+    .catch(err => {
+      console.error('GAS Error:', err);
+      showAlert('sales-alert', 'error', '通信エラーが発生しましたが、アプリ内には保存されました。');
+    });
+
+  // フォームリセット
+  ['sale-linename','sale-note','sale-recording','sale-product'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+  ['sale-amount','sale-payment'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+  document.getElementById('sale-payment-date').value = '';
+  document.getElementById('sale-result').value = '未成約';
+  document.getElementById('sale-time').value = '';
+  document.getElementById('sale-preview').textContent = '← 担当者を選択してください';
+  // 顧客情報リセット
+  ['sale-upsell','sale-approach-months','sale-next-approach','sale-customer-memo',
+   'sale-rejection','sale-financial','sale-barrier','sale-approach-months-nc','sale-next-approach-nc','sale-second-note'
+  ].forEach(fid => { const el = document.getElementById(fid); if(el) el.value = ''; });
+  updateCustomerInfoSection();
+
+  showAlert('sales-alert', 'success', '保存しました！LINEグループへ送信中...');
+  updateMonthFilter();
+  renderSalesList();
+}
+
+function deleteSale(id) {
+  confirmDelete('この売上データを削除しますか？', () => {
+    const sale = data.sales.find(s => String(s.id) === String(id));
+    data.sales = data.sales.filter(s => String(s.id) !== String(id));
+    saveData();
+    renderSalesList();
+    // GASへ削除通知
+    if (sale) {
+      const payload = { type: 'deleteSale', id: sale.id, date: sale.date, lineName: sale.note, category: sale.category||'', memberName: sale.memberId };
+      fetch(GAS_URL + '?payload=' + encodeURIComponent(JSON.stringify(payload)))
+        .then(r => r.json())
+        .then(res => {
+          if (res.status === 'ok' || res.success === true) {
+            alert('✅ スプシからも削除されました: ' + res.deleted + '行目');
+          } else {
+            alert('⚠️ 削除失敗: ' + JSON.stringify(res) + '\n送信ID: ' + sale.id);
+          }
+        })
+        .catch(err => alert('❌ 削除通信エラー: ' + err.message));
+    }
+  });
+}
+
+function renderSalesPage() {
+  document.getElementById('sale-date').value = new Date().toISOString().split('T')[0];
+  const now = new Date();
+  document.getElementById('sale-time').value = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+  updateCustomerInfoSection();
+  updateMemberSelects();
+  updateCategorySelects();
+  updateMonthFilter();
+  renderSalesList();
+  previewSaleReport();
+  
+  // アポリストの取得と表示
+  fetchAppointments();
+}
+
+let currentAppointments = [];
+
+// GASからカレンダーの予定を取得（機能停止）
+function fetchAppointments() {
+  return;
+}
+
+function renderAppointmentChecklist() {
+  const listEl = document.getElementById('appointment-list');
+  const todaySales = data.sales.filter(s => s.date === new Date().toISOString().split('T')[0]);
+  
+  if (currentAppointments.length === 0) {
+    listEl.innerHTML = `
+      <div class="empty-state" style="padding:24px;">
+        <div class="icon" style="font-size:24px;">✨</div>
+        <p style="font-size:13px; color:var(--text-muted);">本日のアポ予定はありません</p>
+      </div>`;
+    return;
+  }
+
+  listEl.innerHTML = currentAppointments.map(ev => {
+    // スプシの「顧客名」とカレンダーの「タイトル」を部分一致で照合
+    const isDone = todaySales.some(s => {
+      const sName = (s.note || '').trim();
+      return sName && (ev.title.includes(sName) || sName.includes(ev.title));
+    });
+
+    const timeStr = new Date(ev.start).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+    
+    return `
+      <div class="appointment-card ${isDone ? 'done' : ''}" onclick="quickFillReport('${esc(ev.title)}', '${timeStr}', '${esc(ev.owner)}')">
+        <div class="appointment-icon">${isDone ? '✅' : '⏳'}</div>
+        <div class="appointment-info">
+          <div class="appointment-title">
+            <span style="color:var(--primary); font-size:12px;">[${esc(ev.owner)}]</span> ${esc(ev.title)}
+          </div>
+          <div class="appointment-time">${timeStr} 〜</div>
+        </div>
+        <div class="appointment-status ${isDone ? 'status-done' : 'status-waiting badge-alert'}">
+          ${isDone ? '報告済み' : '報告待ち'}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// アポリストから入力フォームへ自動入力
+function quickFillReport(title, time, ownerName) {
+  // すでに入力がある場合は確認
+  const nameEl = document.getElementById('sale-linename');
+  if (nameEl.value && !confirm('入力中の内容をアポ情報で上書きしますか？')) return;
+
+  // 担当者を自動選択 (ownerNameがメンバー名の一部に含まれるものを探す)
+  if (ownerName) {
+    const memberSelect = document.getElementById('sale-member');
+    for (let i = 0; i < memberSelect.options.length; i++) {
+        if (memberSelect.options[i].text.includes(ownerName)) {
+            memberSelect.selectedIndex = i;
+            break;
+        }
+    }
+  }
+  
+  // 顧客名（アポ・相談・セミナーなどの文字を消して名前だけにする簡易クリーン）
+  const cleanName = title.replace(/(アポ|相談|面談|セミナー|【|】|様)/g, '').trim();
+  
+  nameEl.value = cleanName;
+  document.getElementById('sale-time').value = time;
+  
+  // 導線を自動判別（タイトルに含まれるキーワードから）
+  const catMenu = document.getElementById('sale-category-menu');
+  if (catMenu) {
+    const opts = Array.from(catMenu.querySelectorAll('.category-item'));
+    const match = opts.find(opt => title.includes(opt.textContent.trim()));
+    if (match) selectCategory(match);
+  }
+  
+  previewSaleReport();
+  nameEl.focus();
+  
+  // フォームまでスクロール
+  document.getElementById('sale-linename').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function updateMonthFilter() {
+  const el = document.getElementById('filter-month');
+  if (!el) return;
+  const months = [...new Set(data.sales.map(s => s.date.slice(0,7)))].sort().reverse();
+  el.innerHTML = '<option value="">全期間</option>' + months.map(m => {
+    const [y,mo] = m.split('-');
+    return `<option value="${m}">${y}年${parseInt(mo)}月</option>`;
+  }).join('');
+}
+
+const RESULT_COLORS = {
+  '成約': '#d1fae5|#065f46',
+  '成約（2回目）': '#a7f3d0|#065f46',
+  '未成約': '#f1f5f9|#475569',
+  '2回目遷移': '#fef3c7|#92400e',
+  '決済待ち': '#dbeafe|#1e40af',
+  'キャンセル': '#fee2e2|#991b1b',
+  'クーリングオフ': '#ede9fe|#5b21b6',
+};
+function resultBadge(result) {
+  const r = result || '-';
+  const colors = RESULT_COLORS[r];
+  if (!colors) return `<span style="font-size:12px;">${esc(r)}</span>`;
+  const [bg, fg] = colors.split('|');
+  return `<span style="background:${bg};color:${fg};padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;">${esc(r)}</span>`;
+}
+
+function renderSalesList() {
+  const monthFilter = document.getElementById('filter-month')?.value;
+  const memberFilter = document.getElementById('filter-member')?.value;
+  let sales = [...data.sales];
+
+  if (monthFilter) sales = sales.filter(s => s.date.startsWith(monthFilter));
+  if (memberFilter) sales = sales.filter(s => s.memberId === memberFilter);
+
+  const groups = {};
+  const firstDates = {};
+  sales.forEach(s => {
+    const k = (s.memberId || 'unknown') + '|' + (s.note || '不明');
+    if (!firstDates[k] || s.date < firstDates[k]) firstDates[k] = s.date;
+  });
+
+  sales.forEach(s => {
+    const k = (s.memberId || 'unknown') + '|' + (s.note || '不明');
+    const key = k + '|' + (firstDates[k] || s.date);
+    if (!groups[key]) groups[key] = { sales: [], latestDate: '', totalPayment: 0 };
+    groups[key].sales.push(s);
+    if (!groups[key].latestDate || s.date > groups[key].latestDate) groups[key].latestDate = s.date;
+    groups[key].totalPayment += (s.payment || 0);
+  });
+
+  const sortedKeys = Object.keys(groups).sort((a, b) => groups[b].latestDate.localeCompare(groups[a].latestDate));
+  const el = document.getElementById('sales-list');
+  if (!sortedKeys.length) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">💰</div><p>該当する売上データがありません</p></div>';
+    return;
+  }
+
+  const resultOpts = ['成約','追加決済','未成約','2回目遷移','決済待ち','キャンセル','クーリングオフ'].map(r => `<option value="${r}">${r}</option>`).join('');
+
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  el.innerHTML = sortedKeys.map(key => {
+    const g = groups[key];
+    const first = g.sales[0];
+    const m = data.members.find(mem => mem.id === first.memberId);
+    const sortedSales = g.sales.sort((a, b) => b.date.localeCompare(a.date));
+
+    // アプローチ期日のチェック（最新の顧客情報を使う）
+    const latestWithApproach = sortedSales.find(s => s.customerInfo?.nextApproachDate);
+    const nextApproachDate = latestWithApproach?.customerInfo?.nextApproachDate || '';
+    let approachClass = '';
+    let approachBadgeHtml = '';
+    if (nextApproachDate) {
+      const apDate = new Date(nextApproachDate); apDate.setHours(0,0,0,0);
+      const diff = Math.ceil((apDate - today) / 86400000);
+      if (diff < 0) {
+        approachClass = 'approach-highlight-overdue';
+        approachBadgeHtml = `<span class="approach-alert-badge overdue">🔴 アプローチ期日超過 (${Math.abs(diff)}日)</span>`;
+      } else if (diff <= 7) {
+        approachClass = 'approach-highlight-soon';
+        approachBadgeHtml = `<span class="approach-alert-badge soon">🟡 アプローチ期日まで${diff}日</span>`;
+      } else {
+        approachBadgeHtml = `<span class="approach-alert-badge upcoming">🔵 次回: ${nextApproachDate}</span>`;
+      }
+    }
+
+    // 顧客情報サマリー（最新エントリから取得）
+    const ci = latestWithApproach?.customerInfo || first.customerInfo || {};
+    let ciHtml = '';
+    if (Object.keys(ci).some(k => ci[k])) {
+      const tags = [];
+      if (ci.upsell) tags.push(`アップセル: <strong>${esc(ci.upsell)}</strong>`);
+      if (ci.rejection) tags.push(`断り理由: <strong>${esc(ci.rejection)}</strong>`);
+      if (ci.financial) tags.push(`資金: <strong>${esc(ci.financial)}</strong>`);
+      if (ci.barrier) tags.push(`障壁: <strong>${esc(ci.barrier)}</strong>`);
+      if (tags.length) {
+        ciHtml = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;font-size:12px;color:var(--text-muted);">${tags.map(t=>`<span>${t}</span>`).join('|')}</div>`;
+      }
+    }
+
+    return `
+      <div class="sale-group-card ${approachClass}" style="background:var(--surface);border-radius:16px;box-shadow:0 4px 20px rgba(0,0,0,0.05);padding:20px;margin-bottom:20px;border-left:6px solid ${m?.color||'#ccc'};">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:15px;">
+          <div style="flex:1;">
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">${esc(m?.name||'不明')}</div>
+            <div style="font-size:18px;font-weight:800;color:var(--text-main);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              ${esc(first.note || '顧客名なし')}
+              ${approachBadgeHtml}
+              <button onclick='prepareInstallment(this.dataset.id)' data-id="${esc(first.id)}" class="btn btn-outline btn-sm" style="padding:4px 10px;font-size:11px;border-radius:8px;">➕ 追加入金を報告</button>
+            </div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:6px;">導線: ${esc(first.category || '-')} | 商品: ${esc(first.product || '-')}</div>
+            ${ciHtml}
+          </div>
+          <div style="text-align:right;flex-shrink:0;margin-left:12px;">
+            <div style="font-size:11px;color:var(--text-muted);">合計着金</div>
+            <div style="font-size:20px;font-weight:900;color:var(--primary);">${fmt(g.totalPayment)}</div>
+          </div>
+        </div>
+
+        <div class="sale-timeline" style="background:var(--surface2);border-radius:12px;padding:12px;margin-top:10px;">
+          ${sortedSales.map(s => {
+            const sCi = s.customerInfo || {};
+            const hasCI = Object.keys(sCi).some(k => sCi[k]);
+            let ciDetail = '';
+            if (hasCI) {
+              const parts = [];
+              if (sCi.upsell) parts.push(`アップセル:${sCi.upsell}`);
+              if (sCi.rejection) parts.push(`断り:${sCi.rejection}`);
+              if (sCi.financial) parts.push(`資金:${sCi.financial}`);
+              if (sCi.barrier) parts.push(`障壁:${sCi.barrier}`);
+              if (sCi.nextApproachDate) parts.push(`次回:${sCi.nextApproachDate}`);
+              if (parts.length) ciDetail = `<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${parts.join(' | ')}</div>`;
+            }
+            return `
+            <div id="sale-row-${s.id}" style="display:flex;align-items:flex-start;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
+              <div style="flex:1;">
+                <div style="display:flex;align-items:center;gap:15px;">
+                  <div style="font-size:12px;color:var(--text-muted);width:80px;">${s.date}</div>
+                  <div style="font-weight:700;font-size:14px;width:100px;">${fmt(s.payment)}</div>
+                  <div id="result-cell-${s.id}" style="display:flex;align-items:center;gap:8px;position:relative;">
+                    ${resultBadge(s.result)}
+                    <button type="button" onclick="openSaleEditModal('${esc(s.id)}', event)" class="edit-btn-mini">✏️</button>
+                  </div>
+                </div>
+                ${ciDetail}
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
+                ${s.history ? `<div class="history-tag" title="${esc(s.history)}">🕒 履歴</div>` : ''}
+                <button class="btn btn-danger btn-sm" style="padding:2px 8px;font-size:10px;" onclick="deleteSale(this.dataset.id)" data-id="${esc(s.id)}">削除</button>
+              </div>
+            </div>
+          `}).join('')}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function prepareInstallment(id) {
+  const s = data.sales.find(s => String(s.id) === String(id));
+  if (!s) return;
+  document.getElementById('sale-member').value = s.memberId;
+  document.getElementById('sale-category').value = s.category || ''; 
+  document.getElementById('sale-linename').value = s.note || ''; 
+  document.getElementById('sale-product').value = s.product || '';
+  document.getElementById('sale-result').value = '追加決済';
+  document.getElementById('sale-amount').value = 0;
+  document.getElementById('sale-payment').value = '';
+  const now = new Date();
+  document.getElementById('sale-date').value = now.toISOString().split('T')[0];
+  document.getElementById('sale-time').value = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+  if (typeof previewSaleReport === 'function') previewSaleReport();
+  const header = document.getElementById('installment-header');
+  const nameEl = document.getElementById('installment-customer-name');
+  if (header && nameEl) {
+    nameEl.textContent = `${s.note} 様`;
+    header.style.display = 'flex';
+  }
+  showAlert('sales-alert', 'success', `【${s.note}】さんの追加入力を準備しました。画面上のフォームで金額を入力してください。`);
+  const formCard = document.getElementById('report-form-card');
+  if (formCard) formCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function clearInstallmentMode() {
+  const header = document.getElementById('installment-header');
+  if (header) header.style.display = 'none';
+  ['sale-linename','sale-note','sale-recording','sale-product','sale-amount','sale-payment'].forEach(id => { 
+    const el = document.getElementById(id); if(el) el.value = ''; 
+  });
+  document.getElementById('sale-result').value = '未成約';
+  previewSaleReport();
+}
+
+function openSaleEditModal(id, event) {
+  if (event) { event.preventDefault(); event.stopPropagation(); }
+  const s = data.sales.find(s => String(s.id) === String(id));
+  if (!s) return;
+  
+  document.getElementById('sale-edit-id').value = id;
+  document.getElementById('sale-edit-id-display').textContent = 'ID: ' + String(id).split('|').pop();
+  
+  document.getElementById('sale-edit-result').value = s.result || '未成約';
+  document.getElementById('sale-edit-product').value = s.product || '';
+  document.getElementById('sale-edit-amount').value = s.amount || 0;
+  document.getElementById('sale-edit-payment').value = Math.abs(s.payment || 0);
+  document.getElementById('sale-edit-payment-date').value = s.paymentDate || '';
+  
+  document.getElementById('sale-edit-modal').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeSaleEditModal() {
+  document.getElementById('sale-edit-modal').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function saveResultChange() {
+  try {
+    const id = document.getElementById('sale-edit-id').value;
+    const s = data.sales.find(s => String(s.id) === String(id));
+    if (!s) { alert('エラー: 対象のデータが見つかりませんでした (ID: ' + id + ')'); return; }
+    
+    const newResult  = document.getElementById('sale-edit-result')?.value;
+    const newProduct = document.getElementById('sale-edit-product')?.value?.trim();
+    const newAmount  = parseInt(document.getElementById('sale-edit-amount')?.value) || 0;
+    const newPayment = parseInt(document.getElementById('sale-edit-payment')?.value) || 0;
+    const newPaymentDate = document.getElementById('sale-edit-payment-date')?.value || '';
+    
+    if (!newResult) { alert('エラー: ステータスを選択してください'); return; }
+    const oldResult = s.result;
+    
+    const updateFields = (sale, res, prod, amt, pay, payDate) => {
+      sale.result = res;
+      if (prod !== undefined) sale.product = prod;
+      if (amt !== undefined) sale.amount = amt;
+      const rawVal = pay !== undefined ? pay : (sale.payment || 0);
+      sale.payment = (res === 'クーリングオフ' || res === 'キャンセル') ? -Math.abs(rawVal) : Math.abs(rawVal);
+      sale.paymentDate = payDate || (sale.payment ? sale.date : '');
+      if (res === '追加決済') sale.rowType = '追加決済';
+      else delete sale.rowType;
+      sale.source = 'local';
+    };
+
+    updateFields(s, newResult, newProduct, newAmount, newPayment, newPaymentDate);
+
+    const linkedSales = data.sales.filter(s2 => 
+      String(s2.id) !== String(s.id) && 
+      String(s2.memberId) === String(s.memberId) && 
+      String(s2.note || '').trim() === String(s.note || '').trim()
+    );
+
+    if (linkedSales.length > 0 && (newResult === 'クーリングオフ' || newResult === 'キャンセル')) {
+      if (confirm(`【重要】このお客さんの他の入金履歴（${linkedSales.length}件）もすべて「${newResult}（返金扱い）」に変更し、全額返金として処理しますか？`)) {
+        linkedSales.forEach(s2 => {
+          const oldS2Result = s2.result;
+          updateFields(s2, newResult, s2.product, s2.amount, Math.abs(s2.payment), s2.paymentDate);
+          const m = data.members.find(mem => mem.id === s2.memberId);
+          const gasPayload = { 
+            type: 'updateResult', id: s2.id, lineName: s2.note, date: s2.date, 
+            category: s2.category||'', oldResult: oldS2Result, newResult: newResult, 
+            newProduct: s2.product||'', newAmount: s2.amount||0, newPayment: s2.payment, 
+            newPaymentDate: s2.paymentDate, memberName: m?.name?.split('(')[0]||'' 
+          };
+          fetch(GAS_URL + '?payload=' + encodeURIComponent(JSON.stringify(gasPayload)));
+        });
+      }
+    }
+
+    saveData();
+    closeSaleEditModal();
+    renderSalesList(); 
+    renderMonthlySummary(); 
+    renderDashboard();
+
+    const member = data.members.find(m => m.id === s.memberId);
+    const gasPayload = { 
+      type: 'updateResult', 
+      id: s.id, 
+      lineName: s.note, 
+      date: s.date, 
+      category: s.category || '', 
+      oldResult: oldResult, 
+      newResult: newResult, 
+      newProduct: s.product || '', 
+      newAmount: s.amount || 0, 
+      newPayment: s.payment, 
+      newPaymentDate: s.paymentDate, 
+      memberName: member ? member.name.split('(')[0] : '' 
+    };
+
+    fetch(GAS_URL + '?payload=' + encodeURIComponent(JSON.stringify(gasPayload)))
+      .then(r => r.json())
+      .then(result => {
+        if (result.status === 'ok') {
+          showAlert('sales-alert', 'success', `✅ 更新成功：${s.note}様の情報をスプシに反映しました`);
+        } else {
+          alert('⚠️ GAS更新エラー: ' + JSON.stringify(result));
+        }
+      })
+      .catch(err => {
+        console.error('GAS通信エラー:', err);
+        alert('ネットワークエラーが発生しました。スプレッドシートへの同期に失敗した可能性があります。');
+      });
+  } catch(e) {
+    console.error('Save error:', e);
+    alert('保存処理中にエラーが発生しました: ' + e.message);
+  }
+}
+
+// ==================== GOALS ====================
+function getGoal(monthKey) {
+  return data.goals[monthKey] || { teamGoal: 0, memberGoals: {}, teamKPI: {}, memberKPI: {} };
+}
+
+function renderGoalsPage() {
+  const mk = getMonthKey(goalViewMonth);
+  document.getElementById('goal-month-label').textContent = formatMonth(goalViewMonth);
+  const goal = getGoal(mk);
+
+  const monthSales = data.sales.filter(s => s.date && s.date.startsWith(mk));
+  const paymentMonthSales = data.sales.filter(s => {
+    const pDate = s.paymentDate || s.date;
+    return pDate && pDate.startsWith(mk);
+  });
+  
+  const teamTotal = paymentMonthSales.reduce((a,s) => a+(s.payment||0), 0);
+  const grGetResult = s => s.result || (s.category||'').split(' ').pop();
+
+  // Team goal
+  const teamAch = goal.teamGoal > 0 ? Math.min((teamTotal / goal.teamGoal) * 100, 999) : 0;
+  const teamEl = document.getElementById('team-goal-section');
+  teamEl.innerHTML = `
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:16px;">
+      <div style="flex:1;min-width:200px;">
+        <label style="font-size:13px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px;">目標金額 (円)</label>
+        <input type="number" id="team-goal-input" value="${goal.teamGoal||''}" placeholder="1000000" style="width:100%;max-width:300px;">
+      </div>
+      <button class="btn btn-primary" onclick="saveTeamGoal()">保存</button>
+    </div>
+    ${goal.teamGoal > 0 ? `
+    <div style="margin-top:8px;">
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;">
+        <span>着金達成率</span><span style="font-weight:700;">${teamAch.toFixed(1)}%（${fmt(teamTotal)} / ${fmt(goal.teamGoal)}）</span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill ${teamAch>=100?'good':teamAch>=70?'warn':'bad'}" style="width:${Math.min(teamAch,100)}%"></div></div>
+    </div>` : ''}
+  `;
+
+  // Member goals
+  const membersEl = document.getElementById('member-goal-section');
+  if (!data.members.length) {
+    membersEl.innerHTML = '<div class="empty-state"><div class="icon">👥</div><p>メンバーを登録してください</p></div>';
+  } else {
+  membersEl.innerHTML = data.members.map(m => {
+    const memberSales = paymentMonthSales.filter(s => s.memberId === m.id).reduce((a,s) => a+(s.payment||0), 0);
+    const mGoal = goal.memberGoals[m.id] || 0;
+    const ach = mGoal > 0 ? Math.min((memberSales / mGoal) * 100, 999) : 0;
+    return `<div style="padding:16px 0;border-bottom:1px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <span class="member-dot" style="background:${m.color};width:16px;height:16px;flex-shrink:0;"></span>
+        <span style="font-weight:600;min-width:120px;">${esc(m.name)}</span>
+        <div style="flex:1;min-width:200px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input type="number" id="goal-${m.id}" value="${mGoal||''}" placeholder="目標金額" style="width:160px;">
+          <button class="btn btn-outline btn-sm" onclick="saveMemberGoal('${m.id}')">保存</button>
+        </div>
+        <div style="font-size:13px;color:var(--text-muted);">実績: <strong>${fmt(memberSales)}</strong></div>
+      </div>
+      ${mGoal > 0 ? `
+      <div style="margin-top:10px;margin-left:28px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
+          <span>${ach.toFixed(1)}%達成</span><span>${fmt(memberSales)} / ${fmt(mGoal)}</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill ${ach>=100?'good':ach>=70?'warn':'bad'}" style="width:${Math.min(ach,100)}%"></div></div>
+      </div>` : ''}
+    </div>`;
+  }).join('');
+  }
+
+  const normalSalesGoal = monthSales.filter(s => s.rowType !== '追加決済');
+  const tApo = normalSalesGoal.length;
+  const tCancel = normalSalesGoal.filter(s => grGetResult(s) === 'キャンセル').length;
+  const tMendan = tApo - tCancel;
+  const tKeiyaku = normalSalesGoal.filter(s => grGetResult(s).startsWith('成約')).length;
+  const tSeiyakuRate = tMendan > 0 ? (tKeiyaku / tMendan * 100) : null;
+  const tPayment = paymentMonthSales.reduce((a,s) => a+(s.payment||0), 0);
+  const tTanka = tKeiyaku > 0 ? Math.round(tPayment / tKeiyaku) : null;
+  const teamKPI = goal.teamKPI || {};
+  const kpiDefs = [
+    { key: 'apo',         label: 'アポ数',   actual: tApo,          fmtA: v => v+'件',                       step: '1' },
+    { key: 'mendan',      label: '面談数',   actual: tMendan,        fmtA: v => v+'件',                       step: '1' },
+    { key: 'keiyaku',     label: '契約数',   actual: tKeiyaku,       fmtA: v => v+'件',                       step: '1' },
+    { key: 'seiyakuRate', label: '成約率',   actual: tSeiyakuRate,   fmtA: v => v!=null?v.toFixed(1)+'%':'-', step: '0.1' },
+    { key: 'tanka',       label: '成約単価', actual: tTanka,         fmtA: v => v!=null?fmt(v):'-',           step: '1000' },
+  ];
+  document.getElementById('team-kpi-section').innerHTML = `
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>KPI</th><th>目標</th><th>実績</th><th>達成率</th></tr></thead>
+        <tbody>${kpiDefs.map(kpi => {
+          const target = teamKPI[kpi.key] || 0;
+          const actual = kpi.actual;
+          const ach = target > 0 && actual != null ? Math.min(actual / target * 100, 999) : null;
+          return `<tr>
+            <td style="font-weight:600;">${kpi.label}</td>
+            <td><input type="number" id="team-kpi-${kpi.key}" value="${target||''}" placeholder="目標" step="${kpi.step}" style="width:120px;"></td>
+            <td>${kpi.fmtA(actual)}</td>
+            <td>${ach !== null ? `<div style="display:flex;align-items:center;gap:8px;"><div class="progress-bar" style="width:80px;"><div class="progress-fill ${ach>=100?'good':ach>=70?'warn':'bad'}" style="width:${Math.min(ach,100)}%"></div></div><span style="font-size:13px;font-weight:600;color:${ach>=100?'var(--success)':ach>=70?'var(--warning)':'var(--danger)'}">${ach.toFixed(1)}%</span></div>` : '<span style="color:var(--text-muted)">未設定</span>'}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>
+    </div>
+    <div style="margin-top:12px;"><button class="btn btn-primary" onclick="saveTeamKPI()">保存</button></div>
+  `;
+
+  // Member KPI section
+  const memberKPIAll = goal.memberKPI || {};
+  const memberKpiEl = document.getElementById('member-kpi-section');
+  if (!data.members.length) {
+    memberKpiEl.innerHTML = '<div class="empty-state"><div class="icon">👥</div><p>メンバーを登録してください</p></div>';
+  } else {
+    memberKpiEl.innerHTML = data.members.map(m => {
+      const mKPI = memberKPIAll[m.id] || {};
+      const mSales = monthSales.filter(s => s.memberId === m.id);
+      const mPaymentSales = paymentMonthSales.filter(s => s.memberId === m.id);
+      const mNormal = mSales.filter(s => s.rowType !== '追加決済');
+      const mApo = mNormal.length;
+      const mCancel = mNormal.filter(s => grGetResult(s) === 'キャンセル').length;
+      const mMendan = mApo - mCancel;
+      const mKeiyaku = mNormal.filter(s => grGetResult(s).startsWith('成約')).length;
+      const mSeiyakuRate = mMendan > 0 ? (mKeiyaku / mMendan * 100) : null;
+      const mPayment = mPaymentSales.reduce((a,s) => a+(s.payment||0), 0);
+      const mTanka = mKeiyaku > 0 ? Math.round(mPayment / mKeiyaku) : null;
+      const mKpiDefs = [
+        { key: 'apo',         label: 'アポ数',   actual: mApo,         fmtA: v => v+'件' },
+        { key: 'mendan',      label: '面談数',   actual: mMendan,       fmtA: v => v+'件' },
+        { key: 'keiyaku',     label: '契約数',   actual: mKeiyaku,      fmtA: v => v+'件' },
+        { key: 'seiyakuRate', label: '成約率',   actual: mSeiyakuRate,  fmtA: v => v!=null?v.toFixed(1)+'%':'-' },
+        { key: 'tanka',       label: '成約単価', actual: mTanka,        fmtA: v => v!=null?fmt(v):'-' },
+      ];
+      return `<div style="padding:16px 0;border-bottom:1px solid var(--border);">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+          <span class="member-dot" style="background:${m.color};width:16px;height:16px;flex-shrink:0;"></span>
+          <span style="font-weight:600;">${esc(m.name)}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:12px;">
+          ${mKpiDefs.map(kpi => {
+            const target = mKPI[kpi.key] || 0;
+            const actual = kpi.actual;
+            const ach = target > 0 && actual != null ? Math.min(actual / target * 100, 999) : null;
+            return `<div>
+              <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:4px;">${kpi.label}</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">実績: ${kpi.fmtA(actual)}</div>
+              <input type="number" id="mkpi-${m.id}-${kpi.key}" value="${target||''}" placeholder="目標" style="width:100%;margin-bottom:4px;">
+              ${ach !== null ? `<div style="display:flex;align-items:center;gap:4px;"><div class="progress-bar" style="flex:1;"><div class="progress-fill ${ach>=100?'good':ach>=70?'warn':'bad'}" style="width:${Math.min(ach,100)}%"></div></div><span style="font-size:11px;font-weight:600;color:${ach>=100?'var(--success)':ach>=70?'var(--warning)':'var(--danger)'}">${ach.toFixed(0)}%</span></div>` : ''}
+            </div>`;
+          }).join('')}
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="saveMemberKPI('${m.id}')">保存</button>
+      </div>`;
+    }).join('');
+  }
+}
+
+function saveTeamGoal() {
+  const mk = getMonthKey(goalViewMonth);
+  const val = parseFloat(document.getElementById('team-goal-input').value) || 0;
+  if (!data.goals[mk]) data.goals[mk] = { teamGoal: 0, memberGoals: {} };
+  data.goals[mk].teamGoal = val;
+  saveData();
+  renderGoalsPage();
+}
+
+function saveMemberGoal(memberId) {
+  const mk = getMonthKey(goalViewMonth);
+  const val = parseFloat(document.getElementById('goal-'+memberId).value) || 0;
+  if (!data.goals[mk]) data.goals[mk] = { teamGoal: 0, memberGoals: {} };
+  if (!data.goals[mk].memberGoals) data.goals[mk].memberGoals = {};
+  data.goals[mk].memberGoals[memberId] = val;
+  saveData();
+  renderGoalsPage();
+}
+
+function saveTeamKPI() {
+  const mk = getMonthKey(goalViewMonth);
+  if (!data.goals[mk]) data.goals[mk] = { teamGoal: 0, memberGoals: {}, teamKPI: {}, memberKPI: {} };
+  if (!data.goals[mk].teamKPI) data.goals[mk].teamKPI = {};
+  ['apo', 'mendan', 'keiyaku', 'seiyakuRate', 'tanka'].forEach(f => {
+    const el = document.getElementById('team-kpi-' + f);
+    data.goals[mk].teamKPI[f] = el ? (parseFloat(el.value) || 0) : 0;
+  });
+  saveData();
+  renderGoalsPage();
+}
+
+function saveMemberKPI(memberId) {
+  const mk = getMonthKey(goalViewMonth);
+  if (!data.goals[mk]) data.goals[mk] = { teamGoal: 0, memberGoals: {}, teamKPI: {}, memberKPI: {} };
+  if (!data.goals[mk].memberKPI) data.goals[mk].memberKPI = {};
+  if (!data.goals[mk].memberKPI[memberId]) data.goals[mk].memberKPI[memberId] = {};
+  ['apo', 'mendan', 'keiyaku', 'seiyakuRate', 'tanka'].forEach(f => {
+    const el = document.getElementById('mkpi-' + memberId + '-' + f);
+    data.goals[mk].memberKPI[memberId][f] = el ? (parseFloat(el.value) || 0) : 0;
+  });
+  saveData();
+  renderGoalsPage();
+}
+
+// ==================== DASHBOARD ====================
+let chartMemberBar, chartAchievement, chartMonthlyTrend;
+
+function renderDashboard() {
+  const mk = getMonthKey(currentViewMonth);
+  document.getElementById('current-month-label').textContent = formatMonth(currentViewMonth);
+  
+  // 面談月ベースのデータ（活動量の集計用）
+  const monthSales = data.sales.filter(s => s.date && s.date.startsWith(mk));
+  const normalSales = monthSales.filter(s => s.rowType !== '追加決済');
+  
+  // 着金月ベースのデータ（着金・売上の集計用）
+  // paymentDateが未設定の場合はdate（旧挙動）を使うことで後方互換性を保つ
+  const paymentMonthSales = data.sales.filter(s => {
+    const pDate = s.paymentDate || s.date;
+    return pDate && pDate.startsWith(mk);
+  });
+  
+  // 追加: 先月以前に「面談」して、今月「着金」した流れ込み分
+  const flowInSales = paymentMonthSales.filter(s => {
+    const pDate = s.paymentDate || s.date;
+    return pDate.startsWith(mk) && (!s.date || !s.date.startsWith(mk));
+  });
+
+  const total = paymentMonthSales.filter(s => s.rowType !== '追加決済').reduce((a,s) => a+s.amount, 0);
+  const totalPayment = paymentMonthSales.reduce((a,s) => a+(s.payment||0), 0);
+  const flowInPayment = flowInSales.reduce((a,s) => a+(s.payment||0), 0);
+  const thisMonthMendanPayment = totalPayment - flowInPayment;
+
+  const goal = getGoal(mk);
+  const ach = goal.teamGoal > 0 ? (totalPayment / goal.teamGoal * 100) : null;
+
+  // Vision banner
+  const visionEl = document.getElementById('vision-banner');
+  if (data.teamVision || goal.teamGoal > 0) {
+    const achPct = ach !== null ? Math.min(ach, 100) : 0;
+    const achColor = ach === null ? '#94a3b8' : ach >= 100 ? '#10b981' : ach >= 70 ? '#f59e0b' : '#ef4444';
+    visionEl.innerHTML = `
+      <div style="background:linear-gradient(135deg,#3730a3,#4f46e5);border-radius:16px;padding:24px 32px;margin-bottom:24px;color:white;">
+        ${data.teamVision ? `<div style="font-size:20px;font-weight:700;margin-bottom:16px;letter-spacing:0.5px;">💡 ${esc(data.teamVision)}</div>` : ''}
+        ${goal.teamGoal > 0 ? `
+        <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
+          <div>
+            <div style="font-size:12px;opacity:0.8;margin-bottom:2px;">今月の目標</div>
+            <div style="font-size:22px;font-weight:700;">${fmt(goal.teamGoal)}</div>
+          </div>
+          <div>
+            <div style="font-size:12px;opacity:0.8;margin-bottom:2px;">現在の着金</div>
+            <div style="font-size:22px;font-weight:700;">${fmt(totalPayment)}</div>
+          </div>
+          <div style="flex:1;min-width:200px;">
+            <div style="display:flex;justify-content:space-between;font-size:12px;opacity:0.8;margin-bottom:6px;">
+              <span>達成率</span><span style="font-weight:700;font-size:14px;">${ach !== null ? ach.toFixed(1)+'%' : '-'}</span>
+            </div>
+            <div style="height:10px;background:rgba(255,255,255,0.2);border-radius:999px;overflow:hidden;">
+              <div style="height:100%;width:${achPct}%;background:${achColor};border-radius:999px;transition:width 0.5s;"></div>
+            </div>
+          </div>
+        </div>` : '<div style="font-size:13px;opacity:0.7;">目標管理ページで今月の目標を設定してください</div>'}
+      </div>`;
+  } else {
+    visionEl.innerHTML = '';
+  }
+
+  // Previous month
+  const prevMonth = new Date(currentViewMonth.getFullYear(), currentViewMonth.getMonth()-1, 1);
+  const prevMk = getMonthKey(prevMonth);
+  const prevTotalPayment = data.sales.filter(s => {
+    const pDate = s.paymentDate || s.date;
+    return pDate && pDate.startsWith(prevMk);
+  }).reduce((a,s) => a+(s.payment||0), 0);
+  const change = prevTotalPayment > 0 ? ((totalPayment - prevTotalPayment) / prevTotalPayment * 100) : null;
+
+  // Activity metrics
+  const getResult = s => s.result || (s.category||'').split(' ').pop();
+  const apoSales = normalSales.filter(s => getResult(s) !== '成約（2回目）');
+  const apoCnt = apoSales.length;
+  const cancelCnt = apoSales.filter(s => getResult(s) === 'キャンセル').length;
+  const mendanCnt = apoCnt - cancelCnt;
+  const keiyakuCnt = normalSales.filter(s => getResult(s).startsWith('成約')).length;
+  const chakuzaRate = apoCnt > 0 ? (mendanCnt / apoCnt * 100) : null;
+  const seiyakuRate = mendanCnt > 0 ? (keiyakuCnt / mendanCnt * 100) : null;
+  const seiyakuTanka = keiyakuCnt > 0 ? Math.round(paymentMonthSales.filter(s => getResult(s).startsWith('成約')).reduce((a,s)=>a+(s.payment||0),0) / keiyakuCnt) : null;
+  const coolingOffSales = paymentMonthSales.filter(s => getResult(s) === 'クーリングオフ');
+  const coolingOffCnt = coolingOffSales.length;
+  const coolingOffAmount = coolingOffSales.reduce((a,s) => a + Math.abs(s.payment||0), 0);
+
+  // Stats
+  document.getElementById('dashboard-stats').innerHTML = `
+    <div class="stat-card" style="border-left: 4px solid var(--primary);">
+      <div class="stat-label">今月面談分の着金</div>
+      <div class="stat-value" style="font-size:24px;">${fmt(thisMonthMendanPayment)}</div>
+      <div class="stat-sub">面談と着金が同月の金額</div>
+    </div>
+    <div class="stat-card" style="border-left: 4px solid var(--warning);">
+      <div class="stat-label">過去からの流れこみ</div>
+      <div class="stat-value" style="font-size:24px;color:var(--warning)">${fmt(flowInPayment)}</div>
+      <div class="stat-sub" style="color:var(--warning)">先月以前に面談した分の着金</div>
+    </div>
+    <div class="stat-card" style="grid-column: span 2;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <div class="stat-label">今月の総着金</div>
+          <div class="stat-value" style="font-size:32px;">${fmt(totalPayment)}</div>
+          ${change !== null ? `<div class="stat-change ${change>=0?'up':'down'}">${change>=0?'▲':'▼'} ${Math.abs(change).toFixed(1)}% (前月比)</div>` : '<div class="stat-sub">前月データなし</div>'}
+        </div>
+        <div style="text-align:right">
+          <div class="stat-label">目標：${goal.teamGoal > 0 ? fmt(goal.teamGoal) : '-'}</div>
+          <div class="stat-value" style="font-size:20px;color:${ach>=100?'var(--success)':ach>=70?'var(--warning)':'var(--danger)'}">${ach !== null ? ach.toFixed(1)+'%' : '-'}</div>
+        </div>
+      </div>
+    </div>
+    <div style="grid-column: 1 / -1; height: 1px; background: var(--border); margin: 8px 0;"></div>
+    <div class="stat-card">
+      <div class="stat-label">アポ数</div>
+      <div class="stat-value">${apoCnt}</div>
+      <div class="stat-sub">今月の総件数</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">面談数</div>
+      <div class="stat-value">${mendanCnt}</div>
+      <div class="stat-sub">キャンセル除く</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">契約数</div>
+      <div class="stat-value" style="color:var(--success)">${keiyakuCnt}</div>
+      <div class="stat-sub">成約件数</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">売上ベース目標金額</div>
+      <div class="stat-value" style="color:var(--text-muted)">${fmt(total)}</div>
+      <div class="stat-sub">※今月着金したものの総「売上」</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">着座率</div>
+      <div class="stat-value">${chakuzaRate !== null ? chakuzaRate.toFixed(1)+'%' : '-'}</div>
+      <div class="stat-sub">面談数 / アポ数</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">成約率</div>
+      <div class="stat-value" style="color:${seiyakuRate===null?'var(--text-muted)':seiyakuRate>=30?'var(--success)':seiyakuRate>=15?'var(--warning)':'var(--danger)'}">${seiyakuRate !== null ? seiyakuRate.toFixed(1)+'%' : '-'}</div>
+      <div class="stat-sub">契約数 / 面談数</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">成約単価（着金）</div>
+      <div class="stat-value">${seiyakuTanka !== null ? fmt(seiyakuTanka) : '-'}</div>
+      <div class="stat-sub">着金 / 契約数</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">クーリングオフ件数</div>
+      <div class="stat-value" style="color:${coolingOffCnt>0?'var(--danger)':'var(--text-muted)'}">${coolingOffCnt}</div>
+      <div class="stat-sub">今月の返金件数</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">返金金額</div>
+      <div class="stat-value" style="color:${coolingOffAmount!==0?'var(--danger)':'var(--text-muted)'}">${coolingOffAmount !== 0 ? fmt(coolingOffAmount) : '-'}</div>
+      <div class="stat-sub">クーリングオフ合計</div>
+    </div>
+  `;
+
+  // Member bar chart
+  const memberData = data.members.map(m => ({
+    name: m.name,
+    color: m.color,
+    total: paymentMonthSales.filter(s => s.memberId === m.id).reduce((a,s) => a+(s.payment||0), 0),
+    goal: (goal.memberGoals?.[m.id] || 0)
+  }));
+
+  if (chartMemberBar) chartMemberBar.destroy();
+  const ctx1 = document.getElementById('chart-member-bar').getContext('2d');
+  chartMemberBar = new Chart(ctx1, {
+    type: 'bar',
+    data: {
+      labels: memberData.map(m => m.name),
+      datasets: [
+        { label: '実績', data: memberData.map(m => m.total), backgroundColor: memberData.map(m => m.color+'cc'), borderColor: memberData.map(m => m.color), borderWidth: 2, borderRadius: 6 },
+        { label: '目標', data: memberData.map(m => m.goal), backgroundColor: 'rgba(0,0,0,0.05)', borderColor: 'rgba(0,0,0,0.2)', borderWidth: 1.5, borderDash: [4,4], type: 'bar', borderRadius: 6 }
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'bottom' } }, scales: { y: { ticks: { callback: v => v>=10000 ? (v/10000)+'万' : v } } } }
+  });
+
+  // Achievement doughnut
+  if (chartAchievement) chartAchievement.destroy();
+  const ctx2 = document.getElementById('chart-achievement').getContext('2d');
+  const achData = memberData.filter(m => m.goal > 0).map(m => Math.min(m.total / m.goal * 100, 100));
+  const achLabels = memberData.filter(m => m.goal > 0).map(m => m.name);
+  const achColors = memberData.filter(m => m.goal > 0).map(m => m.color);
+  chartAchievement = new Chart(ctx2, {
+    type: 'doughnut',
+    data: {
+      labels: achLabels.length ? achLabels : ['データなし'],
+      datasets: [{ data: achLabels.length ? achData : [100], backgroundColor: achColors.length ? achColors : ['#e2e8f0'], borderWidth: 0 }]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: c => ` ${c.label}: ${c.raw.toFixed(1)}%` } } } }
+  });
+
+  // Monthly trend
+  const months = getLast12Months();
+  const trendData = months.map(m => data.sales.filter(s => {
+    const pDate = s.paymentDate || s.date;
+    return pDate && pDate.startsWith(m.key);
+  }).reduce((a,s) => a+(s.payment||0), 0));
+  if (chartMonthlyTrend) chartMonthlyTrend.destroy();
+  const ctx3 = document.getElementById('chart-monthly-trend').getContext('2d');
+  chartMonthlyTrend = new Chart(ctx3, {
+    type: 'line',
+    data: {
+      labels: months.map(m => m.label),
+      datasets: [{ label: '月次着金', data: trendData, borderColor: '#4f46e5', backgroundColor: 'rgba(79,70,229,0.1)', tension: 0.3, fill: true, pointRadius: 4, pointBackgroundColor: '#4f46e5' }]
+    },
+    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => v>=10000 ? (v/10000)+'万' : v } } } }
+  });
+
+  // Category table（導線別）
+  const catEl = document.getElementById('dashboard-category-table');
+  const tabSales = currentBusinessTab === '合計' ? normalSales : normalSales.filter(s => s.business === currentBusinessTab);
+  const tabPaymentAll = currentBusinessTab === '合計' ? paymentMonthSales : paymentMonthSales.filter(s => s.business === currentBusinessTab);
+  const normCatStr = c => c.trim().replace(/　/g, ' ').replace(/（/g, '(').replace(/）/g, ')').replace(/\s*\(/g, '(');
+  const detectBiz = (s) => {
+    if (s.business) return s.business;
+    const c = normCatStr(s.category || '');
+    if (c.includes('(AI)')) return 'AI';
+    if (c.includes('(物販)')) return '物販';
+    if (['チョーさん', 'イーサン', '浩志さん', '的場'].some(kw => c.includes(kw))) return 'AI';
+    return '';
+  };
+  const CAT_KEYWORDS = ['チョーさん', 'イーサン', '浩志さん', '広告', '個別相談'];
+  const normCatTop = s => {
+    const c = normCatStr(s.category || 'その他');
+    const biz = detectBiz(s);
+    const bizSuffix = biz ? `(${biz})` : '';
+    for (const kw of CAT_KEYWORDS) {
+      if (c.includes(kw)) {
+        return `${kw}${bizSuffix}`;
+      }
+    }
+    return c;
+  };
+  const bizOrder = c => c.includes('(物販)') ? 0 : c.includes('(AI)') ? 1 : 2;
+  const categories = [...new Set(tabSales.map(s => normCatTop(s)))].sort((a, b) => {
+    const bizDiff = bizOrder(a) - bizOrder(b);
+    if (bizDiff !== 0) return bizDiff;
+    return tabSales.filter(s => normCatTop(s) === b).length - tabSales.filter(s => normCatTop(s) === a).length;
+  });
+  const allCats = [...categories, '合計'];
+  catEl.innerHTML = `<table>
+    <thead><tr><th>導線</th><th>アポ数</th><th>面談数</th><th>契約数</th><th>着座率</th><th>成約率</th><th>売上</th><th>着金</th><th>着金率</th><th>成約単価</th><th>クーオフ</th><th>返金金額</th></tr></thead>
+    <tbody>${allCats.map(cat => {
+      const cSalesAll = cat === '合計' ? tabPaymentAll : tabPaymentAll.filter(s => normCatTop(s) === cat);
+      const cSales = cat === '合計' ? tabSales : tabSales.filter(s => normCatTop(s) === cat);
+      const cAmount = cSales.reduce((a,s) => a+s.amount, 0);
+      const cPayment = cSalesAll.reduce((a,s) => a+(s.payment||0), 0);
+      const cApoSales = cSales.filter(s => getResult(s) !== '成約（2回目）');
+      const cApo = cApoSales.length;
+      const cCancel = cApoSales.filter(s => getResult(s) === 'キャンセル').length;
+      const cMendan = cApo - cCancel;
+      const cKeiyaku = cSales.filter(s => getResult(s).startsWith('成約')).length;
+      const cChakuza = cApo > 0 ? (cMendan / cApo * 100).toFixed(1)+'%' : '-';
+      const cRate = cMendan > 0 ? (cKeiyaku / cMendan * 100).toFixed(1)+'%' : '-';
+      const cChakkinRate = cAmount > 0 ? (cPayment / cAmount * 100).toFixed(1)+'%' : '-';
+      const cTanka = cKeiyaku > 0 ? fmt(Math.round(cPayment / cKeiyaku)) : '-';
+      const cCoolingOff = cSalesAll.filter(s => getResult(s) === 'クーリングオフ');
+      const cCoolingCnt = cCoolingOff.length;
+      const cCoolingAmt = cCoolingOff.reduce((a,s) => a+Math.abs(s.payment||0), 0);
+      const isTotal = cat === '合計';
+      return `<tr style="${isTotal ? 'font-weight:700;background:var(--bg);' : ''}">
+        <td>${cat}</td>
+        <td>${cApo}</td>
+        <td>${cMendan}</td>
+        <td style="color:var(--success)">${cKeiyaku}</td>
+        <td>${cChakuza}</td>
+        <td>${cRate}</td>
+        <td style="color:var(--text-muted)">${fmt(cAmount)}</td>
+        <td>${fmt(cPayment)}</td>
+        <td>${cChakkinRate}</td>
+        <td>${cTanka}</td>
+        <td style="color:${cCoolingCnt>0?'var(--danger)':'var(--text-muted)'}">${cCoolingCnt > 0 ? cCoolingCnt : '-'}</td>
+        <td style="color:${cCoolingAmt!==0?'var(--danger)':'var(--text-muted)'}">${cCoolingAmt !== 0 ? fmt(cCoolingAmt) : '-'}</td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table>`;
+
+  // Member table
+  const tableEl = document.getElementById('dashboard-member-table');
+  if (!data.members.length) {
+    tableEl.innerHTML = '<div class="empty-state"><div class="icon">👥</div><p>メンバーを登録してください</p></div>';
+    return;
+  }
+  const memberFilteredSales = currentMemberTab === '合計' ? monthSales : monthSales.filter(s => s.business === currentMemberTab);
+  const memberPaymentFilteredSales = currentMemberTab === '合計' ? paymentMonthSales : paymentMonthSales.filter(s => s.business === currentMemberTab);
+  const memberRows = [...data.members].sort((a, b) => {
+    const aTotal = memberPaymentFilteredSales.filter(s => s.memberId === a.id).reduce((sum,s) => sum+(s.payment||0), 0);
+    const bTotal = memberPaymentFilteredSales.filter(s => s.memberId === b.id).reduce((sum,s) => sum+(s.payment||0), 0);
+    return bTotal - aTotal;
+  }).map(m => {
+    const mSales = memberFilteredSales.filter(s => s.memberId === m.id);
+    const mPaymentSales = memberPaymentFilteredSales.filter(s => s.memberId === m.id);
+    const mNormal = mSales.filter(s => s.rowType !== '追加決済');
+    const mApoSales = mNormal.filter(s => getResult(s) !== '成約（2回目）');
+    const mApo = mApoSales.length;
+    const mCancel = mApoSales.filter(s => getResult(s) === 'キャンセル').length;
+    const mMendan = mApo - mCancel;
+    const mKeiyaku = mNormal.filter(s => getResult(s).startsWith('成約')).length;
+    const mSeiyakuRate = mMendan > 0 ? (mKeiyaku / mMendan * 100) : null;
+    const mTotal = mPaymentSales.reduce((a,s) => a+(s.payment||0), 0);
+    const mGoal = goal.memberGoals?.[m.id] || 0;
+    const mAch = mGoal > 0 ? mTotal / mGoal * 100 : null;
+    const mkpi = goal.memberKPI?.[m.id] || {};
+    const kpiColor = (actual, target) => !target ? '' : actual >= target ? 'var(--success)' : actual >= target*0.7 ? 'var(--warning)' : 'var(--danger)';
+    const kpiSub = (actual, target, fmtFn) => target > 0 ? `<div style="font-size:11px;color:var(--text-muted)">目標:${fmtFn(target)}</div>` : '';
+    const mTanka = mKeiyaku > 0 ? Math.round(mTotal/mKeiyaku) : null;
+    const mCoolingOff = mPaymentSales.filter(s => getResult(s) === 'クーリングオフ');
+    const mCoolingCnt = mCoolingOff.length;
+    const mCoolingAmt = mCoolingOff.reduce((a,s) => a+(s.payment||0), 0);
+
+    // 導線別内訳（広告系はまとめる）
+    const normCat = s => {
+      const c = normCatStr(s.category || 'その他');
+      const biz = detectBiz(s);
+      const bizSuffix = biz ? `(${biz})` : '';
+      for (const kw of CAT_KEYWORDS) {
+        if (c.includes(kw)) return `${kw}${bizSuffix}`;
+      }
+      return c;
+    };
+    const mCats = [...new Set(mNormal.map(s => normCat(s)))].sort();
+    const detailRows = mCats.map(cat => {
+      const cSales = mNormal.filter(s => normCat(s) === cat);
+      const cPayment = mPaymentSales.filter(s => normCat(s) === cat).reduce((a,s) => a+(s.payment||0), 0);
+      const cApoSales2 = cSales.filter(s => getResult(s) !== '成約（2回目）');
+      const cApo = cApoSales2.length;
+      const cCancel = cApoSales2.filter(s => getResult(s) === 'キャンセル').length;
+      const cMendan = cApo - cCancel;
+      const cKeiyaku = cSales.filter(s => getResult(s).startsWith('成約')).length;
+      const cRate = cMendan > 0 ? (cKeiyaku / cMendan * 100).toFixed(1)+'%' : '-';
+      const cTanka = cKeiyaku > 0 ? fmt(Math.round(cPayment / cKeiyaku)) : '-';
+      return `<tr class="member-detail-row" data-member-id="${m.id}" style="display:none;background:var(--bg-secondary,#f8fafc);">
+        <td style="padding-left:48px;color:var(--text-muted);font-size:13px;">└ ${esc(cat)}</td>
+        <td style="font-size:13px;">${cApo}</td>
+        <td style="font-size:13px;">${cMendan}</td>
+        <td style="color:var(--success);font-size:13px;">${cKeiyaku}</td>
+        <td style="font-size:13px;">${cRate}</td>
+        <td style="font-size:13px;">${fmt(cPayment)}</td>
+        <td style="font-size:13px;">${cTanka}</td>
+        <td colspan="5"></td>
+      </tr>`;
+    }).join('');
+
+    const hasDetail = mCats.length > 0;
+    return `<tr data-member-id="${m.id}" style="cursor:${hasDetail?'pointer':'default'}" ${hasDetail?'onclick="toggleMemberDetail(this)"':''} title="${hasDetail?'クリックで導線別内訳を表示':''}">
+      <td><div class="member-name-cell"><span class="member-dot" style="background:${m.color}"></span>${esc(m.name)}${hasDetail?` <span class="member-arrow" style="font-size:11px;color:var(--text-muted);margin-left:4px;">▶</span>`:''}</div></td>
+      <td style="color:${kpiColor(mApo,mkpi.apo)}">${mApo}${kpiSub(mApo,mkpi.apo,v=>v+'件')}</td>
+      <td style="color:${kpiColor(mMendan,mkpi.mendan)}">${mMendan}${kpiSub(mMendan,mkpi.mendan,v=>v+'件')}</td>
+      <td style="color:${mkpi.keiyaku?kpiColor(mKeiyaku,mkpi.keiyaku):'var(--success)'};font-weight:600">${mKeiyaku}${kpiSub(mKeiyaku,mkpi.keiyaku,v=>v+'件')}</td>
+      <td style="color:${mSeiyakuRate!=null&&mkpi.seiyakuRate?kpiColor(mSeiyakuRate,mkpi.seiyakuRate):''}">${mSeiyakuRate !== null ? mSeiyakuRate.toFixed(1)+'%' : '-'}${kpiSub(mSeiyakuRate,mkpi.seiyakuRate,v=>v+'%')}</td>
+      <td><strong>${fmt(mTotal)}</strong></td>
+      <td style="color:${mTanka!=null&&mkpi.tanka?kpiColor(mTanka,mkpi.tanka):''}">${mTanka != null ? fmt(mTanka) : '-'}${kpiSub(mTanka,mkpi.tanka,v=>fmt(v))}</td>
+      <td style="color:${mCoolingCnt>0?'var(--danger)':'var(--text-muted)'}">${mCoolingCnt > 0 ? mCoolingCnt : '-'}</td>
+      <td style="color:${mCoolingAmt!==0?'var(--danger)':'var(--text-muted)'}">${mCoolingAmt !== 0 ? fmt(mCoolingAmt) : '-'}</td>
+      <td>${mGoal > 0 ? fmt(mGoal) : '<span style="color:var(--text-muted)">未設定</span>'}</td>
+      <td>
+        ${mAch !== null ? `
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="progress-bar" style="width:80px;"><div class="progress-fill ${mAch>=100?'good':mAch>=70?'warn':'bad'}" style="width:${Math.min(mAch,100)}%"></div></div>
+          <span style="font-size:13px;font-weight:600;">${mAch.toFixed(0)}%</span>
+        </div>` : '-'}
+      </td>
+      <td>${mAch===null ? '<span class="badge badge-info">未設定</span>' : mAch>=100 ? '<span class="badge badge-success">達成</span>' : mAch>=70 ? '<span class="badge badge-warning">進行中</span>' : '<span class="badge badge-danger">未達</span>'}</td>
+    </tr>${detailRows}`;
+  }).join('');
+  tableEl.innerHTML = `<table>
+    <thead><tr><th>メンバー</th><th>アポ数</th><th>面談数</th><th>契約数</th><th>成約率</th><th>着金</th><th>成約単価</th><th>クーオフ</th><th>返金金額</th><th>目標</th><th>達成率</th><th>ステータス</th></tr></thead>
+    <tbody>${memberRows}</tbody>
+  </table>`;
+}
+
+// ==================== TEAM TASKS ====================
+let ttFilterMember = '';
+
+function renderTeamTasks() {
+  // populate assignee checkboxes
+  const checksEl = document.getElementById('tt-assignee-checks');
+  if (checksEl) checksEl.innerHTML = `
+    <label style="display:flex;align-items:center;gap:5px;cursor:pointer;padding:4px 10px;border-radius:999px;border:1.5px solid var(--primary);font-size:12px;font-weight:600;white-space:nowrap;background:var(--surface2);">
+      <input type="checkbox" id="tt-check-all" onchange="toggleAllAssignees('tt-assignee-checks','tt-check-all')">全員
+    </label>` + data.members.map(m => `
+    <label style="display:flex;align-items:center;gap:5px;cursor:pointer;padding:4px 10px;border-radius:999px;border:1.5px solid var(--border);font-size:12px;font-weight:500;white-space:nowrap;">
+      <input type="checkbox" value="${m.id}" style="accent-color:${m.color};" onchange="syncAllCheckbox('tt-assignee-checks','tt-check-all')">
+      <span class="member-dot" style="background:${m.color};width:8px;height:8px;margin:0;"></span>${esc(m.name.split('(')[0].trim())}
+    </label>`).join('');
+  // populate creator select
+  const creatorEl = document.getElementById('tt-new-creator');
+  if (creatorEl) creatorEl.innerHTML = '<option value="">依頼者を選択</option>' + data.members.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('');
+
+  // member filter tabs
+  const tabEl = document.getElementById('tt-member-tabs');
+  tabEl.innerHTML = [
+    `<div class="tt-member-tab ${ttFilterMember===''?'active':''}" onclick="setTTFilter('')">全員</div>`,
+    ...data.members.map(m => `<div class="tt-member-tab ${ttFilterMember===m.id?'active':''}" onclick="setTTFilter('${m.id}')"><span class="member-dot" style="background:${m.color};width:8px;height:8px;margin:0;"></span>${esc(m.name)}</div>`)
+  ].join('');
+
+  const tasks = (data.teamTasks||[]).filter(t => {
+    if (!ttFilterMember) return true;
+    const ids = t.assigneeIds || [t.assigneeId].filter(Boolean);
+    return ids.includes(ttFilterMember) || t.creatorId === ttFilterMember;
+  });
+  const today = new Date(); today.setHours(0,0,0,0);
+  const pending = tasks.filter(t => !t.done);
+  const done    = tasks.filter(t => t.done);
+
+  const renderItem = t => {
+    const assignees = (t.assigneeIds||[t.assigneeId].filter(Boolean)).map(id => data.members.find(m => m.id === id)).filter(Boolean);
+    const creator   = data.members.find(m => m.id === t.creatorId);
+    const dlDate    = t.deadline ? new Date(t.deadline) : null;
+    if (dlDate) dlDate.setHours(0,0,0,0);
+    const diff      = dlDate ? Math.ceil((dlDate - today) / 86400000) : null;
+    const dlColor   = diff===null?'var(--text-muted)':diff<0?'var(--danger)':diff<=3?'var(--warning)':'var(--text-muted)';
+    const dlText    = diff===null?'':diff<0?`期限超過 ${Math.abs(diff)}日`:diff===0?'今日期限':`残${diff}日`;
+    const allChecked = data.members.every(m => (t.assigneeIds||[]).includes(m.id));
+    const memberChecks = `
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;padding:3px 8px;border-radius:999px;border:1.5px solid var(--primary);font-size:12px;font-weight:600;background:var(--surface2);">
+        <input type="checkbox" id="tt-edit-all-${t.id}" ${allChecked?'checked':''} onchange="toggleAllAssignees('tt-edit-checks-${t.id}','tt-edit-all-${t.id}')">全員
+      </label>` + data.members.map(m => `
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;padding:3px 8px;border-radius:999px;border:1.5px solid var(--border);font-size:12px;">
+        <input type="checkbox" value="${m.id}" ${(t.assigneeIds||[]).includes(m.id)?'checked':''} style="accent-color:${m.color};" onchange="syncAllCheckbox('tt-edit-checks-${t.id}','tt-edit-all-${t.id}')">
+        <span class="member-dot" style="background:${m.color};width:7px;height:7px;margin:0;"></span>${esc(m.name.split('(')[0].trim())}
+      </label>`).join('');
+    const creatorOpts = '<option value="">依頼者</option>' + data.members.map(m=>`<option value="${m.id}" ${t.creatorId===m.id?'selected':''}>${esc(m.name.split('(')[0].trim())}</option>`).join('');
+    return `<div class="tt-item${t.done?' done':''}" id="tt-item-${t.id}">
+      <div class="tt-check${t.done?' checked':''}" onclick="toggleTeamTask('${t.id}')">${t.done?'✓':''}</div>
+      <div class="tt-body">
+        <div id="tt-display-${t.id}" onclick="startEditTeamTask('${t.id}')" style="cursor:pointer;">
+          <div class="tt-text${t.done?' done':''}">${esc(t.text)}</div>
+          <div class="tt-meta">
+            ${assignees.length?`<div class="tt-assignee">${assignees.map(a=>`<span style="display:inline-flex;align-items:center;gap:3px;margin-right:4px;"><span class="member-dot" style="background:${a.color};width:8px;height:8px;margin:0;"></span><strong>${esc(a.name.split('(')[0].trim())}</strong></span>`).join('')}</div>`:''}
+            ${creator?`<div class="tt-assignee">依頼: ${esc(creator.name.split('(')[0].trim())}</div>`:''}
+            ${t.deadline?`<div class="tt-deadline" style="color:${dlColor};">📅 ${t.deadline}${dlText?' ('+dlText+')':''} <button onclick="openGCal('${esc(t.text.replace(/'/g,"\\'"))}','${t.deadline}','担当: '+'')" style="background:none;border:none;cursor:pointer;font-size:11px;color:#1a73e8;padding:0 4px;" title="Googleカレンダーに追加">📆</button></div>`:''}
+          </div>
+        </div>
+        <div id="tt-edit-${t.id}" style="display:none;padding-top:8px;">
+          <input type="text" id="tt-edit-text-${t.id}" value="${esc(t.text)}" style="width:100%;margin-bottom:8px;" onkeydown="if(event.key==='Enter')saveTeamTaskEdit('${t.id}');if(event.key==='Escape')cancelTeamTaskEdit('${t.id}')">
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px;">担当者</div>
+          <div id="tt-edit-checks-${t.id}" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">${memberChecks}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+            <select id="tt-edit-creator-${t.id}" style="flex:1;min-width:110px;padding:7px 10px;border-radius:8px;border:1.5px solid var(--border);font-size:12px;">${creatorOpts}</select>
+            <input type="date" id="tt-edit-deadline-${t.id}" value="${t.deadline||''}" style="flex:1;min-width:110px;font-size:12px;">
+            <button class="btn btn-primary btn-sm" onclick="saveTeamTaskEdit('${t.id}')">保存</button>
+            <button class="btn btn-outline btn-sm" onclick="cancelTeamTaskEdit('${t.id}')">キャンセル</button>
+          </div>
+        </div>
+      </div>
+      <button class="task-delete" onclick="deleteTeamTask('${t.id}')" style="display:${t.done?'none':'block'}">✕</button>
+    </div>`;
+  };
+
+  document.getElementById('tt-task-list').innerHTML = `
+    ${pending.length===0&&done.length===0?'<div class="empty-state"><div class="icon">✅</div><p>タスクがありません</p></div>':''}
+    ${pending.length?`<div class="tt-section-title">未完了 (${pending.length})</div><div class="tt-list">${pending.map(renderItem).join('')}</div>`:''}
+    ${done.length?`<div class="tt-section-title">完了済み (${done.length})</div><div class="tt-list">${done.map(renderItem).join('')}</div>`:''}
+  `;
+}
+
+function setTTFilter(memberId) {
+  ttFilterMember = memberId;
+  renderTeamTasks();
+}
+
+function addTeamTask() {
+  const text = document.getElementById('tt-new-text').value.trim();
+  if (!text) return;
+  if (!data.teamTasks) data.teamTasks = [];
+  const assigneeIds = [...document.querySelectorAll('#tt-assignee-checks input:checked')].map(cb => cb.value);
+  data.teamTasks.unshift({
+    id: 'tt-' + Date.now(),
+    text,
+    assigneeIds,
+    creatorId: document.getElementById('tt-new-creator').value || null,
+    deadline:   document.getElementById('tt-new-deadline').value || null,
+    done: false,
+    createdAt: new Date().toISOString()
+  });
+  saveData();
+  document.getElementById('tt-new-text').value = '';
+  document.getElementById('tt-new-deadline').value = '';
+  renderTeamTasks();
+}
+
+function toggleAllAssignees(groupId, allCheckId) {
+  const checked = document.getElementById(allCheckId).checked;
+  document.querySelectorAll(`#${groupId} input[type=checkbox]:not(#${allCheckId})`).forEach(cb => cb.checked = checked);
+}
+
+function syncAllCheckbox(groupId, allCheckId) {
+  const boxes = [...document.querySelectorAll(`#${groupId} input[type=checkbox]:not(#${allCheckId})`)];
+  document.getElementById(allCheckId).checked = boxes.every(cb => cb.checked);
+}
+
+function startEditTeamTask(id) {
+  document.getElementById('tt-display-' + id).style.display = 'none';
+  document.getElementById('tt-edit-' + id).style.display = 'block';
+  document.getElementById('tt-edit-text-' + id).focus();
+}
+
+function cancelTeamTaskEdit(id) {
+  document.getElementById('tt-display-' + id).style.display = 'block';
+  document.getElementById('tt-edit-' + id).style.display = 'none';
+}
+
+function saveTeamTaskEdit(id) {
+  const t = (data.teamTasks||[]).find(t => t.id === id);
+  if (!t) return;
+  const text = document.getElementById('tt-edit-text-' + id).value.trim();
+  if (!text) return;
+  t.text        = text;
+  t.assigneeIds = [...document.querySelectorAll(`#tt-edit-checks-${id} input:checked`)].map(cb => cb.value);
+  t.creatorId   = document.getElementById('tt-edit-creator-' + id).value || null;
+  t.deadline    = document.getElementById('tt-edit-deadline-' + id).value || null;
+  saveData();
+  renderTeamTasks();
+}
+
+function toggleTeamTask(id) {
+  const t = (data.teamTasks||[]).find(t => t.id === id);
+  if (!t) return;
+  t.done = !t.done;
+  t.doneAt = t.done ? new Date().toISOString() : null;
+  saveData();
+  renderTeamTasks();
+}
+
+function deleteTeamTask(id) {
+  data.teamTasks = (data.teamTasks||[]).filter(t => t.id !== id);
+  saveData();
+  renderTeamTasks();
+}
+
+// ==================== PROJECTS ====================
+let currentProjectId = null;
+
+function renderProjects() {
+  const el = document.getElementById('project-list');
+  if (!el) return;
+  const filterStatus   = document.getElementById('proj-filter-status')?.value || '';
+  const filterPriority = document.getElementById('proj-filter-priority')?.value || '';
+  const filterCategory = document.getElementById('proj-filter-category')?.value || '';
+  let projects = (data.projects || []).filter(p => {
+    if (filterStatus   && p.status   !== filterStatus)   return false;
+    if (filterPriority && p.priority !== filterPriority) return false;
+    if (filterCategory && p.category !== filterCategory) return false;
+    return true;
+  });
+  // sort: priority high→medium→low, then deadline
+  const pri = { high: 0, medium: 1, low: 2 };
+  projects.sort((a, b) => {
+    const pd = (pri[a.priority]||1) - (pri[b.priority]||1);
+    if (pd !== 0) return pd;
+    return (a.deadline || '9999') < (b.deadline || '9999') ? -1 : 1;
+  });
+  if (!projects.length) {
+    el.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="icon">📋</div><p>プロジェクトがありません</p></div>';
+    return;
+  }
+  const today = new Date(); today.setHours(0,0,0,0);
+  el.innerHTML = projects.map(p => {
+    const done = (p.tasks||[]).filter(t => t.done).length;
+    const total = (p.tasks||[]).length;
+    const pct = total > 0 ? Math.round(done/total*100) : 0;
+    const priLabel = { high:'🔴 高', medium:'🟡 中', low:'🟢 低' }[p.priority] || '';
+    const statusClass = { '企画中':'planning', '進行中':'active', '完了':'done' }[p.status] || '';
+    const members = (p.memberIds||[]).map(id => data.members.find(m => m.id === id)).filter(Boolean);
+    const deadlineStr = p.deadline ? (() => {
+      const d = new Date(p.deadline); d.setHours(0,0,0,0);
+      const diff = Math.ceil((d - today) / 86400000);
+      const label = diff < 0 ? `期限超過 ${Math.abs(diff)}日` : diff === 0 ? '今日期限' : `残${diff}日`;
+      const overdue = diff < 0;
+      return `<div class="project-deadline${overdue?' overdue':''}">📅 ${p.deadline}（${label}）</div>`;
+    })() : '';
+    return `<div class="project-card priority-${p.priority}${p.status==='完了'?' status-done':''}" onclick="openProjectDetail('${p.id}')">
+      <div class="project-card-header">
+        <div class="project-card-name">${esc(p.name)}</div>
+      </div>
+      <div class="project-badges">
+        <span class="priority-badge ${p.priority}">${priLabel}</span>
+        <span class="status-badge ${statusClass}">${p.status}</span>
+        <span class="badge badge-info" style="font-size:11px;">${esc(p.category)}</span>
+      </div>
+      ${total > 0 ? `<div class="project-progress">
+        <div class="project-progress-label"><span>タスク進捗</span><span>${done}/${total} (${pct}%)</span></div>
+        <div class="progress-bar"><div class="progress-fill ${pct>=100?'good':pct>=50?'warn':'bad'}" style="width:${pct}%"></div></div>
+      </div>` : '<div style="font-size:12px;color:var(--text-muted);margin:8px 0;">タスク未登録</div>'}
+      ${deadlineStr}
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;">
+      ${members.length ? `<div class="project-members">${members.map(m => `<div class="project-member-dot" style="background:${m.color}" title="${esc(m.name)}">${esc(m.name.charAt(0))}</div>`).join('')}</div>` : '<div></div>'}
+      ${p.ownerId ? (() => { const o = data.members.find(m => m.id === p.ownerId); return o ? `<div style="font-size:11px;color:var(--text-muted);">👑 ${esc(o.name)}</div>` : ''; })() : ''}
+    </div>
+    </div>`;
+  }).join('');
+}
+
+function openProjectForm(id) {
+  const modal = document.getElementById('project-form-modal');
+  document.getElementById('proj-edit-id').value = id || '';
+  document.getElementById('proj-form-title').textContent = id ? 'プロジェクト編集' : '新規プロジェクト';
+  const p = id ? (data.projects||[]).find(p => p.id === id) : null;
+  document.getElementById('proj-name').value     = p ? p.name : '';
+  document.getElementById('proj-category').value = p ? p.category : 'セミナー';
+  document.getElementById('proj-priority').value = p ? p.priority : 'medium';
+  document.getElementById('proj-status').value   = p ? p.status : '進行中';
+  document.getElementById('proj-startdate').value = p ? (p.startdate||'') : '';
+  document.getElementById('proj-deadline').value  = p ? (p.deadline||'') : '';
+  document.getElementById('proj-memo').value      = p ? (p.memo||'') : '';
+  const ownerEl = document.getElementById('proj-owner');
+  ownerEl.innerHTML = '<option value="">（未設定）</option>' + data.members.map(m => `<option value="${m.id}" ${p&&p.ownerId===m.id?'selected':''}>${esc(m.name)}</option>`).join('');
+  const cbEl = document.getElementById('proj-member-checkboxes');
+  cbEl.innerHTML = data.members.map(m => `
+    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 8px;border-radius:6px;border:1px solid var(--border);font-size:13px;">
+      <input type="checkbox" value="${m.id}" ${p&&(p.memberIds||[]).includes(m.id)?'checked':''} style="accent-color:${m.color};">
+      <span class="member-dot" style="background:${m.color};width:10px;height:10px;"></span>${esc(m.name)}
+    </label>`).join('');
+  modal.classList.add('open');
+}
+
+function closeProjectForm() {
+  document.getElementById('project-form-modal').classList.remove('open');
+}
+
+function saveProject() {
+  const name = document.getElementById('proj-name').value.trim();
+  if (!name) { alert('プロジェクト名を入力してください'); return; }
+  const editId = document.getElementById('proj-edit-id').value;
+  const memberIds = [...document.querySelectorAll('#proj-member-checkboxes input:checked')].map(cb => cb.value);
+  const proj = {
+    id: editId || 'proj-' + Date.now(),
+    name,
+    category: document.getElementById('proj-category').value,
+    priority: document.getElementById('proj-priority').value,
+    status:   document.getElementById('proj-status').value,
+    ownerId:   document.getElementById('proj-owner').value,
+    startdate: document.getElementById('proj-startdate').value,
+    deadline:  document.getElementById('proj-deadline').value,
+    memo:      document.getElementById('proj-memo').value.trim(),
+    memberIds,
+    tasks: editId ? ((data.projects||[]).find(p => p.id === editId)?.tasks || []) : [],
+    createdAt: editId ? ((data.projects||[]).find(p => p.id === editId)?.createdAt || new Date().toISOString()) : new Date().toISOString()
+  };
+  if (!data.projects) data.projects = [];
+  if (editId) {
+    data.projects = data.projects.map(p => p.id === editId ? proj : p);
+  } else {
+    data.projects.push(proj);
+  }
+  saveData();
+  closeProjectForm();
+  renderProjects();
+  if (editId && currentProjectId === editId) openProjectDetail(editId);
+}
+
+function openProjectDetail(id) {
+  currentProjectId = id;
+  const p = (data.projects||[]).find(p => p.id === id);
+  if (!p) return;
+  document.getElementById('proj-detail-name').textContent = p.name;
+  const priLabel = { high:'🔴 高', medium:'🟡 中', low:'🟢 低' }[p.priority] || '';
+  const statusClass = { '企画中':'planning', '進行中':'active', '完了':'done' }[p.status] || '';
+  document.getElementById('proj-detail-badges').innerHTML = `
+    <span class="priority-badge ${p.priority}">${priLabel}</span>
+    <span class="status-badge ${statusClass}">${p.status}</span>
+    <span class="badge badge-info" style="font-size:11px;">${esc(p.category)}</span>`;
+  const members = (p.memberIds||[]).map(id => data.members.find(m => m.id === id)).filter(Boolean);
+  const owner = p.ownerId ? data.members.find(m => m.id === p.ownerId) : null;
+  document.getElementById('proj-detail-info').innerHTML = [
+    owner ? `👑 責任者: <strong>${esc(owner.name)}</strong>` : '',
+    p.startdate ? `🗓 開始: ${p.startdate}` : '',
+    p.deadline  ? `📅 終了予定: ${p.deadline} <button onclick="openGCal('${esc(p.name.replace(/'/g,"\\'"))} 終了','${p.deadline}','プロジェクト: ${esc(p.name.replace(/'/g,"\\'"))}\\nカテゴリ: ${esc(p.category)}')" style="background:none;border:none;cursor:pointer;font-size:12px;color:#1a73e8;padding:0 4px;" title="Googleカレンダーに追加">📆 カレンダー追加</button>` : '',
+    members.length ? `👤 担当: ${members.map(m => esc(m.name)).join('・')}` : ''
+  ].filter(Boolean).join('　|　');
+  const done = (p.tasks||[]).filter(t => t.done).length;
+  const total = (p.tasks||[]).length;
+  const pct = total > 0 ? Math.round(done/total*100) : 0;
+  document.getElementById('proj-detail-progress').innerHTML = total > 0 ? `
+    <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;">
+      <span>タスク進捗</span><span style="font-weight:700;">${done}/${total}（${pct}%）</span>
+    </div>
+    <div class="progress-bar"><div class="progress-fill ${pct>=100?'good':pct>=50?'warn':'bad'}" style="width:${pct}%"></div></div>` : '';
+  renderTaskList(p);
+  document.getElementById('proj-detail-memo').innerHTML = p.memo ?
+    `<div style="font-weight:600;font-size:14px;margin-bottom:8px;">メモ</div><div style="font-size:14px;color:var(--text-muted);white-space:pre-wrap;">${esc(p.memo)}</div>` : '';
+  document.getElementById('new-task-input').value = '';
+  document.getElementById('new-task-deadline').value = '';
+  const taskMemberEl = document.getElementById('new-task-member');
+  if (taskMemberEl) {
+    taskMemberEl.innerHTML = '<option value="">担当者（任意）</option>' + data.members.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
+  }
+  document.getElementById('project-detail-modal').classList.add('open');
+}
+
+function renderTaskList(p) {
+  const el = document.getElementById('proj-task-list');
+  if (!(p.tasks||[]).length) {
+    el.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0;">タスクがありません</div>';
+    return;
+  }
+  const today = new Date(); today.setHours(0,0,0,0);
+  el.innerHTML = p.tasks.map(t => {
+    const member = t.memberId ? data.members.find(m => m.id === t.memberId) : null;
+    const dlDate = t.deadline ? new Date(t.deadline) : null;
+    if (dlDate) dlDate.setHours(0,0,0,0);
+    const diff = dlDate ? Math.ceil((dlDate - today) / 86400000) : null;
+    const dlColor = diff === null ? '' : diff < 0 ? 'var(--danger)' : diff <= 3 ? 'var(--warning)' : 'var(--text-muted)';
+    const dlLabel = diff === null ? '' : diff < 0 ? `期限超過 ${Math.abs(diff)}日` : diff === 0 ? '今日' : `残${diff}日`;
+    return `<div class="task-item" style="${t.done?'opacity:0.6':''}">
+      <input type="checkbox" id="task-${t.id}" ${t.done?'checked':''} onchange="toggleTask('${p.id}','${t.id}')">
+      <div style="flex:1;min-width:0;">
+        <div id="task-display-${t.id}" onclick="startEditTask('${p.id}','${t.id}')" style="cursor:text;">
+          <label for="task-${t.id}" class="${t.done?'done':''}" style="display:block;pointer-events:none;">${esc(t.text)}</label>
+          <div style="display:flex;gap:10px;margin-top:2px;flex-wrap:wrap;">
+            ${member ? `<span style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:3px;"><span class="member-dot" style="background:${member.color};width:8px;height:8px;"></span>${esc(member.name)}</span>` : ''}
+            ${t.deadline ? `<span style="font-size:11px;color:${dlColor};font-weight:${diff!==null&&diff<=3?'600':'400'};">📅 ${t.deadline}${dlLabel?' ('+dlLabel+')':''}</span>` : ''}
+          </div>
+        </div>
+        <div id="task-edit-${t.id}" style="display:none;width:100%;">
+          <input type="text" id="task-edit-input-${t.id}" value="${esc(t.text)}" style="width:100%;margin-bottom:6px;" onkeydown="if(event.key==='Enter')saveTaskEdit('${p.id}','${t.id}');if(event.key==='Escape')cancelTaskEdit('${t.id}')">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <select id="task-edit-member-${t.id}" style="flex:1;min-width:100px;padding:6px 8px;border-radius:6px;border:1.5px solid var(--border);font-size:12px;">
+              <option value="">担当者</option>
+              ${data.members.map(m => `<option value="${m.id}" ${t.memberId===m.id?'selected':''}>${esc(m.name)}</option>`).join('')}
+            </select>
+            <input type="date" id="task-edit-deadline-${t.id}" value="${t.deadline||''}" style="flex:1;min-width:100px;font-size:12px;">
+            <button class="btn btn-primary btn-sm" onclick="saveTaskEdit('${p.id}','${t.id}')">保存</button>
+            <button class="btn btn-outline btn-sm" onclick="cancelTaskEdit('${t.id}')">キャンセル</button>
+          </div>
+        </div>
+      </div>
+      <button class="task-delete" onclick="deleteTask('${p.id}','${t.id}')">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function toggleTask(projectId, taskId) {
+  const p = (data.projects||[]).find(p => p.id === projectId);
+  if (!p) return;
+  const t = (p.tasks||[]).find(t => t.id === taskId);
+  if (t) t.done = !t.done;
+  saveData();
+  openProjectDetail(projectId);
+  renderProjects();
+}
+
+function addTask() {
+  const input = document.getElementById('new-task-input');
+  const text = input.value.trim();
+  if (!text) return;
+  const p = (data.projects||[]).find(p => p.id === currentProjectId);
+  if (!p) return;
+  if (!p.tasks) p.tasks = [];
+  const memberId  = document.getElementById('new-task-member').value;
+  const deadline  = document.getElementById('new-task-deadline').value;
+  p.tasks.push({ id: 'task-' + Date.now(), text, done: false, memberId: memberId||null, deadline: deadline||null });
+  saveData();
+  input.value = '';
+  document.getElementById('new-task-deadline').value = '';
+  openProjectDetail(currentProjectId);
+  renderProjects();
+}
+
+function startEditTask(projectId, taskId) {
+  document.getElementById('task-display-' + taskId).style.display = 'none';
+  document.getElementById('task-edit-' + taskId).style.display = 'block';
+  document.getElementById('task-edit-input-' + taskId).focus();
+}
+
+function cancelTaskEdit(taskId) {
+  document.getElementById('task-display-' + taskId).style.display = 'block';
+  document.getElementById('task-edit-' + taskId).style.display = 'none';
+}
+
+function saveTaskEdit(projectId, taskId) {
+  const p = (data.projects||[]).find(p => p.id === projectId);
+  if (!p) return;
+  const t = (p.tasks||[]).find(t => t.id === taskId);
+  if (!t) return;
+  const text = document.getElementById('task-edit-input-' + taskId).value.trim();
+  if (!text) return;
+  t.text     = text;
+  t.memberId = document.getElementById('task-edit-member-' + taskId).value || null;
+  t.deadline = document.getElementById('task-edit-deadline-' + taskId).value || null;
+  saveData();
+  openProjectDetail(projectId);
+  renderProjects();
+}
+
+function deleteTask(projectId, taskId) {
+  const p = (data.projects||[]).find(p => p.id === projectId);
+  if (!p) return;
+  p.tasks = (p.tasks||[]).filter(t => t.id !== taskId);
+  saveData();
+  openProjectDetail(projectId);
+  renderProjects();
+}
+
+function editProject() {
+  closeProjectDetail();
+  openProjectForm(currentProjectId);
+}
+
+function deleteProjectFromDetail() {
+  const p = (data.projects||[]).find(p => p.id === currentProjectId);
+  if (!p) return;
+  confirmDelete(`「${p.name}」を削除しますか？`, () => {
+    data.projects = (data.projects||[]).filter(p => p.id !== currentProjectId);
+    saveData();
+    closeProjectDetail();
+    renderProjects();
+  });
+}
+
+function closeProjectDetail() {
+  document.getElementById('project-detail-modal').classList.remove('open');
+  currentProjectId = null;
+}
+
+// ==================== REPORTS ====================
+function renderReports() {
+  renderMonthlySummary();
+}
+
+function renderMonthlySummary() {
+  const months = getLast12Months();
+  const rows = months.map(m => {
+    const monthFilteredSales = data.sales.filter(s => {
+      const pDate = s.paymentDate || s.date;
+      return pDate && pDate.startsWith(m.key);
+    });
+    const total = monthFilteredSales.filter(s => s.rowType !== '追加決済').reduce((a,s) => a+s.amount, 0);
+    const totalPayment = monthFilteredSales.reduce((a,s) => a+(s.payment||0), 0);
+    // 件数は面談月ベースのまま表示（旧来の挙動）
+    const mendanSalesCount = data.sales.filter(s => s.date && s.date.startsWith(m.key) && s.rowType !== '追加決済').length;
+    const goal = getGoal(m.key);
+    const ach = goal.teamGoal > 0 ? (totalPayment / goal.teamGoal * 100) : null;
+    return `<tr>
+      <td>${m.label}</td>
+      <td><strong>${fmt(totalPayment)}</strong> <div style="font-size:11px;color:var(--text-muted);font-weight:normal;">売上:${fmt(total)}</div></td>
+      <td>${mendanSalesCount}件</td>
+      <td>${goal.teamGoal > 0 ? fmt(goal.teamGoal) : '-'}</td>
+      <td>${ach !== null ? `<span style="font-weight:600;color:${ach>=100?'var(--success)':ach>=70?'var(--warning)':'var(--danger)'}">${ach.toFixed(1)}%</span>` : '-'}</td>
+    </tr>`;
+  });
+  document.getElementById('monthly-summary').innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>月</th><th>売上</th><th>件数</th><th>目標</th><th>達成率</th></tr></thead>
+    <tbody>${rows.join('')}</tbody>
+  </table></div>`;
+}
+
+function renderMemberReport() {
+  const el = document.getElementById('member-report');
+  if (!data.members.length) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">👥</div><p>メンバーを登録してください</p></div>';
+    return;
+  }
+  const rows = data.members.map(m => {
+    const mSales = data.sales.filter(s => s.memberId === m.id);
+    const totalPayment = mSales.reduce((a,s) => a+(s.payment||0), 0);
+    const cnt = mSales.filter(s => s.rowType !== '追加決済').length;
+    return { m, total: totalPayment, cnt };
+  }).sort((a,b) => b.total - a.total);
+
+  el.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>メンバー</th><th>累計売上</th><th>件数</th><th>平均単価</th></tr></thead>
+    <tbody>${rows.map(r => `<tr>
+      <td><div class="member-name-cell"><span class="member-dot" style="background:${r.m.color}"></span>${esc(r.m.name)}</div></td>
+      <td><strong>${fmt(r.total)}</strong></td>
+      <td>${r.cnt}</td>
+      <td>${r.cnt ? fmt(Math.round(r.total/r.cnt)) : '-'}</td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+// ==================== GOOGLE CALENDAR ====================
+function openGCal(title, date, details) {
+  if (!date) { alert('日付が設定されていません'); return; }
+  const d = date.replace(/-/g, '');
+  const url = 'https://calendar.google.com/calendar/render?action=TEMPLATE'
+    + '&text=' + encodeURIComponent(title)
+    + '&dates=' + d + '/' + d
+    + '&details=' + encodeURIComponent(details || '');
+  window.open(url, '_blank');
+}
+
+// ==================== SHEET SYNC ====================
+const GAS_URL = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+  ? '/gas'
+  : 'https://script.google.com/macros/s/AKfycbx8gg7HwrTJXNi5nWSs6VoBXajV_1M4PzarJiS4CSU-MIcxqm2KWZJNTcCOs6sG-hL2/exec';
+
+function syncFromSheet() {
+  const status = document.getElementById('sync-status');
+  status.textContent = '同期中...';
+
+  fetch(GAS_URL)
+    .then(r => r.json())
+    .then(rows => {
+      // スプシ由来データを全削除して再構築
+      data.sales = data.sales.filter(s => s.source !== 'sheet');
+      let addedSales = 0, addedMembers = 0;
+      const localSales2 = data.sales.filter(s => s.source === 'local');
+      const stripR2 = n => n.replace(/[（(][^）)]*[）)]/g, '').trim();
+
+      rows.forEach(rawRow => {
+        // 列名の全角/半角カッコを統一（例：顧客名（LINE名）→ 顧客名(LINE名)）
+        const row = {};
+        Object.keys(rawRow).forEach(k => {
+          const nk = k.trim().replace(/[（(]/g, '(').replace(/[）)]/g, ')');
+          row[nk] = rawRow[k];
+        });
+
+        const name = (row['担当者'] || '').replace(/[（(][^）)]*[）)]/g, '').trim();
+        const dateRaw = row['日時'] || '';
+        const amount = Number(String(row['売上金額'] || '0').replace(/[^0-9]/g, '')) || 0;
+        const category = row['導線'] || '';
+        const business = (category.includes('(AI)') || category.includes('（AI）') || ['チョーさん', 'イーサン', '浩志さん', '的場'].some(kw => category.includes(kw))) ? 'AI' : (category.includes('(物販)') || category.includes('（物販）')) ? '物販' : '';
+        const note = row['顧客名(LINE名)'] || '';
+        const result = row['結果'] || '';
+        const paymentRaw = row['着金'] || row['着金金額'] || '0';
+
+        if (!name) return;
+        // ローカル入力済みの行はスキップ（重複防止）しつつ、スプシ側で割り当てられたIDがあれば上書きする
+        const existingLocal = localSales2.find(s => {
+          const sName = stripR2(data.members.find(m => m.id === s.memberId)?.name || '');
+          return s.note === String(note).trim() && s.category === String(row['導線']||'').trim() && sName === name;
+        });
+        if (existingLocal) {
+          // すでに入力済みのものがあれば、スプシ側の本物のIDで上書きする
+          const rowVals = Object.values(row).map(v => String(v || ""));
+          // M列(ID)やN列(履歴)を個別に取得
+          const realId = row['ID'] || rowVals.reduce((found, v) => {
+            if (found) return found;
+            const m = v.match(/sale-[a-z0-9.]+/i);
+            return m ? m[0] : null;
+          }, null) || row['タイムスタンプ'];
+          if (realId) existingLocal.id = String(realId);
+          existingLocal.history = row['履歴'] || '';
+          return;
+        }
+
+        // UTC ISO文字列をJST(+9h)に補正してYYYY-MM-DD形式で返すヘルパー
+        const toJstDate = raw => {
+          const s = String(raw || '');
+          if (s.match(/^\d{4}-\d{2}-\d{2}T/)) {
+            const d = new Date(new Date(s).getTime() + 9*60*60*1000);
+            return d.getUTCFullYear() + '-' + String(d.getUTCMonth()+1).padStart(2,'0') + '-' + String(d.getUTCDate()).padStart(2,'0');
+          }
+          const m = s.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+          if (m) return `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
+          return '';
+        };
+        // タイムスタンプ取得（列名を複数試みる）
+        const tsRawVal = row['タイムスタンプ'] || row['Timestamp'] || '';
+        const tsDateStr = toJstDate(tsRawVal);
+
+        // 日付をYYYY-MM-DD形式に変換
+        let dateStr = '';
+        const dateStr2 = String(dateRaw);
+        if (dateStr2.match(/^\d{4}-\d{2}-\d{2}T/)) {
+          // GASが返すUTC ISO文字列（例: 2026-04-06T15:00:00.000Z）→ JSTに補正(+9h)
+          const utcMs = new Date(dateStr2).getTime();
+          const jstDate = new Date(utcMs + 9 * 60 * 60 * 1000);
+          dateStr = jstDate.getUTCFullYear() + '-' + String(jstDate.getUTCMonth()+1).padStart(2,'0') + '-' + String(jstDate.getUTCDate()).padStart(2,'0');
+        } else if (dateStr2.match(/^(\d{4})-(\d{2})-(\d{2})/)) {
+          dateStr = dateStr2.slice(0, 10);
+        } else if (dateStr2.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/)) {
+          const m = dateStr2.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+          dateStr = `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
+        } else if (dateStr2.match(/(\d{1,2})[\/](\d{1,2})/)) {
+          const m = dateStr2.match(/(\d{1,2})[\/](\d{1,2})/);
+          dateStr = `${new Date().getFullYear()}-${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`;
+        } else if (dateRaw instanceof Date) {
+          dateStr = dateRaw.getFullYear() + '-' + String(dateRaw.getMonth()+1).padStart(2,'0') + '-' + String(dateRaw.getDate()).padStart(2,'0');
+        }
+        if (!dateStr && tsDateStr) dateStr = tsDateStr; // 日付が取れない時のみタイムスタンプで補完
+        if (!dateStr) return;
+
+        const stripReading = n => n.replace(/[（(][^）)]*[）)]/g, '').trim();
+        let member = data.members.find(m => stripReading(m.name) === name);
+        if (!member) {
+          member = { id: 'member-' + Date.now() + Math.floor(Math.random()*1e9), name, role: '営業担当', color: COLORS[data.members.length % COLORS.length] };
+          data.members.push(member);
+          addedMembers++;
+        }
+
+        const payment2 = Number(String(row['着金'] || '0').replace(/[^0-9]/g, '')) || 0;
+        
+        // ID取得の強化：どの列にあっても 'sale-' を含む文字列があればIDとして抜き出す
+        const allVals = Object.values(row).map(v => String(v || ""));
+        const foundSaleId = allVals.reduce((found, v) => {
+          if (found) return found;
+          const m = v.match(/sale-[a-z0-9.]+/i);
+          return m ? m[0] : null;
+        }, null);
+        const saleId = foundSaleId || String(row['ID'] || row['管理ID'] || row['id'] || row['タイムスタンプ'] || ('sale-' + Date.now() + Math.floor(Math.random()*1e9)));
+        // 着金日を読み込む（UTC ISO対応）
+        const payDateRaw = row['着金日'] || '';
+        let paymentDate = '';
+        const pdStr = String(payDateRaw);
+        if (pdStr.match(/^\d{4}-\d{2}-\d{2}T/)) {
+          const jstDate = new Date(new Date(pdStr).getTime() + 9*60*60*1000);
+          paymentDate = jstDate.getUTCFullYear() + '-' + String(jstDate.getUTCMonth()+1).padStart(2,'0') + '-' + String(jstDate.getUTCDate()).padStart(2,'0');
+        } else if (pdStr.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/)) {
+          const m2 = pdStr.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+          paymentDate = `${m2[1]}-${String(m2[2]).padStart(2,'0')}-${String(m2[3]).padStart(2,'0')}`;
+        }
+        const product = row['商品'] || '';
+        const history = row['履歴'] || '';
+        const rowType = (result.includes('追加決済') || result.includes('決済')) && !result.includes('待ち') ? '追加決済' : undefined;
+        data.sales.push({ id: saleId, date: dateStr, memberId: member.id, amount, payment: payment2, paymentDate, product, category, business, result, note, source: 'sheet', rowType, history });
+        addedSales++;
+      });
+
+      // 重複メンバーをマージ（読み仮名なし名前が同じものをまとめる）
+      const stripR = n => n.replace(/[（(][^）)]*[）)]/g, '').trim();
+      const seen = {};
+      const toRemove = [];
+      data.members.forEach(m => {
+        const key = stripR(m.name);
+        if (!seen[key]) { seen[key] = m.id; }
+        else { toRemove.push(m.id); }
+      });
+      // 重複メンバーのsaleをkeepする方のIDに付け替え
+      toRemove.forEach(dupId => {
+        const keepId = seen[stripR(data.members.find(m => m.id === dupId).name)];
+        data.sales.forEach(s => { if (s.memberId === dupId) s.memberId = keepId; });
+      });
+      data.members = data.members.filter(m => !toRemove.includes(m.id));
+
+      data.sales.sort((a, b) => b.date.localeCompare(a.date));
+      saveData();
+      status.textContent = `✅ 同期完了！売上${addedSales}件、メンバー${addedMembers}人を追加しました。`;
+      showAlert('sync-alert', 'success', `同期完了：売上${addedSales}件追加`);
+      // 同期後にリスト・ダッシュボードを再描画（IDのズレを防ぐ）
+      updateMemberSelects();
+      updateMonthFilter();
+      if (document.getElementById('page-sales')?.classList.contains('active')) {
+        renderSalesList();
+      }
+      renderDashboard();
+    })
+    .catch(err => {
+      status.textContent = '❌ 同期失敗：' + err.message;
+      showAlert('sync-alert', 'error', '同期に失敗しました');
+    });
+}
+
+// ==================== RANKING ====================
+let rankingPeriod = 'month';
+function setRankingPeriod(period, btn) {
+  rankingPeriod = period;
+  document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderRanking();
+}
+function getRankingDateFilter() {
+  const now = new Date();
+  const y = now.getFullYear(), m = now.getMonth();
+  if (rankingPeriod === 'week') {
+    const day = now.getDay();
+    const monday = new Date(y, m, now.getDate() - (day === 0 ? 6 : day - 1));
+    monday.setHours(0,0,0,0);
+    return s => {
+      const pDate = s.paymentDate || s.date;
+      return pDate && new Date(pDate) >= monday;
+    };
+  }
+  if (rankingPeriod === 'month') {
+    const key = `${y}-${String(m+1).padStart(2,'0')}`;
+    return s => {
+      const pDate = s.paymentDate || s.date;
+      return pDate && pDate.startsWith(key);
+    };
+  }
+  if (rankingPeriod === 'last') {
+    const d = new Date(y, m-1, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    return s => {
+      const pDate = s.paymentDate || s.date;
+      return pDate && pDate.startsWith(key);
+    };
+  }
+  if (rankingPeriod === '3month') {
+    const cutoff = new Date(y, m-2, 1);
+    return s => {
+      const pDate = s.paymentDate || s.date;
+      return pDate && new Date(pDate) >= cutoff;
+    };
+  }
+  if (rankingPeriod === 'year') {
+    return s => {
+      const pDate = s.paymentDate || s.date;
+      return pDate && pDate.startsWith(String(y));
+    };
+  }
+  return () => true;
+}
+function renderRanking() {
+  const el = document.getElementById('ranking-list');
+  if (!data.members.length) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">👥</div><p>メンバーを登録してください</p></div>';
+    return;
+  }
+  const filter = getRankingDateFilter();
+  const getResult2 = s => s.result || (s.category||'').split(' ').pop();
+  const ranked = data.members.map(m => {
+    const mSales = data.sales.filter(s => s.memberId === m.id && filter(s));
+    const totalPayment = mSales.reduce((a, s) => a + (s.payment||0), 0);
+    const coolingOff = mSales.filter(s => getResult2(s) === 'クーリングオフ').reduce((a, s) => a + Math.abs(s.payment||0), 0);
+    const normal = mSales.filter(s => s.rowType !== '追加決済');
+    const cancel = normal.filter(s => getResult2(s) === 'キャンセル').length;
+    const mendan = normal.length - cancel;
+    const keiyaku = normal.filter(s => getResult2(s).startsWith('成約')).length;
+    const seiyakuRate = mendan > 0 ? (keiyaku / mendan * 100) : null;
+    const tanka = keiyaku > 0 ? Math.round((totalPayment - coolingOff) / keiyaku) : null;
+    const coolingCnt = mSales.filter(s => getResult2(s) === 'クーリングオフ').length;
+    const total = totalPayment - coolingOff;
+    return { m, total, cnt: normal.length, mendan, keiyaku, seiyakuRate, tanka, coolingCnt, coolingOff };
+  }).sort((a, b) => b.total - a.total);
+
+  const max = ranked[0]?.total || 1;
+  const medals = ['🥇', '🥈', '🥉'];
+
+  el.innerHTML = ranked.map((r, i) => {
+    const pct = max > 0 ? (r.total / max * 100) : 0;
+    const rankClass = i < 3 ? ` rank-${i+1}` : '';
+    const medalOrNum = i < 3
+      ? `<div class="ranking-medal">${medals[i]}</div>`
+      : `<div class="ranking-num">${i+1}</div>`;
+    return `<div class="ranking-row${rankClass}">
+      ${medalOrNum}
+      <div class="ranking-info">
+        <div class="ranking-name">
+          <span class="member-dot" style="background:${r.m.color}"></span>
+          ${esc(r.m.name)}
+          ${r.m.role ? `<span style="font-size:12px;color:var(--text-muted);font-weight:400">${esc(r.m.role)}</span>` : ''}
+        </div>
+        <div class="ranking-bar-wrap">
+          <div class="ranking-bar">
+            <div class="ranking-bar-fill" style="width:${pct}%;background:${r.m.color}"></div>
+          </div>
+        </div>
+        <div class="ranking-sub" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:4px;">
+          <span>アポ ${r.cnt}件</span>
+          <span>面談 ${r.mendan}件</span>
+          <span>契約 <strong style="color:var(--success)">${r.keiyaku}件</strong></span>
+          <span>成約率 ${r.seiyakuRate !== null ? r.seiyakuRate.toFixed(1)+'%' : '-'}</span>
+          <span>成約単価 ${r.tanka !== null ? fmt(r.tanka) : '-'}</span>
+          ${r.coolingCnt > 0 ? `<span style="color:var(--danger)">クーオフ ${r.coolingCnt}件 / ${fmt(r.coolingOff)}</span>` : ''}
+        </div>
+      </div>
+      <div class="ranking-amount">${fmt(r.total)}</div>
+    </div>`;
+  }).join('');
+}
+
+// ==================== SEMINAR REPORT ====================
+let currentSeminarPeriod = 'all';
+function setSeminarPeriod(p, btn) {
+  currentSeminarPeriod = p;
+  document.querySelectorAll('#seminar-period-bar .period-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderSeminarPage();
+}
+
+function renderSeminarPage() {
+  const select = document.getElementById('seminar-select');
+  
+  // 文字表記のゆれや別名の統合を行う関数
+  const normalize = (s) => {
+    if (!s) return '';
+    let n = s.replace(/\s+/g, '').replace(/（/g, '(').replace(/）/g, ')').replace(/　/g, '');
+    // 的場セミナー関連を統合
+    if (n.includes('AI副業') && n.includes('達成セミナー')) return '的場セミナー(AI)';
+    if (n.includes('的場セミナー')) return '的場セミナー(AI)';
+    return n;
+  };
+  
+  const allUsedCats = [...new Set(data.sales.map(s => s.category))].filter(c => c && c.includes('セミナー'));
+  
+  // 正規化した名前をキーにして、代表的な表示名を決める
+  const normalizedMap = {
+    '的場セミナー(AI)': '的場セミナー(AI)'
+  };
+  allUsedCats.forEach(c => {
+    const key = normalize(c);
+    if (!normalizedMap[key]) normalizedMap[key] = c;
+  });
+  const seminarKeys = Object.keys(normalizedMap).sort();
+  
+  if (seminarKeys.length === 0) {
+    document.getElementById('seminar-overview').innerHTML = '';
+    document.getElementById('seminar-leaderboard').innerHTML = '<div class="empty-state"><div class="icon">🎓</div><p>セミナー形式の導線データがありません</p></div>';
+    return;
+  }
+
+  const prevValue = select.value;
+  select.innerHTML = seminarKeys.map(k => `<option value="${k}" ${prevValue===k?'selected':''}>${normalizedMap[k]}</option>`).join('');
+  
+  const selectedKey = select.value || seminarKeys[0];
+
+  // 期間フィルターを廃止し、常に全期間で集計
+  const filter = s => {
+    if (!s.category || !s.category.includes('セミナー')) return false;
+    if (normalize(s.category) !== selectedKey) return false;
+    return true;
+  };
+  const semSales = data.sales.filter(filter);
+
+  // 全体統計
+  const selectedTitle = normalizedMap[selectedKey] || selectedKey;
+  const getDealsMap = (salesList) => {
+    const map = {};
+    salesList.forEach(s => {
+      // 日付に依存せず、担当者と顧客名（note）が同じなら1件の「案件」として集計
+      const clientKey = `${s.memberId}_${(s.note || s.id).trim()}`;
+      if (!map[clientKey]) {
+        map[clientKey] = { amount: 0, payment: 0, isMendan: false, isKeiyaku: false };
+      }
+      
+      const res = s.result || '';
+      const isKeiyakuLocal = (res.includes('成約') && !res.includes('未成約')) || res.includes('追加決済');
+      
+      // 追加決済等を除いたユニークな案件として判定
+      // 1. 面談数: キャンセル以外ならカウント
+      if (res !== 'キャンセル') map[clientKey].isMendan = true;
+      
+      // 2. 売上金額（分母）: 成約または追加決済の行に金額があれば合算
+      if (isKeiyakuLocal) {
+        map[clientKey].amount += (s.amount || 0);
+        map[clientKey].isKeiyaku = true;
+      }
+      
+      // 着金額（分子）はすべての行を合算
+      map[clientKey].payment += (s.payment || 0);
+    });
+    return map;
+  };
+
+  const allDeals = Object.values(getDealsMap(semSales));
+  const totalAmount = allDeals.reduce((a, d) => a + d.amount, 0);
+  const totalPayment = allDeals.reduce((a, d) => a + d.payment, 0);
+  const mendanCount = allDeals.filter(d => d.isMendan).length;
+  const keiyakuCount = allDeals.filter(d => d.isKeiyaku).length;
+  const cashRateText = totalAmount > 0 ? (totalPayment / totalAmount * 100).toFixed(1) + '%' : '-';
+  const closingRateText = mendanCount > 0 ? (keiyakuCount / mendanCount * 100).toFixed(1) + '%' : '-';
+
+  document.querySelector('#page-seminar .card-title').textContent = `${selectedTitle} 選抜ランキング(修正完了)`;
+
+  document.getElementById('seminar-overview').innerHTML = `
+    <div class="stat-card">
+      <div class="stat-label">成約金額合計</div>
+      <div class="stat-value">${fmt(totalAmount)}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">着金金額合計</div>
+      <div class="stat-value" style="color:var(--primary)">${fmt(totalPayment)}</div>
+      <div class="stat-sub">着金率: ${cashRateText}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">面談数 / 成約数</div>
+      <div class="stat-value">${mendanCount} / <span style="color:var(--success)">${keiyakuCount}</span></div>
+      <div class="stat-sub">成約率: ${closingRateText}</div>
+    </div>
+  `;
+
+  // メンバー別ランキング算出
+  const memberRankings = data.members.map(m => {
+    const mSales = semSales.filter(s => s.memberId === m.id);
+    const mDeals = Object.values(getDealsMap(mSales));
+    
+    const mAmount = mDeals.reduce((a, d) => a + d.amount, 0);
+    const mPayment = mDeals.reduce((a, d) => a + d.payment, 0);
+    const mMendan = mDeals.filter(d => d.isMendan).length;
+    const mKeiyaku = mDeals.filter(d => d.isKeiyaku).length;
+    const mClosingRate = mMendan > 0 ? (mKeiyaku / mMendan) : 0;
+    
+    // スコア計算（倍率判定）
+    let multiplier = 1.0;
+    if (mClosingRate <= 0.20) multiplier = 0.8;
+    else if (mClosingRate <= 0.35) multiplier = 0.9;
+    else if (mClosingRate <= 0.50) multiplier = 1.0;
+    else if (mClosingRate <= 0.65) multiplier = 1.2;
+    else multiplier = 1.3;
+    const score = Math.round(mPayment * multiplier);
+
+    return { m, amount: mAmount, payment: mPayment, mendan: mMendan, keiyaku: mKeiyaku, closingRate: mClosingRate * 100, score };
+  })
+  .filter(r => r.mendan > 0 || r.payment > 0)
+  .sort((a, b) => b.score - a.score);
+
+  const leaderboardEl = document.getElementById('seminar-leaderboard');
+  if (memberRankings.length === 0) {
+    leaderboardEl.innerHTML = '<div class="empty-state"><p>この期間の集計データがありません</p></div>';
+    return;
+  }
+
+  const maxScore = memberRankings[0].score || 1;
+  const medals = ['🥇', '🥈', '🥉'];
+
+  leaderboardEl.innerHTML = memberRankings.map((r, i) => {
+    const rankClass = i < 3 ? ` rank-${i+1}` : '';
+    const medalOrNum = i < 3 ? `<div class="ranking-medal">${medals[i]}</div>` : `<div class="ranking-num">${i+1}</div>`;
+    const scorePct = Math.min(100, (r.score / maxScore * 100));
+    const cashRate = r.amount > 0 ? (r.payment / r.amount * 100).toFixed(1) + '%' : '-';
+
+    return `
+      <div class="ranking-row${rankClass}">
+        ${medalOrNum}
+        <div class="ranking-info">
+          <div class="ranking-name">
+            <span class="member-dot" style="background:${r.m.color}"></span>
+            ${esc(r.m.name)}
+            <div style="margin-left:auto; text-align:right;">
+              <div style="font-size:11px;color:var(--text-muted);font-weight:400;">Score</div>
+              <div style="font-weight:700;color:var(--primary);font-size:18px;">${r.score.toLocaleString()}</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns: repeat(4, 1fr); gap:12px; margin-top:8px; font-size:12px;">
+            <div><div style="color:var(--text-muted)">成約/着金</div><div style="font-weight:500;">${fmt(r.amount)} / ${fmt(r.payment)}</div></div>
+            <div><div style="color:var(--text-muted)">着金率</div><div style="font-weight:500;">${cashRate}</div></div>
+            <div><div style="color:var(--text-muted)">面談/成約</div><div style="font-weight:500;">${r.mendan} / <span style="color:var(--success)">${r.keiyaku}</span></div></div>
+            <div><div style="color:var(--text-muted)">成約率</div><div style="font-weight:700;color:var(--primary)">${r.closingRate.toFixed(1)}%</div></div>
+          </div>
+          <div class="ranking-bar-wrap" style="margin-top:10px;">
+            <div class="ranking-bar"><div class="ranking-bar-fill" style="width:${scorePct}%;background:${r.m.color}"></div></div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// ==================== CATEGORIES ====================
+function addCategory() {
+  const name = document.getElementById('category-name').value.trim();
+  if (!name) { showAlert('category-alert', 'error', 'カテゴリ名を入力してください'); return; }
+  if (data.categories.includes(name)) { showAlert('category-alert', 'error', 'すでに存在します'); return; }
+  data.categories.push(name);
+  saveData();
+  document.getElementById('category-name').value = '';
+  showAlert('category-alert', 'success', `${name} を追加しました`);
+  renderSettings();
+  updateCategorySelects();
+}
+
+function deleteCategory(name) {
+  data.categories = data.categories.filter(c => c !== name);
+  saveData();
+  renderSettings();
+  updateCategorySelects();
+}
+
+function toggleCategoryCustom() {
+  const sel = document.getElementById('sale-category');
+  const custom = document.getElementById('sale-category-custom');
+  if (!sel || !custom) return;
+  custom.style.display = sel.value === 'その他' ? 'block' : 'none';
+  if (sel.value !== 'その他') custom.value = '';
+}
+
+function getSaleCategory() {
+  const sel = document.getElementById('sale-category');
+  if (!sel) return '';
+  if (sel.value === 'その他') {
+    return document.getElementById('sale-category-custom')?.value.trim() || 'その他';
+  }
+  return sel.value;
+}
+
+function updateCategorySelects() {
+  // カテゴリはHTMLに固定済みのため何もしない
+}
+
+function saveVision() {
+  data.teamVision = document.getElementById('vision-input').value.trim();
+  saveData();
+  renderDashboard();
+  showAlert('sync-alert', 'success', 'ビジョンを保存しました');
+}
+
+function renderSettings() {
+  const visionInput = document.getElementById('vision-input');
+  if (visionInput) visionInput.value = data.teamVision || '';
+  const el = document.getElementById('category-list');
+  if (!data.categories.length) { el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;">カテゴリがありません</p>'; return; }
+  el.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;">${data.categories.map(c =>
+    `<div style="display:flex;align-items:center;gap:6px;background:var(--surface2);border-radius:20px;padding:6px 12px;font-size:13px;">
+      <span>${esc(c)}</span>
+      <button onclick="deleteCategory('${esc(c)}')" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:16px;line-height:1;padding:0;">×</button>
+    </div>`
+  ).join('')}</div>`;
+}
+
+// ==================== EXPORT / IMPORT ====================
+function exportCSV() {
+  const rows = [['日付','メンバー','金額','カテゴリ','メモ']];
+  data.sales.forEach(s => {
+    const m = data.members.find(m => m.id === s.memberId);
+    rows.push([s.date, m?.name||'不明', s.amount, s.category||'', s.note||'']);
+  });
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  download('sales-data.csv', 'text/csv;charset=utf-8;', '\uFEFF' + csv);
+}
+
+function exportJSON() {
+  download('sales-data.json', 'application/json', JSON.stringify(data, null, 2));
+}
+
+function importJSON(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const imported = JSON.parse(ev.target.result);
+      if (confirm('現在のデータをインポートデータで上書きしますか？')) {
+        data = { ...data, ...imported };
+        saveData();
+        alert('インポートが完了しました');
+        location.reload();
+      }
+    } catch(err) { alert('JSONの読み込みに失敗しました'); }
+  };
+  reader.readAsText(file);
+}
+
+function resetData() {
+  if (confirm('全てのデータを削除します。この操作は元に戻せません。本当によろしいですか？')) {
+    if (confirm('もう一度確認します。全データを削除しますか？')) {
+      localStorage.removeItem('sales-manager-data');
+      location.reload();
+    }
+  }
+}
+
+function download(filename, type, content) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([content], { type }));
+  a.download = filename;
+  a.click();
+}
+
+// ==================== UTILS ====================
+function fmt(n) {
+  const sign = n < 0 ? '-' : '';
+  const abs = Math.abs(n);
+  if (abs >= 100000000) return sign + (abs/100000000) + '億円';
+  if (abs >= 10000) return sign + (abs/10000) + '万円';
+  return sign + abs.toLocaleString() + '円';
+}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function getLast12Months() {
+  const months = [];
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(new Date().getFullYear(), new Date().getMonth() - i, 1);
+    months.push({ key: getMonthKey(d), label: `${d.getFullYear()%100}年${d.getMonth()+1}月` });
+  }
+  return months;
+}
+
+function showAlert(id, type, msg) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = `<div class="alert alert-${type === 'error' ? 'error' : 'success'}">${esc(msg)}</div>`;
+  setTimeout(() => { el.innerHTML = ''; }, 3000);
+}
+
+let deleteCallback = null;
+function confirmDelete(msg, cb) {
+  document.getElementById('delete-modal-msg').textContent = msg;
+  deleteCallback = cb;
+  document.getElementById('delete-modal').classList.add('open');
+}
+function closeModal() {
+  document.getElementById('delete-modal').classList.remove('open');
+  deleteCallback = null;
+}
+document.getElementById('delete-confirm-btn').addEventListener('click', () => {
+  if (deleteCallback) deleteCallback();
+  closeModal();
+});
+
+// ==================== INIT ====================
+loadData();
+document.getElementById('member-color').value = COLORS[data.members.length % COLORS.length];
+currentViewMonth = new Date();
+goalViewMonth = new Date();
+
+// 起動時に自動同期
+fetch(GAS_URL)
+  .then(r => r.json())
+  .then(rows => {
+    data.sales = data.sales.filter(s => s.source !== 'sheet');
+    let addedSales = 0, addedMembers = 0;
+    const stripRd = n => n.replace(/[（(][^）)]*[）)]/g, '').trim();
+    const localSales = data.sales.filter(s => s.source === 'local');
+    rows.forEach(row => {
+      const name = stripRd(row['担当者'] || '');
+      const dateRaw = row['日時'] || '';
+      const amount = Number(String(row['売上金額'] || '0').replace(/[^0-9]/g, '')) || 0;
+      const category = row['導線'] || '';
+      const note = row['顧客名(LINE名)'] || '';
+      const result = row['結果'] || '';
+      const cat2 = row['導線'] || '';
+      const business = (cat2.includes('(AI)') || cat2.includes('（AI）')) ? 'AI' : (cat2.includes('(物販)') || cat2.includes('（物販）')) ? '物販' : '';
+      if (!name) return;
+      // ローカル入力済みの行はスキップ（重複防止）
+      const alreadyLocal = localSales.some(s => {
+        const sName = stripRd(data.members.find(m => m.id === s.memberId)?.name || '');
+        return s.note === String(note).trim() && s.category === category && sName === name;
+      });
+      if (alreadyLocal) return;
+      const tsRawVal = row['タイムスタンプ'] || row['Timestamp'] || Object.values(row).find(v => String(v).match(/^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}/)) || '';
+      let tsDateStr = '';
+      const tsM = String(tsRawVal).match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+      if (tsM) tsDateStr = `${tsM[1]}-${String(tsM[2]).padStart(2,'0')}-${String(tsM[3]).padStart(2,'0')}`;
+      let dateStr = '';
+      const dateStr2 = String(dateRaw);
+      if (dateStr2.match(/^(\d{4})-(\d{2})-(\d{2})/)) {
+        dateStr = dateStr2.slice(0, 10);
+      } else if (dateStr2.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/)) {
+        const m = dateStr2.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+        dateStr = `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
+      } else if (dateStr2.match(/(\d{1,2})[\/](\d{1,2})/)) {
+        const m = dateStr2.match(/(\d{1,2})[\/](\d{1,2})/);
+        dateStr = `${new Date().getFullYear()}-${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`;
+      }
+      if (tsDateStr && (!dateStr || dateStr.slice(0,7) !== tsDateStr.slice(0,7))) dateStr = tsDateStr;
+      if (!dateStr) return;
+      let member = data.members.find(m => stripRd(m.name) === name);
+      if (!member) {
+        member = { id: 'member-' + Date.now() + Math.random(), name, role: '営業担当', color: COLORS[data.members.length % COLORS.length] };
+        data.members.push(member);
+        addedMembers++;
+      }
+      let pDateStr = '';
+      const pRaw = String(row['着金日'] || '').trim();
+      if (pRaw.match(/^(\d{4})-(\d{2})-(\d{2})/)) pDateStr = pRaw.slice(0, 10);
+      else if (pRaw.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/)) {
+        const m = pRaw.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+        pDateStr = `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
+      } else if (pRaw) pDateStr = pRaw.replace(/\//g, '-');
+      
+      const payment3 = Number(String(row['着金'] || '0').replace(/[^0-9]/g, '')) || 0;
+      data.sales.push({ id: 'sale-' + Date.now() + Math.random(), date: dateStr, memberId: member.id, amount, payment: payment3, paymentDate: pDateStr, category, business, result, note, source: 'sheet' });
+      addedSales++;
+    });
+    // スプシに存在しないローカルエントリを削除
+    const sheetKeys = new Set(rows.map(row => {
+      const n = stripRd(row['担当者'] || '');
+      const ln = String(row['顧客名(LINE名)'] || '').trim();
+      const cat = String(row['導線'] || '').trim();
+      return `${n}|${ln}|${cat}`;
+    }));
+    data.sales = data.sales.filter(s => {
+      if (s.source !== 'local') return true;
+      const mName = stripRd(data.members.find(m => m.id === s.memberId)?.name || '');
+      const key = `${mName}|${s.note||''}|${s.category||''}`;
+      return sheetKeys.has(key);
+    });
+    // 重複メンバーをマージ
+    const seenR = {};
+    const toRm = [];
+    data.members.forEach(m => {
+      const key = stripRd(m.name);
+      if (!seenR[key]) { seenR[key] = m.id; }
+      else { toRm.push(m.id); }
+    });
+    toRm.forEach(dupId => {
+      const keepId = seenR[stripRd(data.members.find(m => m.id === dupId).name)];
+      data.sales.forEach(s => { if (s.memberId === dupId) s.memberId = keepId; });
+    });
+    data.members = data.members.filter(m => !toRm.includes(m.id));
+    data.sales.sort((a, b) => b.date.localeCompare(a.date));
+    saveData();
+    saveData();
+    renderDashboard();
+  })
+  .catch(() => {
+    renderDashboard();
+  });
+
+renderDashboard();
+document.getElementById('loading-overlay').style.display = 'none';
+
+// 5分ごとに自動同期
+setInterval(() => syncFromSheet(), 5 * 60 * 1000);
+</script>
+</body>
+</html>
