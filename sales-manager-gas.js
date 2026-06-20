@@ -190,9 +190,11 @@ function doPost(e) {
   try {
     const json = JSON.parse(e.postData.contents);
     const event = json.events[0];
-    if (event && event.type === 'message') {
-      // 必要に応じてグループID取得等の処理を追記
+    if (event) {
       const groupId = event.source.groupId || event.source.roomId || event.source.userId;
+      // GASの実行ログでグループIDを確認するためのログ出力
+      console.log('受信イベント種別: ' + event.type);
+      console.log('グループID: ' + groupId);
     }
   } catch (err) {
     console.error(err);
