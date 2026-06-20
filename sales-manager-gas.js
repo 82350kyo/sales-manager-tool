@@ -55,9 +55,13 @@ function writeToSheet(d) {
     ci.nextApproachDate || '',                 // 次回アプローチ予定日
     ci.customerMemo || ci.secondNote || '',    // 備考／所感
   ];
-  // ヘッダー行（1行目）の直下に挿入して最新が一番上に来るようにする
-  sheet.insertRowAfter(1);
-  sheet.getRange(2, 1, 1, row.length).setValues([row]);
+  // 末尾に追加してからタイムスタンプ降順でソート（最新が常に一番上）
+  sheet.appendRow(row);
+  const lastRow = sheet.getLastRow();
+  if (lastRow > 2) {
+    sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn())
+      .sort({ column: 1, ascending: false });
+  }
 }
 
 // =====================================================
@@ -105,4 +109,19 @@ function respond(data) {
   return ContentService
     .createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// =====================================================
+// 既存データを一括ソート（エディタから手動実行用）
+// タイムスタンプ降順（新しい順）に並び替える
+// =====================================================
+function sortSheet() {
+  const ss = SpreadsheetApp.openById('1BMptkze_WyYL6TRG5Jzugy8aYT-AL4F4O7gnmFPKXRw');
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  const lastRow = sheet.getLastRow();
+  if (lastRow > 2) {
+    sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn())
+      .sort({ column: 1, ascending: false });
+  }
+  Logger.log('ソート完了：' + (lastRow - 1) + '行を並び替えました');
 }
