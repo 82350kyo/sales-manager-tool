@@ -33,7 +33,7 @@ function writeToSheet(d) {
   if (!sheet) throw new Error(SHEET_NAME + ' シートが見つかりません');
 
   const ci = d.customerInfo || {};
-  sheet.appendRow([
+  const row = [
     new Date(),                                // タイムスタンプ
     d.date || '',                              // 日時
     d.memberName || '',                        // 担当者
@@ -46,7 +46,7 @@ function writeToSheet(d) {
     d.note || '',                              // メモ
     d.recording || '',                         // 録画
     d.paymentDate || '',                       // 着金日
-    d.id || '',                               // ID
+    d.id || '',                                // ID
     ci.upsell || '',                           // アップセル見込み
     ci.rejection || '',                        // 断り理由
     ci.financial || '',                        // 資金状況
@@ -54,7 +54,10 @@ function writeToSheet(d) {
     ci.approachMonths || '',                   // アプローチ目安
     ci.nextApproachDate || '',                 // 次回アプローチ予定日
     ci.customerMemo || ci.secondNote || '',    // 備考／所感
-  ]);
+  ];
+  // ヘッダー行（1行目）の直下に挿入して最新が一番上に来るようにする
+  sheet.insertRowAfter(1);
+  sheet.getRange(2, 1, 1, row.length).setValues([row]);
 }
 
 // =====================================================
