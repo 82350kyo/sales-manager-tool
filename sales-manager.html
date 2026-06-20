@@ -479,7 +479,58 @@
               <label>日時 *</label>
               <div style="display:flex;gap:6px;">
                 <input type="date" id="sale-date" style="flex:1;" oninput="calcNextApproachDate();previewSaleReport()">
-                <input type="time" id="sale-time" style="flex:0 0 96px;" oninput="previewSaleReport()">
+                <!-- 時刻選択：00:00〜24:00を30分刻みで49選択肢 -->
+                <select id="sale-time" style="flex:0 0 96px;" onchange="previewSaleReport()">
+                  <option value="00:00">00:00</option>
+                  <option value="00:30">00:30</option>
+                  <option value="01:00">01:00</option>
+                  <option value="01:30">01:30</option>
+                  <option value="02:00">02:00</option>
+                  <option value="02:30">02:30</option>
+                  <option value="03:00">03:00</option>
+                  <option value="03:30">03:30</option>
+                  <option value="04:00">04:00</option>
+                  <option value="04:30">04:30</option>
+                  <option value="05:00">05:00</option>
+                  <option value="05:30">05:30</option>
+                  <option value="06:00">06:00</option>
+                  <option value="06:30">06:30</option>
+                  <option value="07:00">07:00</option>
+                  <option value="07:30">07:30</option>
+                  <option value="08:00">08:00</option>
+                  <option value="08:30">08:30</option>
+                  <option value="09:00">09:00</option>
+                  <option value="09:30">09:30</option>
+                  <option value="10:00">10:00</option>
+                  <option value="10:30">10:30</option>
+                  <option value="11:00">11:00</option>
+                  <option value="11:30">11:30</option>
+                  <option value="12:00">12:00</option>
+                  <option value="12:30">12:30</option>
+                  <option value="13:00">13:00</option>
+                  <option value="13:30">13:30</option>
+                  <option value="14:00">14:00</option>
+                  <option value="14:30">14:30</option>
+                  <option value="15:00">15:00</option>
+                  <option value="15:30">15:30</option>
+                  <option value="16:00">16:00</option>
+                  <option value="16:30">16:30</option>
+                  <option value="17:00">17:00</option>
+                  <option value="17:30">17:30</option>
+                  <option value="18:00">18:00</option>
+                  <option value="18:30">18:30</option>
+                  <option value="19:00">19:00</option>
+                  <option value="19:30">19:30</option>
+                  <option value="20:00">20:00</option>
+                  <option value="20:30">20:30</option>
+                  <option value="21:00">21:00</option>
+                  <option value="21:30">21:30</option>
+                  <option value="22:00">22:00</option>
+                  <option value="22:30">22:30</option>
+                  <option value="23:00">23:00</option>
+                  <option value="23:30">23:30</option>
+                  <option value="24:00">24:00</option>
+                </select>
               </div>
             </div>
             <div class="form-group">
@@ -1364,6 +1415,19 @@ function calcNextApproachDate() {
   previewSaleReport();
 }
 
+// 時刻文字列を30分刻みに丸めるヘルパー関数
+// 例: 00:14 → 00:00 / 00:15 → 00:30 / 00:45 → 01:00
+function snapTimeToHalf(timeStr) {
+  if (!timeStr) return '00:00';
+  const parts = timeStr.split(':');
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10) || 0;
+  if (m < 15) return h.toString().padStart(2,'0') + ':00';
+  if (m < 45) return h.toString().padStart(2,'0') + ':30';
+  const nextH = Math.min(h + 1, 24);
+  return nextH.toString().padStart(2,'0') + ':00';
+}
+
 function previewSaleReport() {
   const preview = document.getElementById('sale-preview');
   if (!preview) return;
@@ -1507,7 +1571,8 @@ function deleteSale(id) {
 function renderSalesPage() {
   document.getElementById('sale-date').value = new Date().toISOString().split('T')[0];
   const now = new Date();
-  document.getElementById('sale-time').value = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+  // 現在時刻を30分刻みに丸めてselectにセット
+  document.getElementById('sale-time').value = snapTimeToHalf(now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0'));
   updateCustomerInfoSection();
   updateMemberSelects();
   updateCategorySelects();
@@ -1586,7 +1651,8 @@ function quickFillReport(title, time, ownerName) {
   const cleanName = title.replace(/(アポ|相談|面談|セミナー|【|】|様)/g, '').trim();
   
   nameEl.value = cleanName;
-  document.getElementById('sale-time').value = time;
+  // カレンダーからの時刻も30分刻みに丸めてセット
+  document.getElementById('sale-time').value = snapTimeToHalf(time);
   
   // 導線を自動判別（タイトルに含まれるキーワードから）
   const catMenu = document.getElementById('sale-category-menu');
@@ -1774,7 +1840,8 @@ function prepareInstallment(id) {
   document.getElementById('sale-payment').value = '';
   const now = new Date();
   document.getElementById('sale-date').value = now.toISOString().split('T')[0];
-  document.getElementById('sale-time').value = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+  // 現在時刻を30分刻みに丸めてselectにセット
+  document.getElementById('sale-time').value = snapTimeToHalf(now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0'));
   if (typeof previewSaleReport === 'function') previewSaleReport();
   const header = document.getElementById('installment-header');
   const nameEl = document.getElementById('installment-customer-name');
