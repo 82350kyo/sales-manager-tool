@@ -361,6 +361,9 @@
       <div class="nav-item" onclick="showPage('members')">
         <span class="nav-icon">👥</span><span>メンバー管理</span>
       </div>
+      <div class="nav-item" onclick="showPage('item-settings')">
+        <span class="nav-icon">🗂️</span><span>項目設定</span>
+      </div>
       <div class="nav-item" onclick="showPage('goals')">
         <span class="nav-icon">🎯</span><span>目標管理</span>
       </div>
@@ -535,21 +538,9 @@
             </div>
             <div class="form-group">
               <label>導線</label>
+              <!-- 動線プルダウン（updateRouteSelect()で動的生成） -->
               <select id="sale-category" onchange="previewSaleReport();toggleCategoryCustom()">
                 <option value="">なし</option>
-                <optgroup label="── 物販 ──">
-                  <option value="個別相談(物販)">個別相談(物販)</option>
-                  <option value="広告(物販)">広告(物販)</option>
-                  <option value="磯貝さんSNS(物販)">磯貝さんSNS(物販)</option>
-                  <option value="かずさんSNS(物販)">かずさんSNS(物販)</option>
-                </optgroup>
-                <optgroup label="── AI ──">
-                  <option value="個別相談(AI)">個別相談(AI)</option>
-                  <option value="広告(AI)">広告(AI)</option>
-                  <option value="かずさんSNS(AI)">かずさんSNS(AI)</option>
-                  <option value="美奈子さんSNS(AI)">美奈子さんSNS(AI)</option>
-                </optgroup>
-                <option value="その他">その他（自由入力）</option>
               </select>
               <input type="text" id="sale-category-custom" placeholder="導線を入力..." style="display:none;margin-top:6px;" oninput="previewSaleReport()">
             </div>
@@ -570,7 +561,12 @@
             </div>
             <div class="form-group">
               <label>商品</label>
-              <input type="text" id="sale-product" placeholder="商品名" oninput="previewSaleReport()">
+              <!-- 商品プルダウン（updateProductSelect()で動的生成） -->
+              <select id="sale-product" onchange="previewSaleReport();toggleProductCustom()">
+                <option value="">商品を選択</option>
+              </select>
+              <!-- その他選択時の自由入力欄 -->
+              <input type="text" id="sale-product-custom" placeholder="商品名を入力..." style="display:none;margin-top:6px;" oninput="previewSaleReport()">
             </div>
             <div class="form-group">
               <label>売上金額 (円)</label>
@@ -760,6 +756,53 @@
       <div class="card">
         <div class="card-title">メンバー一覧</div>
         <div id="member-list"></div>
+      </div>
+    </div>
+
+    <!-- 項目設定 -->
+    <div id="page-item-settings" class="page">
+      <div class="page-header">
+        <h2>項目設定</h2>
+        <p>商品・動線などのデータ項目を管理します</p>
+      </div>
+      <div style="max-width:800px;display:flex;flex-direction:column;gap:24px;">
+
+        <!-- タブ切り替え -->
+        <div style="display:flex;gap:8px;border-bottom:2px solid var(--border);padding-bottom:0;">
+          <button onclick="showItemTab('products')" id="item-tab-products" style="padding:10px 20px;border:none;border-bottom:3px solid var(--primary);background:none;color:var(--primary);font-weight:700;cursor:pointer;font-size:14px;">商品管理</button>
+          <button onclick="showItemTab('routes')" id="item-tab-routes" style="padding:10px 20px;border:none;border-bottom:3px solid transparent;background:none;color:var(--text-muted);cursor:pointer;font-size:14px;">動線管理</button>
+        </div>
+
+        <!-- 商品管理パネル -->
+        <div id="item-panel-products">
+          <div style="background:white;border-radius:12px;border:1px solid var(--border);padding:20px;">
+            <h3 style="margin:0 0 16px;font-size:16px;">商品一覧</h3>
+            <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
+              <select id="new-product-group" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;min-width:160px;">
+              </select>
+              <input type="text" id="new-product-name" placeholder="商品名を入力" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;flex:1;min-width:180px;">
+              <input type="text" id="new-product-group-custom" placeholder="新グループ名（任意）" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;min-width:140px;display:none;">
+              <button onclick="addProduct()" style="padding:8px 16px;background:var(--primary);color:white;border:none;border-radius:8px;cursor:pointer;font-size:14px;white-space:nowrap;">＋ 追加</button>
+            </div>
+            <div id="products-list"></div>
+          </div>
+        </div>
+
+        <!-- 動線管理パネル -->
+        <div id="item-panel-routes" style="display:none;">
+          <div style="background:white;border-radius:12px;border:1px solid var(--border);padding:20px;">
+            <h3 style="margin:0 0 16px;font-size:16px;">動線一覧</h3>
+            <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
+              <select id="new-route-group" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;min-width:120px;">
+              </select>
+              <input type="text" id="new-route-name" placeholder="動線名を入力" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;flex:1;min-width:180px;">
+              <input type="text" id="new-route-group-custom" placeholder="新グループ名（任意）" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;min-width:140px;display:none;">
+              <button onclick="addRoute()" style="padding:8px 16px;background:var(--primary);color:white;border:none;border-radius:8px;cursor:pointer;font-size:14px;white-space:nowrap;">＋ 追加</button>
+            </div>
+            <div id="routes-list"></div>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -1143,7 +1186,9 @@ let data = {
   teamVision: '',
   projects: [],
   teamTasks: [],
-  dailyReports: []
+  dailyReports: [],
+  products: [],  // 商品マスター
+  routes: []     // 動線マスター
 };
 
 function saveData() {
@@ -1165,6 +1210,69 @@ const DEFAULT_MEMBERS = [
   { id: 'default-m10', name: '増井優太',   role: '営業担当', color: '#84cc16' },
 ];
 
+// ==================== デフォルト商品マスター ====================
+const DEFAULT_PRODUCTS = [
+  { group: 'Amazon',           name: 'Amazon55万（プライベートコース）' },
+  { group: 'Amazon',           name: 'Amazon77万（プライベートコース）' },
+  { group: 'Amazon',           name: 'Amazon99万（プライベートコース）' },
+  { group: 'ebay',             name: 'eBay55万（プライベートコース）' },
+  { group: 'ebay',             name: 'eBay77万（プライベートコース）' },
+  { group: 'ebay',             name: 'eBay99万（プライベートコース）' },
+  { group: 'アパレル',          name: 'アパレル55万（プライベートコース）' },
+  { group: 'アパレル',          name: 'アパレル77万（プライベートコース）' },
+  { group: 'アパレル',          name: 'アパレル99万（プライベートコース）' },
+  { group: 'ハイブランド卸',    name: 'ハイブランド卸55万' },
+  { group: 'ハイブランド卸',    name: 'ハイブランド卸77万' },
+  { group: 'ハイブランド卸',    name: 'ハイブランド卸99万' },
+  { group: 'ADD×ONE',          name: 'ADD×ONE55万（ベーシック）' },
+  { group: 'ADD×ONE',          name: 'ADD×ONE99万（プロ）' },
+  { group: 'ADD×ONE',          name: 'ADD×ONE165万（マスター）' },
+  { group: 'ADD×ONE',          name: 'ADD×ONE330万（プラチナ）' },
+  { group: 'ADD×ONE',          name: 'ADD×ONE550万（事業構築）' },
+  { group: 'AI ONE',           name: 'AI ONE29.8万' },
+  { group: 'AI ONE',           name: 'AI ONE59.8万' },
+  { group: 'AI ONE',           name: 'AI ONE99万' },
+  { group: 'AI ONE',           name: 'AI ONE330万（エグゼクティブ）' },
+  { group: 'AI SNSコンサル',    name: 'AI SNSコンサル55万（ベーシック）' },
+  { group: 'AI SNSコンサル',    name: 'AI SNSコンサル99万（プロ）' },
+  { group: 'AI SNSコンサル',    name: 'AI SNSコンサル165万（マスター）' },
+  { group: 'AI SNSコンサル',    name: 'AI SNSコンサル330万（プラチナ）' },
+  { group: 'AI SNSコンサル',    name: 'AI SNSコンサル550万（プラチナ）' },
+  { group: 'AI SNSコンサル (UP)', name: 'AI SNSコンサル44万（プロUP）' },
+  { group: 'AI SNSコンサル (UP)', name: 'AI SNSコンサル66万（マスターUP）' },
+  { group: 'AI SNSコンサル (UP)', name: 'AI SNSコンサル110万（マスターUP）' },
+  { group: 'AI SNSコンサル (UP)', name: 'AI SNSコンサル165万（プラチナUP）' },
+  { group: 'AI SNSコンサル (UP)', name: 'AI SNSコンサル231万（プラチナUP）' },
+  { group: 'AI SNSコンサル (UP)', name: 'AI SNSコンサル275万（プラチナUP）' },
+  { group: 'AIアフィ',          name: 'AIアフィ55万（ライト）' },
+  { group: 'AIアフィ',          name: 'AIアフィ77万（レギュラー）' },
+  { group: 'AIアフィ',          name: 'AIアフィ99万（ロイヤル）' },
+  { group: 'プレミアム',         name: 'プレミアム165万' },
+  { group: 'プレミアム',         name: 'プレミアム231万' },
+  { group: 'プレミアム (UP)',    name: 'プレミアム99万（UP）' },
+  { group: 'プレミアム (UP)',    name: 'プレミアム110万（UP）' },
+  { group: 'プレミアム (UP)',    name: 'プレミアム132万（UP）' },
+  { group: '高回転トレンドコンサル', name: '高回転トレンド77万（ベーシック）' },
+  { group: '高回転トレンドコンサル', name: '高回転トレンド99万（スタンダード）' },
+  { group: '高回転トレンドコンサル', name: '高回転トレンド165万（プレミアム）' },
+  { group: '物販ONE',           name: '物販ONE165万（プラチナUP）' },
+  { group: '物販ONE',           name: '物販ONE231万（プラチナUP）' },
+  { group: '物販ONE',           name: '物販ONE275万（プラチナUP）' },
+  { group: '物販ONE',           name: '物販ONE330万（プラチナ）' },
+];
+
+// ==================== デフォルト動線マスター ====================
+const DEFAULT_ROUTES = [
+  { group: '物販', name: '個別相談(物販)' },
+  { group: '物販', name: '広告(物販)' },
+  { group: '物販', name: '磯貝さんSNS(物販)' },
+  { group: '物販', name: 'かずさんSNS(物販)' },
+  { group: 'AI',   name: '個別相談(AI)' },
+  { group: 'AI',   name: '広告(AI)' },
+  { group: 'AI',   name: 'かずさんSNS(AI)' },
+  { group: 'AI',   name: '美奈子さんSNS(AI)' },
+];
+
 function loadData() {
   const saved = localStorage.getItem('sales-manager-data');
   if (saved) {
@@ -1176,6 +1284,14 @@ function loadData() {
   // メンバーが未登録の場合はデフォルトメンバーで初期化
   if (!data.members || data.members.length === 0) {
     data.members = DEFAULT_MEMBERS.map(m => ({ ...m }));
+  }
+  // 商品マスターが未登録の場合はデフォルト商品で初期化
+  if (!data.products || data.products.length === 0) {
+    data.products = DEFAULT_PRODUCTS.map(p => ({ ...p }));
+  }
+  // 動線マスターが未登録の場合はデフォルト動線で初期化
+  if (!data.routes || data.routes.length === 0) {
+    data.routes = DEFAULT_ROUTES.map(r => ({ ...r }));
   }
   // IDに小数点が含まれている場合に修正（旧バグのマイグレーション）
   const fixId = id => String(id).replace('.', '');
@@ -1217,8 +1333,9 @@ function showPage(page) {
   if (page === 'seminar') renderSeminarPage();
   if (page === 'projects') renderProjects();
   if (page === 'teamtasks') renderTeamTasks();
-
   if (page === 'settings') renderSettings();
+  // 項目設定ページ：商品タブを初期表示
+  if (page === 'item-settings') showItemTab('products');
 }
 
 function showTab(tab) {
@@ -1332,6 +1449,78 @@ function updateMemberSelects() {
     const firstOpt = id === 'filter-member' ? '<option value="">全員</option>' : '<option value="">選択してください</option>';
     el.innerHTML = firstOpt + data.members.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
   });
+  // メンバーセレクト更新のついでに商品・動線セレクトも更新
+  updateProductSelect();
+  updateRouteSelect();
+}
+
+// ==================== 商品セレクト更新 ====================
+function updateProductSelect() {
+  const sel = document.getElementById('sale-product');
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">商品を選択</option>';
+  // グループ別にoptgroupを生成
+  const groups = {};
+  (data.products || []).forEach(p => {
+    if (!groups[p.group]) groups[p.group] = [];
+    groups[p.group].push(p.name);
+  });
+  Object.entries(groups).forEach(([grp, names]) => {
+    const og = document.createElement('optgroup');
+    og.label = '── ' + grp + ' ──';
+    names.forEach(n => {
+      const o = document.createElement('option');
+      o.value = n; o.textContent = n;
+      og.appendChild(o);
+    });
+    sel.appendChild(og);
+  });
+  // その他（自由入力）オプション
+  const other = document.createElement('option');
+  other.value = 'その他'; other.textContent = 'その他（自由入力）';
+  sel.appendChild(other);
+  // 以前の選択値を維持
+  if (current) sel.value = current;
+}
+
+// 商品欄で「その他」を選んだ時に自由入力欄を表示/非表示切り替え
+function toggleProductCustom() {
+  const sel = document.getElementById('sale-product');
+  const inp = document.getElementById('sale-product-custom');
+  if (!sel || !inp) return;
+  inp.style.display = sel.value === 'その他' ? '' : 'none';
+  if (sel.value !== 'その他') inp.value = '';
+}
+
+// ==================== 動線セレクト更新 ====================
+function updateRouteSelect() {
+  const sel = document.getElementById('sale-category');
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">なし</option>';
+  // グループ別にoptgroupを生成
+  const groups = {};
+  (data.routes || []).forEach(r => {
+    if (!groups[r.group]) groups[r.group] = [];
+    groups[r.group].push(r.name);
+  });
+  Object.entries(groups).forEach(([grp, names]) => {
+    const og = document.createElement('optgroup');
+    og.label = '── ' + grp + ' ──';
+    names.forEach(n => {
+      const o = document.createElement('option');
+      o.value = n; o.textContent = n;
+      og.appendChild(o);
+    });
+    sel.appendChild(og);
+  });
+  // その他（自由入力）オプション
+  const other = document.createElement('option');
+  other.value = 'その他'; other.textContent = 'その他（自由入力）';
+  sel.appendChild(other);
+  // 以前の選択値を維持
+  if (current) sel.value = current;
 }
 
 // ==================== SALES ====================
@@ -1343,7 +1532,10 @@ function buildSaleReportMsg() {
   const category  = getSaleCategory();
   const lineName  = document.getElementById('sale-linename')?.value.trim() || '';
   const result    = document.getElementById('sale-result')?.value || '';
-  const product   = document.getElementById('sale-product')?.value.trim() || '';
+  // 商品：「その他」選択時は自由入力欄の値を使う
+  const product = document.getElementById('sale-product')?.value === 'その他'
+    ? (document.getElementById('sale-product-custom')?.value || '')
+    : (document.getElementById('sale-product')?.value || '');
   const amount    = parseInt(document.getElementById('sale-amount')?.value) || 0;
   const payment   = parseInt(document.getElementById('sale-payment')?.value) || 0;
   const paymentDate = document.getElementById('sale-payment-date')?.value || '';
@@ -1473,7 +1665,11 @@ function addSale() {
   const category  = getSaleCategory();
   const lineName  = document.getElementById('sale-linename').value.trim();
   const result    = document.getElementById('sale-result').value;
-  const product   = document.getElementById('sale-product').value.trim();
+  // 商品：「その他」選択時は自由入力欄の値を使う
+  const productSel = document.getElementById('sale-product');
+  const product = productSel.value === 'その他'
+    ? (document.getElementById('sale-product-custom')?.value.trim() || '')
+    : (productSel.value || '');
   const note      = document.getElementById('sale-note').value.trim();
   const recording = document.getElementById('sale-recording').value.trim();
   const time      = document.getElementById('sale-time').value;
@@ -1543,7 +1739,12 @@ function addSale() {
     });
 
   // フォームリセット
-  ['sale-linename','sale-note','sale-recording','sale-product'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+  ['sale-linename','sale-note','sale-recording'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+  // 商品セレクトと自由入力欄を個別にリセット
+  const prodSel = document.getElementById('sale-product');
+  if (prodSel) prodSel.value = '';
+  const prodCustom = document.getElementById('sale-product-custom');
+  if (prodCustom) { prodCustom.value = ''; prodCustom.style.display = 'none'; }
   ['sale-amount','sale-payment'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
   document.getElementById('sale-payment-date').value = '';
   document.getElementById('sale-result').value = '未成約';
@@ -3815,6 +4016,139 @@ document.getElementById('loading-overlay').style.display = 'none';
 setInterval(() => syncFromSheet(), 5 * 60 * 1000);
 // ページ読み込み時に即時同期
 syncFromSheet();
+
+// ==================== 項目設定ページ ====================
+
+// タブ切り替え（商品 / 動線）
+function showItemTab(tab) {
+  ['products', 'routes'].forEach(t => {
+    document.getElementById('item-panel-' + t).style.display = t === tab ? '' : 'none';
+    const btn = document.getElementById('item-tab-' + t);
+    btn.style.borderBottom = t === tab ? '3px solid var(--primary)' : '3px solid transparent';
+    btn.style.color = t === tab ? 'var(--primary)' : 'var(--text-muted)';
+    btn.style.fontWeight = t === tab ? '700' : '400';
+  });
+  if (tab === 'products') renderProductsList();
+  if (tab === 'routes') renderRoutesList();
+}
+
+// 商品一覧のレンダリング
+function renderProductsList() {
+  const el = document.getElementById('products-list');
+  if (!el) return;
+  // グループ選択セレクトを更新
+  const grpSel = document.getElementById('new-product-group');
+  if (grpSel) {
+    const groups = [...new Set((data.products || []).map(p => p.group))];
+    grpSel.innerHTML = groups.map(g => `<option value="${g}">${g}</option>`).join('') + '<option value="__new__">＋ 新しいグループ</option>';
+    grpSel.onchange = () => {
+      const custom = document.getElementById('new-product-group-custom');
+      if (custom) custom.style.display = grpSel.value === '__new__' ? '' : 'none';
+    };
+  }
+  // グループ別に商品一覧を表示
+  const groups = {};
+  (data.products || []).forEach((p, i) => {
+    if (!groups[p.group]) groups[p.group] = [];
+    groups[p.group].push({ ...p, idx: i });
+  });
+  el.innerHTML = Object.entries(groups).map(([grp, items]) => `
+    <div style="margin-bottom:16px;">
+      <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:6px;padding:4px 8px;background:#f8fafc;border-radius:6px;">${grp}</div>
+      ${items.map(item => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);">
+          <span style="font-size:14px;">${item.name}</span>
+          <button onclick="deleteProduct(${item.idx})" style="background:none;border:1px solid #ef4444;color:#ef4444;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;">削除</button>
+        </div>
+      `).join('')}
+    </div>
+  `).join('');
+}
+
+// 商品を追加
+function addProduct() {
+  const grpSel = document.getElementById('new-product-group');
+  const nameInp = document.getElementById('new-product-name');
+  const customGrp = document.getElementById('new-product-group-custom');
+  const group = grpSel.value === '__new__' ? (customGrp?.value.trim() || '') : grpSel.value;
+  const name = nameInp?.value.trim();
+  if (!group || !name) { alert('グループ名と商品名を入力してください'); return; }
+  if (!data.products) data.products = [];
+  data.products.push({ group, name });
+  saveData();
+  updateProductSelect();
+  if (nameInp) nameInp.value = '';
+  if (customGrp) { customGrp.value = ''; customGrp.style.display = 'none'; }
+  renderProductsList();
+}
+
+// 商品を削除
+function deleteProduct(idx) {
+  if (!confirm('この商品を削除しますか？')) return;
+  data.products.splice(idx, 1);
+  saveData();
+  updateProductSelect();
+  renderProductsList();
+}
+
+// 動線一覧のレンダリング
+function renderRoutesList() {
+  const el = document.getElementById('routes-list');
+  if (!el) return;
+  // グループ選択セレクトを更新
+  const grpSel = document.getElementById('new-route-group');
+  if (grpSel) {
+    const groups = [...new Set((data.routes || []).map(r => r.group))];
+    grpSel.innerHTML = groups.map(g => `<option value="${g}">${g}</option>`).join('') + '<option value="__new__">＋ 新しいグループ</option>';
+    grpSel.onchange = () => {
+      const custom = document.getElementById('new-route-group-custom');
+      if (custom) custom.style.display = grpSel.value === '__new__' ? '' : 'none';
+    };
+  }
+  // グループ別に動線一覧を表示
+  const groups = {};
+  (data.routes || []).forEach((r, i) => {
+    if (!groups[r.group]) groups[r.group] = [];
+    groups[r.group].push({ ...r, idx: i });
+  });
+  el.innerHTML = Object.entries(groups).map(([grp, items]) => `
+    <div style="margin-bottom:16px;">
+      <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:6px;padding:4px 8px;background:#f8fafc;border-radius:6px;">${grp}</div>
+      ${items.map(item => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);">
+          <span style="font-size:14px;">${item.name}</span>
+          <button onclick="deleteRoute(${item.idx})" style="background:none;border:1px solid #ef4444;color:#ef4444;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;">削除</button>
+        </div>
+      `).join('')}
+    </div>
+  `).join('');
+}
+
+// 動線を追加
+function addRoute() {
+  const grpSel = document.getElementById('new-route-group');
+  const nameInp = document.getElementById('new-route-name');
+  const customGrp = document.getElementById('new-route-group-custom');
+  const group = grpSel.value === '__new__' ? (customGrp?.value.trim() || '') : grpSel.value;
+  const name = nameInp?.value.trim();
+  if (!group || !name) { alert('グループ名と動線名を入力してください'); return; }
+  if (!data.routes) data.routes = [];
+  data.routes.push({ group, name });
+  saveData();
+  updateRouteSelect();
+  if (nameInp) nameInp.value = '';
+  if (customGrp) { customGrp.value = ''; customGrp.style.display = 'none'; }
+  renderRoutesList();
+}
+
+// 動線を削除
+function deleteRoute(idx) {
+  if (!confirm('この動線を削除しますか？')) return;
+  data.routes.splice(idx, 1);
+  saveData();
+  updateRouteSelect();
+  renderRoutesList();
+}
 </script>
 </body>
 </html>
