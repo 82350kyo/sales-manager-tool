@@ -1152,6 +1152,19 @@ function saveData() {
 
 const MEMBER_ORDER = ['岡崎', '廣瀬', '木元', '的場', '西澤', '山本', '円石', '若松', '與田', '大槻', '増井'];
 
+const DEFAULT_MEMBERS = [
+  { id: 'default-m1',  name: '岡崎隆之介', role: '営業担当', color: '#4f46e5' },
+  { id: 'default-m2',  name: '廣瀬敬梧',   role: '営業担当', color: '#06b6d4' },
+  { id: 'default-m3',  name: '木元勇太',   role: '営業担当', color: '#f59e0b' },
+  { id: 'default-m4',  name: '的場祐哉',   role: '営業担当', color: '#ec4899' },
+  { id: 'default-m5',  name: '西澤響',     role: '営業担当', color: '#8b5cf6' },
+  { id: 'default-m6',  name: '山本晶大',   role: '営業担当', color: '#ef4444' },
+  { id: 'default-m7',  name: '円石裕子',   role: '営業担当', color: '#f97316' },
+  { id: 'default-m8',  name: '與田由美',   role: '営業担当', color: '#10b981' },
+  { id: 'default-m9',  name: '大槻健太',   role: '営業担当', color: '#6366f1' },
+  { id: 'default-m10', name: '増井優太',   role: '営業担当', color: '#84cc16' },
+];
+
 function loadData() {
   const saved = localStorage.getItem('sales-manager-data');
   if (saved) {
@@ -1159,6 +1172,10 @@ function loadData() {
       const parsed = JSON.parse(saved);
       data = { ...data, ...parsed };
     } catch(e) {}
+  }
+  // メンバーが未登録の場合はデフォルトメンバーで初期化
+  if (!data.members || data.members.length === 0) {
+    data.members = DEFAULT_MEMBERS.map(m => ({ ...m }));
   }
   // IDに小数点が含まれている場合に修正（旧バグのマイグレーション）
   const fixId = id => String(id).replace('.', '');
