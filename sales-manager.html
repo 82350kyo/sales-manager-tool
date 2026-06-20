@@ -3774,6 +3774,8 @@ document.getElementById('loading-overlay').style.display = 'none';
 
 // 5分ごとに自動同期
 setInterval(() => syncFromSheet(), 5 * 60 * 1000);
+// ページ読み込み時に即時同期
+syncFromSheet();
 </script>
 </body>
 </html>
