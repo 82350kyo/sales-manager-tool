@@ -64,6 +64,7 @@ function writeToSheet(d) {
     ci.approachMonths || '',                   // アプローチ目安
     ci.nextApproachDate || '',                 // 次回アプローチ予定日
     ci.customerMemo || ci.secondNote || '',    // 備考／所感
+    Number(d.additionalAmount) || 0,           // 追加決済額
   ];
   // 末尾に追加してからタイムスタンプ降順でソート（最新が常に一番上）
   sheet.appendRow(row);

@@ -576,6 +576,10 @@
               <label>着金金額 (円)</label>
               <input type="number" id="sale-payment" placeholder="0" min="0" oninput="previewSaleReport()">
             </div>
+            <div class="form-group" id="additional-amount-row" style="display:none;">
+              <label style="color:#7c3aed;font-weight:700;">追加決済額 (円)</label>
+              <input type="number" id="sale-additional-amount" placeholder="0" min="0" oninput="previewSaleReport()">
+            </div>
             <div class="form-group">
               <label>着金日</label>
               <input type="date" id="sale-payment-date" oninput="previewSaleReport()">
@@ -1611,6 +1615,8 @@ function updateCustomerInfoSection() {
   section.style.display = (isContract || isNonContract) ? 'block' : 'none';
   contractBox.style.display = isContract ? 'block' : 'none';
   nonContractBox.style.display = isNonContract ? 'block' : 'none';
+  const addRow = document.getElementById('additional-amount-row');
+  if (addRow) addRow.style.display = result === '追加決済' ? '' : 'none';
 }
 
 function calcNextApproachDate() {
@@ -1688,6 +1694,7 @@ function addSale() {
   const note      = document.getElementById('sale-note').value.trim();
   const recording = document.getElementById('sale-recording').value.trim();
   const time      = document.getElementById('sale-time').value;
+  const additionalAmount = result === '追加決済' ? (parseInt(document.getElementById('sale-additional-amount')?.value) || 0) : 0;
 
   if (!date) { showAlert('sales-alert', 'error', '日付を入力してください'); return; }
   if (!memberId) { showAlert('sales-alert', 'error', '担当者を選択してください'); return; }
@@ -1714,7 +1721,7 @@ function addSale() {
     customerInfo.secondNote = document.getElementById('sale-second-note')?.value.trim() || '';
   }
 
-  data.sales.push({ id, date, time, memberId, amount, payment, paymentDate, category, result, note: lineName, memo: note, product, recording, source: 'local', customerInfo, ...(rowType ? { rowType } : {}) });
+  data.sales.push({ id, date, time, memberId, amount, payment, paymentDate, category, result, note: lineName, memo: note, product, recording, source: 'local', customerInfo, additionalAmount, ...(rowType ? { rowType } : {}) });
   data.sales.sort((a,b) => b.date.localeCompare(a.date));
   saveData();
 
@@ -1737,7 +1744,8 @@ function addSale() {
     paymentDate,
     note,
     recording,
-    customerInfo  // 顧客情報（アップセル見込み・断り理由・資金状況等）をGASへ送信
+    additionalAmount,
+    customerInfo
   };
   
   fetch(GAS_URL + '?payload=' + encodeURIComponent(JSON.stringify(payload)))
@@ -1764,7 +1772,7 @@ function addSale() {
   if (prodSel) prodSel.value = '';
   const prodCustom = document.getElementById('sale-product-custom');
   if (prodCustom) { prodCustom.value = ''; prodCustom.style.display = 'none'; }
-  ['sale-amount','sale-payment'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+  ['sale-amount','sale-payment','sale-additional-amount'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
   document.getElementById('sale-payment-date').value = '';
   document.getElementById('sale-result').value = '未成約';
   document.getElementById('sale-time').value = '';
@@ -2067,16 +2075,32 @@ function prepareInstallment(id) {
   const s = data.sales.find(s => String(s.id) === String(id));
   if (!s) return;
   document.getElementById('sale-member').value = s.memberId;
-  document.getElementById('sale-category').value = s.category || ''; 
-  document.getElementById('sale-linename').value = s.note || ''; 
-  document.getElementById('sale-product').value = s.product || '';
+  document.getElementById('sale-category').value = s.category || '';
+  document.getElementById('sale-linename').value = s.note || '';
   document.getElementById('sale-result').value = '追加決済';
-  document.getElementById('sale-amount').value = 0;
-  document.getElementById('sale-payment').value = '';
+  // 商品を元の売上と同じものに自動選択
+  const prodSel = document.getElementById('sale-product');
+  const prodExists = [...(prodSel?.options || [])].some(o => o.value === (s.product || ''));
+  if (prodExists) {
+    prodSel.value = s.product || '';
+    const customInp = document.getElementById('sale-product-custom');
+    if (customInp) { customInp.value = ''; customInp.style.display = 'none'; }
+  } else {
+    prodSel.value = 'その他';
+    const customInp = document.getElementById('sale-product-custom');
+    if (customInp) { customInp.value = s.product || ''; customInp.style.display = ''; }
+  }
+  // 売上金額・着金金額を元の売上から自動入力
+  document.getElementById('sale-amount').value = s.amount || 0;
+  document.getElementById('sale-payment').value = s.payment || 0;
+  // 追加決済額は空欄にして手入力させる
+  const addAmtEl = document.getElementById('sale-additional-amount');
+  if (addAmtEl) addAmtEl.value = '';
   const now = new Date();
   document.getElementById('sale-date').value = now.toISOString().split('T')[0];
   // 現在時刻を30分刻みに丸めてselectにセット
   document.getElementById('sale-time').value = snapTimeToHalf(now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0'));
+  updateCustomerInfoSection();
   if (typeof previewSaleReport === 'function') previewSaleReport();
   const header = document.getElementById('installment-header');
   const nameEl = document.getElementById('installment-customer-name');
