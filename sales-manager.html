@@ -562,7 +562,7 @@
             <div class="form-group">
               <label>商品</label>
               <!-- 商品プルダウン（updateProductSelect()で動的生成） -->
-              <select id="sale-product" onchange="previewSaleReport();toggleProductCustom()">
+              <select id="sale-product" onchange="previewSaleReport();toggleProductCustom();autoFillProductAmount()">
                 <option value="">商品を選択</option>
               </select>
               <!-- その他選択時の自由入力欄 -->
@@ -1160,7 +1160,8 @@
       <option value="クーリングオフ">クーリングオフ</option>
     </select>
     <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;font-weight:700;">商品名</div>
-    <input type="text" id="sale-edit-product" style="width:100%;font-size:15px;padding:12px;border-radius:12px;border:1.5px solid var(--border);margin-bottom:15px;">
+    <select id="sale-edit-product" onchange="autoFillEditProductAmount()" style="width:100%;font-size:15px;padding:12px;border-radius:12px;border:1.5px solid var(--border);margin-bottom:8px;background:var(--surface2);"></select>
+    <input type="text" id="sale-edit-product-custom" placeholder="商品名を入力（その他の場合）" style="display:none;width:100%;font-size:15px;padding:12px;border-radius:12px;border:1.5px solid var(--border);margin-bottom:15px;">
     <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;font-weight:700;">売上金額 (円)</div>
     <input type="number" id="sale-edit-amount" style="width:100%;font-size:15px;padding:12px;border-radius:12px;border:1.5px solid var(--border);margin-bottom:15px;">
     <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;font-weight:700;">着金 (円)</div>
@@ -1212,53 +1213,53 @@ const DEFAULT_MEMBERS = [
 
 // ==================== デフォルト商品マスター ====================
 const DEFAULT_PRODUCTS = [
-  { group: 'Amazon',           name: 'Amazon55万（プライベートコース）' },
-  { group: 'Amazon',           name: 'Amazon77万（プライベートコース）' },
-  { group: 'Amazon',           name: 'Amazon99万（プライベートコース）' },
-  { group: 'ebay',             name: 'eBay55万（プライベートコース）' },
-  { group: 'ebay',             name: 'eBay77万（プライベートコース）' },
-  { group: 'ebay',             name: 'eBay99万（プライベートコース）' },
-  { group: 'アパレル',          name: 'アパレル55万（プライベートコース）' },
-  { group: 'アパレル',          name: 'アパレル77万（プライベートコース）' },
-  { group: 'アパレル',          name: 'アパレル99万（プライベートコース）' },
-  { group: 'ハイブランド卸',    name: 'ハイブランド卸55万' },
-  { group: 'ハイブランド卸',    name: 'ハイブランド卸77万' },
-  { group: 'ハイブランド卸',    name: 'ハイブランド卸99万' },
-  { group: 'ADD×ONE',          name: 'ADD×ONE55万（ベーシック）' },
-  { group: 'ADD×ONE',          name: 'ADD×ONE99万（プロ）' },
-  { group: 'ADD×ONE',          name: 'ADD×ONE165万（マスター）' },
-  { group: 'ADD×ONE',          name: 'ADD×ONE330万（プラチナ）' },
-  { group: 'ADD×ONE',          name: 'ADD×ONE550万（事業構築）' },
-  { group: 'AI ONE',           name: 'AI ONE29.8万' },
-  { group: 'AI ONE',           name: 'AI ONE59.8万' },
-  { group: 'AI ONE',           name: 'AI ONE99万' },
-  { group: 'AI ONE',           name: 'AI ONE330万（エグゼクティブ）' },
-  { group: 'AI SNSコンサル',    name: 'AI SNSコンサル55万（ベーシック）' },
-  { group: 'AI SNSコンサル',    name: 'AI SNSコンサル99万（プロ）' },
-  { group: 'AI SNSコンサル',    name: 'AI SNSコンサル165万（マスター）' },
-  { group: 'AI SNSコンサル',    name: 'AI SNSコンサル330万（プラチナ）' },
-  { group: 'AI SNSコンサル',    name: 'AI SNSコンサル550万（プラチナ）' },
-  { group: 'AI SNSコンサル (UP)', name: 'AI SNSコンサル44万（プロUP）' },
-  { group: 'AI SNSコンサル (UP)', name: 'AI SNSコンサル66万（マスターUP）' },
-  { group: 'AI SNSコンサル (UP)', name: 'AI SNSコンサル110万（マスターUP）' },
-  { group: 'AI SNSコンサル (UP)', name: 'AI SNSコンサル165万（プラチナUP）' },
-  { group: 'AI SNSコンサル (UP)', name: 'AI SNSコンサル231万（プラチナUP）' },
-  { group: 'AI SNSコンサル (UP)', name: 'AI SNSコンサル275万（プラチナUP）' },
-  { group: 'AIアフィ',          name: 'AIアフィ55万（ライト）' },
-  { group: 'AIアフィ',          name: 'AIアフィ77万（レギュラー）' },
-  { group: 'AIアフィ',          name: 'AIアフィ99万（ロイヤル）' },
-  { group: 'プレミアム',         name: 'プレミアム165万' },
-  { group: 'プレミアム',         name: 'プレミアム231万' },
-  { group: 'プレミアム (UP)',    name: 'プレミアム99万（UP）' },
-  { group: 'プレミアム (UP)',    name: 'プレミアム110万（UP）' },
-  { group: 'プレミアム (UP)',    name: 'プレミアム132万（UP）' },
+  { group: 'Amazon',              name: 'Amazonプライベート55万' },
+  { group: 'Amazon',              name: 'Amazonプライベート77万' },
+  { group: 'Amazon',              name: 'Amazonプライベート99万' },
+  { group: 'ebay',                name: 'eBayプライベート55万' },
+  { group: 'ebay',                name: 'eBayプライベート77万' },
+  { group: 'ebay',                name: 'eBayプライベート99万' },
+  { group: 'アパレル',             name: 'アパレルプライベート55万' },
+  { group: 'アパレル',             name: 'アパレルプライベート77万' },
+  { group: 'アパレル',             name: 'アパレルプライベート99万' },
+  { group: 'ハイブランド卸',       name: 'ハイブランド卸55万' },
+  { group: 'ハイブランド卸',       name: 'ハイブランド卸77万' },
+  { group: 'ハイブランド卸',       name: 'ハイブランド卸99万' },
+  { group: 'アドワン',             name: 'アドワンベーシック55万' },
+  { group: 'アドワン',             name: 'アドワンプロ99万' },
+  { group: 'アドワン',             name: 'アドワンマスター165万' },
+  { group: 'アドワン',             name: 'アドワンプラチナ330万' },
+  { group: 'アドワン',             name: 'アドワン事業構築550万' },
+  { group: 'AI ONE',              name: 'AI ONE29.8万' },
+  { group: 'AI ONE',              name: 'AI ONE59.8万' },
+  { group: 'AI ONE',              name: 'AI ONE99万' },
+  { group: 'AI ONE',              name: 'AI ONE330万（エグゼクティブ）' },
+  { group: 'AI SNSコンサル',       name: 'AI SNSコンサル55万（ベーシック）' },
+  { group: 'AI SNSコンサル',       name: 'AI SNSコンサル99万（プロ）' },
+  { group: 'AI SNSコンサル',       name: 'AI SNSコンサル165万（マスター）' },
+  { group: 'AI SNSコンサル',       name: 'AI SNSコンサル330万（プラチナ）' },
+  { group: 'AI SNSコンサル',       name: 'AI SNSコンサル550万（プラチナ）' },
+  { group: 'AI SNSコンサルアップグレード', name: 'AI SNSコンサル44万（プロアップグレード）' },
+  { group: 'AI SNSコンサルアップグレード', name: 'AI SNSコンサル66万（マスターアップグレード）' },
+  { group: 'AI SNSコンサルアップグレード', name: 'AI SNSコンサル110万（マスターアップグレード）' },
+  { group: 'AI SNSコンサルアップグレード', name: 'AI SNSコンサル165万（プラチナアップグレード）' },
+  { group: 'AI SNSコンサルアップグレード', name: 'AI SNSコンサル231万（プラチナアップグレード）' },
+  { group: 'AI SNSコンサルアップグレード', name: 'AI SNSコンサル275万（プラチナアップグレード）' },
+  { group: 'AIアフィ',             name: 'AIアフィ55万（ライト）' },
+  { group: 'AIアフィ',             name: 'AIアフィ77万（レギュラー）' },
+  { group: 'AIアフィ',             name: 'AIアフィ99万（ロイヤル）' },
+  { group: 'プレミアム',            name: 'プレミアム165万' },
+  { group: 'プレミアム',            name: 'プレミアム231万' },
+  { group: 'プレミアムアップグレード', name: 'プレミアム99万（アップグレード）' },
+  { group: 'プレミアムアップグレード', name: 'プレミアム110万（アップグレード）' },
+  { group: 'プレミアムアップグレード', name: 'プレミアム132万（アップグレード）' },
   { group: '高回転トレンドコンサル', name: '高回転トレンド77万（ベーシック）' },
   { group: '高回転トレンドコンサル', name: '高回転トレンド99万（スタンダード）' },
   { group: '高回転トレンドコンサル', name: '高回転トレンド165万（プレミアム）' },
-  { group: '物販ONE',           name: '物販ONE165万（プラチナUP）' },
-  { group: '物販ONE',           name: '物販ONE231万（プラチナUP）' },
-  { group: '物販ONE',           name: '物販ONE275万（プラチナUP）' },
-  { group: '物販ONE',           name: '物販ONE330万（プラチナ）' },
+  { group: '物販ONE',              name: '物販ONE165万（プラチナアップグレード）' },
+  { group: '物販ONE',              name: '物販ONE231万（プラチナアップグレード）' },
+  { group: '物販ONE',              name: '物販ONE275万（プラチナアップグレード）' },
+  { group: '物販ONE',              name: '物販ONE330万（プラチナ）' },
 ];
 
 // ==================== デフォルト動線マスター ====================
@@ -1285,9 +1286,10 @@ function loadData() {
   if (!data.members || data.members.length === 0) {
     data.members = DEFAULT_MEMBERS.map(m => ({ ...m }));
   }
-  // 商品マスターが未登録の場合はデフォルト商品で初期化
-  if (!data.products || data.products.length === 0) {
+  // 商品マスターが未登録 or バージョン古い場合はデフォルト商品で初期化
+  if (!data.products || data.products.length === 0 || data.productsVersion !== 2) {
     data.products = DEFAULT_PRODUCTS.map(p => ({ ...p }));
+    data.productsVersion = 2;
   }
   // 動線マスターが未登録の場合はデフォルト動線で初期化
   if (!data.routes || data.routes.length === 0) {
@@ -1491,6 +1493,22 @@ function toggleProductCustom() {
   if (!sel || !inp) return;
   inp.style.display = sel.value === 'その他' ? '' : 'none';
   if (sel.value !== 'その他') inp.value = '';
+}
+
+// 商品名から価格を自動抽出（例：「Amazonプライベート55万」→550000）
+function extractPriceFromProduct(name) {
+  if (!name || name === 'その他') return null;
+  const m = String(name).match(/(\d+(?:\.\d+)?)万/);
+  return m ? Math.round(parseFloat(m[1]) * 10000) : null;
+}
+
+// 新規入力フォームで商品選択時に売上金額を自動入力
+function autoFillProductAmount() {
+  const sel = document.getElementById('sale-product');
+  const amountEl = document.getElementById('sale-amount');
+  if (!sel || !amountEl || amountEl.value > 0) return;
+  const price = extractPriceFromProduct(sel.value);
+  if (price) amountEl.value = price;
 }
 
 // ==================== 動線セレクト更新 ====================
@@ -2090,7 +2108,7 @@ function openSaleEditModal(id, event) {
   document.getElementById('sale-edit-id-display').textContent = 'ID: ' + String(id).split('|').pop();
   
   document.getElementById('sale-edit-result').value = s.result || '未成約';
-  document.getElementById('sale-edit-product').value = s.product || '';
+  updateEditProductSelect(s.product || '');
   document.getElementById('sale-edit-amount').value = s.amount || 0;
   document.getElementById('sale-edit-payment').value = Math.abs(s.payment || 0);
   document.getElementById('sale-edit-payment-date').value = s.paymentDate || '';
@@ -2104,6 +2122,54 @@ function closeSaleEditModal() {
   document.body.style.overflow = '';
 }
 
+// 編集モーダルの商品selectを更新し、currentProductを選択状態にする
+function updateEditProductSelect(currentProduct) {
+  const sel = document.getElementById('sale-edit-product');
+  const customEl = document.getElementById('sale-edit-product-custom');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">商品を選択</option>';
+  const groups = {};
+  (data.products || []).forEach(p => {
+    if (!groups[p.group]) groups[p.group] = [];
+    groups[p.group].push(p.name);
+  });
+  let found = false;
+  Object.entries(groups).forEach(([grp, names]) => {
+    const og = document.createElement('optgroup');
+    og.label = '── ' + grp + ' ──';
+    names.forEach(n => {
+      const o = document.createElement('option');
+      o.value = n; o.textContent = n;
+      og.appendChild(o);
+      if (n === currentProduct) found = true;
+    });
+    sel.appendChild(og);
+  });
+  const other = document.createElement('option');
+  other.value = 'その他'; other.textContent = 'その他（自由入力）';
+  sel.appendChild(other);
+  if (currentProduct) {
+    if (found) {
+      sel.value = currentProduct;
+      if (customEl) customEl.style.display = 'none';
+    } else {
+      sel.value = 'その他';
+      if (customEl) { customEl.style.display = ''; customEl.value = currentProduct; }
+    }
+  }
+}
+
+// 編集モーダルで商品選択時に売上金額を自動入力
+function autoFillEditProductAmount() {
+  const sel = document.getElementById('sale-edit-product');
+  const customEl = document.getElementById('sale-edit-product-custom');
+  const amountEl = document.getElementById('sale-edit-amount');
+  if (!sel) return;
+  if (customEl) customEl.style.display = sel.value === 'その他' ? '' : 'none';
+  const price = extractPriceFromProduct(sel.value);
+  if (price && amountEl) amountEl.value = price;
+}
+
 function saveResultChange() {
   try {
     const id = document.getElementById('sale-edit-id').value;
@@ -2111,7 +2177,10 @@ function saveResultChange() {
     if (!s) { alert('エラー: 対象のデータが見つかりませんでした (ID: ' + id + ')'); return; }
     
     const newResult  = document.getElementById('sale-edit-result')?.value;
-    const newProduct = document.getElementById('sale-edit-product')?.value?.trim();
+    const editProdSel = document.getElementById('sale-edit-product');
+    const newProduct = editProdSel?.value === 'その他'
+      ? (document.getElementById('sale-edit-product-custom')?.value?.trim() || '')
+      : (editProdSel?.value?.trim() || '');
     const newAmount  = parseInt(document.getElementById('sale-edit-amount')?.value) || 0;
     const newPayment = parseInt(document.getElementById('sale-edit-payment')?.value) || 0;
     const newPaymentDate = document.getElementById('sale-edit-payment-date')?.value || '';
@@ -4057,9 +4126,12 @@ function renderProductsList() {
     <div style="margin-bottom:16px;">
       <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:6px;padding:4px 8px;background:#f8fafc;border-radius:6px;">${grp}</div>
       ${items.map(item => `
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);">
-          <span style="font-size:14px;">${item.name}</span>
-          <button onclick="deleteProduct(${item.idx})" style="background:none;border:1px solid #ef4444;color:#ef4444;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;">削除</button>
+        <div id="product-row-${item.idx}" style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);">
+          <span id="product-name-${item.idx}" style="font-size:14px;flex:1;">${item.name}</span>
+          <div style="display:flex;gap:6px;margin-left:8px;flex-shrink:0;">
+            <button id="product-edit-btn-${item.idx}" onclick="startEditProduct(${item.idx})" style="background:none;border:1px solid var(--primary);color:var(--primary);border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;">修正</button>
+            <button onclick="deleteProduct(${item.idx})" style="background:none;border:1px solid #ef4444;color:#ef4444;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;">削除</button>
+          </div>
         </div>
       `).join('')}
     </div>
@@ -4092,6 +4164,29 @@ function deleteProduct(idx) {
   renderProductsList();
 }
 
+// 商品インライン編集を開始
+function startEditProduct(idx) {
+  const nameEl = document.getElementById('product-name-' + idx);
+  const btnEl = document.getElementById('product-edit-btn-' + idx);
+  if (!nameEl || !btnEl) return;
+  const current = (data.products[idx] || {}).name || '';
+  nameEl.innerHTML = `<input type="text" id="product-edit-input-${idx}" value="${current.replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}" style="font-size:14px;padding:4px 8px;border:1.5px solid var(--primary);border-radius:6px;width:100%;max-width:280px;">`;
+  btnEl.textContent = '保存';
+  btnEl.setAttribute('onclick', `saveEditProduct(${idx})`);
+}
+
+// 商品インライン編集を保存
+function saveEditProduct(idx) {
+  const input = document.getElementById('product-edit-input-' + idx);
+  if (!input) return;
+  const newName = input.value.trim();
+  if (!newName) return;
+  data.products[idx].name = newName;
+  saveData();
+  updateProductSelect();
+  renderProductsList();
+}
+
 // 動線一覧のレンダリング
 function renderRoutesList() {
   const el = document.getElementById('routes-list');
@@ -4116,9 +4211,12 @@ function renderRoutesList() {
     <div style="margin-bottom:16px;">
       <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:6px;padding:4px 8px;background:#f8fafc;border-radius:6px;">${grp}</div>
       ${items.map(item => `
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);">
-          <span style="font-size:14px;">${item.name}</span>
-          <button onclick="deleteRoute(${item.idx})" style="background:none;border:1px solid #ef4444;color:#ef4444;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;">削除</button>
+        <div id="route-row-${item.idx}" style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);">
+          <span id="route-name-${item.idx}" style="font-size:14px;flex:1;">${item.name}</span>
+          <div style="display:flex;gap:6px;margin-left:8px;flex-shrink:0;">
+            <button id="route-edit-btn-${item.idx}" onclick="startEditRoute(${item.idx})" style="background:none;border:1px solid var(--primary);color:var(--primary);border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;">修正</button>
+            <button onclick="deleteRoute(${item.idx})" style="background:none;border:1px solid #ef4444;color:#ef4444;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;">削除</button>
+          </div>
         </div>
       `).join('')}
     </div>
@@ -4146,6 +4244,29 @@ function addRoute() {
 function deleteRoute(idx) {
   if (!confirm('この動線を削除しますか？')) return;
   data.routes.splice(idx, 1);
+  saveData();
+  updateRouteSelect();
+  renderRoutesList();
+}
+
+// 動線インライン編集を開始
+function startEditRoute(idx) {
+  const nameEl = document.getElementById('route-name-' + idx);
+  const btnEl = document.getElementById('route-edit-btn-' + idx);
+  if (!nameEl || !btnEl) return;
+  const current = (data.routes[idx] || {}).name || '';
+  nameEl.innerHTML = `<input type="text" id="route-edit-input-${idx}" value="${current.replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}" style="font-size:14px;padding:4px 8px;border:1.5px solid var(--primary);border-radius:6px;width:100%;max-width:280px;">`;
+  btnEl.textContent = '保存';
+  btnEl.setAttribute('onclick', `saveEditRoute(${idx})`);
+}
+
+// 動線インライン編集を保存
+function saveEditRoute(idx) {
+  const input = document.getElementById('route-edit-input-' + idx);
+  if (!input) return;
+  const newName = input.value.trim();
+  if (!newName) return;
+  data.routes[idx].name = newName;
   saveData();
   updateRouteSelect();
   renderRoutesList();
