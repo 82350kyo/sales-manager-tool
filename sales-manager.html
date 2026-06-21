@@ -4122,9 +4122,12 @@ function renderProductsList() {
     if (!groups[p.group]) groups[p.group] = [];
     groups[p.group].push({ ...p, idx: i });
   });
-  el.innerHTML = Object.entries(groups).map(([grp, items]) => `
+  el.innerHTML = Object.entries(groups).map(([grp, items], grpIdx) => `
     <div style="margin-bottom:16px;">
-      <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:6px;padding:4px 8px;background:#f8fafc;border-radius:6px;">${grp}</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;padding:4px 8px;background:#f8fafc;border-radius:6px;">
+        <span id="product-grp-name-${grpIdx}" style="font-size:12px;font-weight:700;color:var(--text-muted);">${grp}</span>
+        <button id="product-grp-btn-${grpIdx}" onclick="startEditProductGroup(${grpIdx})" style="background:none;border:1px solid #94a3b8;color:#64748b;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px;">グループ名修正</button>
+      </div>
       ${items.map(item => `
         <div id="product-row-${item.idx}" style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);">
           <span id="product-name-${item.idx}" style="font-size:14px;flex:1;">${item.name}</span>
@@ -4159,6 +4162,31 @@ function addProduct() {
 function deleteProduct(idx) {
   if (!confirm('この商品を削除しますか？')) return;
   data.products.splice(idx, 1);
+  saveData();
+  updateProductSelect();
+  renderProductsList();
+}
+
+// グループ名インライン編集（商品）
+let _editProdGroups = {};
+function startEditProductGroup(grpIdx) {
+  const nameEl = document.getElementById('product-grp-name-' + grpIdx);
+  const btnEl  = document.getElementById('product-grp-btn-' + grpIdx);
+  if (!nameEl || !btnEl) return;
+  const current = nameEl.textContent.trim();
+  _editProdGroups[grpIdx] = current;
+  nameEl.innerHTML = `<input type="text" id="product-grp-input-${grpIdx}" value="${current.replace(/"/g,'&quot;')}" style="font-size:12px;padding:2px 6px;border:1.5px solid var(--primary);border-radius:4px;width:180px;">`;
+  btnEl.textContent = '保存';
+  btnEl.setAttribute('onclick', `saveEditProductGroup(${grpIdx})`);
+}
+function saveEditProductGroup(grpIdx) {
+  const input = document.getElementById('product-grp-input-' + grpIdx);
+  if (!input) return;
+  const newName = input.value.trim();
+  const oldName = _editProdGroups[grpIdx];
+  if (!newName || !oldName) return;
+  (data.products || []).forEach(p => { if (p.group === oldName) p.group = newName; });
+  delete _editProdGroups[grpIdx];
   saveData();
   updateProductSelect();
   renderProductsList();
@@ -4207,9 +4235,12 @@ function renderRoutesList() {
     if (!groups[r.group]) groups[r.group] = [];
     groups[r.group].push({ ...r, idx: i });
   });
-  el.innerHTML = Object.entries(groups).map(([grp, items]) => `
+  el.innerHTML = Object.entries(groups).map(([grp, items], grpIdx) => `
     <div style="margin-bottom:16px;">
-      <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:6px;padding:4px 8px;background:#f8fafc;border-radius:6px;">${grp}</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;padding:4px 8px;background:#f8fafc;border-radius:6px;">
+        <span id="route-grp-name-${grpIdx}" style="font-size:12px;font-weight:700;color:var(--text-muted);">${grp}</span>
+        <button id="route-grp-btn-${grpIdx}" onclick="startEditRouteGroup(${grpIdx})" style="background:none;border:1px solid #94a3b8;color:#64748b;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px;">グループ名修正</button>
+      </div>
       ${items.map(item => `
         <div id="route-row-${item.idx}" style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);">
           <span id="route-name-${item.idx}" style="font-size:14px;flex:1;">${item.name}</span>
@@ -4244,6 +4275,31 @@ function addRoute() {
 function deleteRoute(idx) {
   if (!confirm('この動線を削除しますか？')) return;
   data.routes.splice(idx, 1);
+  saveData();
+  updateRouteSelect();
+  renderRoutesList();
+}
+
+// グループ名インライン編集（動線）
+let _editRouteGroups = {};
+function startEditRouteGroup(grpIdx) {
+  const nameEl = document.getElementById('route-grp-name-' + grpIdx);
+  const btnEl  = document.getElementById('route-grp-btn-' + grpIdx);
+  if (!nameEl || !btnEl) return;
+  const current = nameEl.textContent.trim();
+  _editRouteGroups[grpIdx] = current;
+  nameEl.innerHTML = `<input type="text" id="route-grp-input-${grpIdx}" value="${current.replace(/"/g,'&quot;')}" style="font-size:12px;padding:2px 6px;border:1.5px solid var(--primary);border-radius:4px;width:180px;">`;
+  btnEl.textContent = '保存';
+  btnEl.setAttribute('onclick', `saveEditRouteGroup(${grpIdx})`);
+}
+function saveEditRouteGroup(grpIdx) {
+  const input = document.getElementById('route-grp-input-' + grpIdx);
+  if (!input) return;
+  const newName = input.value.trim();
+  const oldName = _editRouteGroups[grpIdx];
+  if (!newName || !oldName) return;
+  (data.routes || []).forEach(r => { if (r.group === oldName) r.group = newName; });
+  delete _editRouteGroups[grpIdx];
   saveData();
   updateRouteSelect();
   renderRoutesList();
