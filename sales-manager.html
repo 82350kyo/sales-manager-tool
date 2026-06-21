@@ -1543,7 +1543,7 @@ function buildSaleReportMsg() {
   const recording = document.getElementById('sale-recording')?.value.trim() || '';
   const memberName = member ? member.name.split('(')[0].trim() : '';
   const dateStr = date ? (date.slice(5).replace('-','/') + (time ? ' ' + time : '')) : '';
-  let msg = `【報告】\n`;
+  let msg = `【報告】${memberName}\n`;
   msg += `日時：${dateStr}\n`;
   msg += `導線：${category}\n`;
   msg += `LINE名：${lineName}\n`;
