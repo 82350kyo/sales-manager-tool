@@ -581,8 +581,8 @@
               <input type="date" id="sale-payment-date" oninput="previewSaleReport()">
             </div>
             <div class="form-group full">
-              <label>メモ</label>
-              <textarea id="sale-note" placeholder="メモを入力" oninput="previewSaleReport()"></textarea>
+              <label>属性</label>
+              <textarea id="sale-note" placeholder="属性を入力" oninput="previewSaleReport()"></textarea>
             </div>
             <div class="form-group full">
               <label>録画URL</label>
@@ -1543,16 +1543,13 @@ function buildSaleReportMsg() {
   const recording = document.getElementById('sale-recording')?.value.trim() || '';
   const memberName = member ? member.name.split('(')[0].trim() : '';
   const dateStr = date ? (date.slice(5).replace('-','/') + (time ? ' ' + time : '')) : '';
-  let msg = `【報告】${memberName}\n`;
+  let msg = `【報告】\n`;
   msg += `日時：${dateStr}\n`;
   msg += `導線：${category}\n`;
   msg += `LINE名：${lineName}\n`;
-  msg += `結果：${result}\n`;
-  msg += `商品：${product}\n`;
-  msg += `売上金額：${amount ? '¥' + amount.toLocaleString() : ''}\n`;
-  msg += `着金：${payment ? '¥' + payment.toLocaleString() : ''}\n`;
-  msg += `メモ：${note}\n`;
-  msg += `録画：${recording}`;
+  msg += `成約結果：${result}\n`;
+  msg += `録画：${recording}\n`;
+  msg += `属性：${note}`;
 
   // 顧客情報を追記
   const isContract = result === '成約' || result === '追加決済';
@@ -3822,7 +3819,7 @@ function renderSettings() {
 
 // ==================== EXPORT / IMPORT ====================
 function exportCSV() {
-  const rows = [['日付','メンバー','金額','カテゴリ','メモ']];
+  const rows = [['日付','メンバー','金額','カテゴリ','属性']];
   data.sales.forEach(s => {
     const m = data.members.find(m => m.id === s.memberId);
     rows.push([s.date, m?.name||'不明', s.amount, s.category||'', s.note||'']);
