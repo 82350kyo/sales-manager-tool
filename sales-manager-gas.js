@@ -21,6 +21,11 @@ function doGet(e) {
       return respond(result);
     }
 
+    if (payload && payload.type === 'updateResult') {
+      const result = updateSheetRow(payload);
+      return respond(result);
+    }
+
     // payloadなし → 全行返す（同期用）
     return respond(getAllRows());
 
@@ -157,6 +162,60 @@ function deleteFromSheet(payload) {
   }
 
   return { status: 'error', message: '該当行が見つかりませんでした (ID: ' + id + ')' };
+}
+
+// =====================================================
+// IDで行を検索して結果・商品・金額などを更新
+// =====================================================
+function updateSheetRow(payload) {
+  const ss = SpreadsheetApp.openById('1BMptkze_WyYL6TRG5Jzugy8aYT-AL4F4O7gnmFPKXRw');
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { status: 'error', message: 'データがありません' };
+
+  const id = String(payload.id || '');
+  const rows = sheet.getRange(2, 1, lastRow - 1, 20).getValues();
+  let targetRow = -1;
+
+  // ① ID列（M列=インデックス12）で完全一致検索
+  for (let i = 0; i < rows.length; i++) {
+    const rowId = String(rows[i][12] || '').trim();
+    if (rowId && rowId === id) { targetRow = i + 2; break; }
+  }
+
+  // ② IDで見つからない場合は 日時＋LINE名＋導線 で照合
+  if (targetRow === -1) {
+    const targetDate = String(payload.date || '').slice(0, 10);
+    const targetLine = String(payload.lineName || '').trim();
+    const targetCat  = String(payload.category || '').trim();
+    if (targetLine || targetCat) {
+      for (let i = 0; i < rows.length; i++) {
+        const rowDate = rows[i][1] instanceof Date
+          ? Utilities.formatDate(rows[i][1], 'Asia/Tokyo', 'yyyy-MM-dd')
+          : String(rows[i][1] || '').slice(0, 10);
+        const rowLine = String(rows[i][4] || '').trim();
+        const rowCat  = String(rows[i][3] || '').trim();
+        if (rowDate === targetDate && rowLine === targetLine && rowCat === targetCat) {
+          targetRow = i + 2; break;
+        }
+      }
+    }
+  }
+
+  if (targetRow === -1) {
+    return { status: 'error', message: '該当行が見つかりませんでした (ID: ' + id + ')' };
+  }
+
+  // 結果(F=6)・商品(G=7)・売上金額(H=8)・着金(I=9)・着金日(L=12) を更新
+  sheet.getRange(targetRow, 6).setValue(payload.newResult || '');
+  sheet.getRange(targetRow, 7).setValue(payload.newProduct || '');
+  sheet.getRange(targetRow, 8).setValue(Number(payload.newAmount) || 0);
+  sheet.getRange(targetRow, 9).setValue(Number(payload.newPayment) || 0);
+  if (payload.newPaymentDate) {
+    sheet.getRange(targetRow, 12).setValue(payload.newPaymentDate);
+  }
+
+  return { status: 'ok', updated: targetRow };
 }
 
 // =====================================================
