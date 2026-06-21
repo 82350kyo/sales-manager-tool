@@ -16,6 +16,11 @@ function doGet(e) {
       return respond({ ok: true });
     }
 
+    if (payload && payload.type === 'deleteSale') {
+      const result = deleteFromSheet(payload);
+      return respond(result);
+    }
+
     // payloadなし → 全行返す（同期用）
     return respond(getAllRows());
 
@@ -109,6 +114,49 @@ function respond(data) {
   return ContentService
     .createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// =====================================================
+// IDで行を検索して削除
+// =====================================================
+function deleteFromSheet(payload) {
+  const ss = SpreadsheetApp.openById('1BMptkze_WyYL6TRG5Jzugy8aYT-AL4F4O7gnmFPKXRw');
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { status: 'error', message: 'データがありません' };
+
+  const id = String(payload.id || '');
+  const rows = sheet.getRange(2, 1, lastRow - 1, 20).getValues();
+
+  // ① ID列（M列=インデックス12）で完全一致検索
+  for (let i = 0; i < rows.length; i++) {
+    const rowId = String(rows[i][12] || '').trim();
+    if (rowId && rowId === id) {
+      sheet.deleteRow(i + 2);
+      return { status: 'ok', deleted: i + 2 };
+    }
+  }
+
+  // ② IDで見つからない場合は 日時＋LINE名＋導線 で照合（sheet-row-N IDの場合）
+  const targetDate = String(payload.date || '').slice(0, 10);
+  const targetLine = String(payload.lineName || '').trim();
+  const targetCat  = String(payload.category || '').trim();
+
+  if (targetLine || targetCat) {
+    for (let i = 0; i < rows.length; i++) {
+      const rowDate = rows[i][1] instanceof Date
+        ? Utilities.formatDate(rows[i][1], 'Asia/Tokyo', 'yyyy-MM-dd')
+        : String(rows[i][1] || '').slice(0, 10);
+      const rowLine = String(rows[i][4] || '').trim();
+      const rowCat  = String(rows[i][3] || '').trim();
+      if (rowDate === targetDate && rowLine === targetLine && rowCat === targetCat) {
+        sheet.deleteRow(i + 2);
+        return { status: 'ok', deleted: i + 2 };
+      }
+    }
+  }
+
+  return { status: 'error', message: '該当行が見つかりませんでした (ID: ' + id + ')' };
 }
 
 // =====================================================
