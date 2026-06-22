@@ -6,6 +6,62 @@
 const SHEET_NAME = '売上報告';
 const LINE_GROUP_ID = 'C87ef2d287f760158419805a3887ac7f9';
 
+// =====================================================
+// LINE一括インポート用（doPost）
+// =====================================================
+function doPost(e) {
+  try {
+    const payload = JSON.parse(e.postData.contents);
+    if (payload && payload.type === 'bulkImport') {
+      const result = bulkImportToSheet(payload.rows);
+      return respond(result);
+    }
+    return respond({ ok: false, error: 'unknown type' });
+  } catch (err) {
+    return respond({ ok: false, error: err.toString() });
+  }
+}
+
+function bulkImportToSheet(rows) {
+  const ss = SpreadsheetApp.openById('1BMptkze_WyYL6TRG5Jzugy8aYT-AL4F4O7gnmFPKXRw');
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) throw new Error(SHEET_NAME + ' シートが見つかりません');
+
+  const data = rows.map((d, i) => {
+    // timestamp: 日付 + インデックス（秒）で同日内の順序を保持
+    const ts = d.timestamp ? new Date(d.timestamp) : new Date(d.date + 'T00:00:00');
+    return [
+      ts,               // A: タイムスタンプ
+      d.date || '',     // B: 日時
+      d.memberName || '',  // C: 担当者
+      d.category || '',    // D: 導線
+      d.lineName || '',    // E: 顧客名(LINE名)
+      d.result || '',      // F: 結果
+      d.product || '',     // G: 商品
+      Number(d.amount) || 0,   // H: 売上金額
+      Number(d.payment) || 0,  // I: 着金
+      d.note || '',        // J: 属性
+      d.recording || '',   // K: 録画
+      '',                  // L: 着金日
+      d.id || '',          // M: ID
+      '', '', '', '', '', '', '', 0  // N〜U: 詳細情報・追加決済額
+    ];
+  });
+
+  // 既存の最終行に一括追記
+  const lastRow = sheet.getLastRow();
+  sheet.getRange(lastRow + 1, 1, data.length, data[0].length).setValues(data);
+
+  // タイムスタンプ降順でソート（新しい日付が上）
+  const newLastRow = sheet.getLastRow();
+  if (newLastRow > 2) {
+    sheet.getRange(2, 1, newLastRow - 1, sheet.getLastColumn())
+      .sort({ column: 1, ascending: false });
+  }
+
+  return { ok: true, imported: data.length };
+}
+
 function doGet(e) {
   try {
     const payload = (e && e.parameter && e.parameter.payload) ? JSON.parse(e.parameter.payload) : null;

@@ -1238,6 +1238,14 @@ const DEFAULT_PRODUCTS = [
   { group: 'AI ONE',              name: 'AI ONE59.8万' },
   { group: 'AI ONE',              name: 'AI ONE99万' },
   { group: 'AI ONE',              name: 'AI ONE330万（エグゼクティブ）' },
+  { group: 'AI ONE',              name: 'AI ONEアドバンス59.8万' },
+  { group: 'クロスセル',          name: 'AIゼミ5.98万' },
+  { group: 'クロスセル',          name: 'SNSゼミ5.98万' },
+  { group: '物販ゼミ',            name: '物販ゼミメルカリコース' },
+  { group: '物販ゼミ',            name: '物販ゼミeBayコース' },
+  { group: 'メルカリ',            name: 'メルカリ利益商品 データ100集0.98万' },
+  { group: 'アクセサリー',        name: 'アクセサリーコンサル33万' },
+  { group: 'アクセサリー',        name: 'アクセサリーコンサル59.8万' },
   { group: 'AI SNSコンサル',       name: 'AI SNSコンサル55万（ベーシック）' },
   { group: 'AI SNSコンサル',       name: 'AI SNSコンサル99万（プロ）' },
   { group: 'AI SNSコンサル',       name: 'AI SNSコンサル165万（マスター）' },
@@ -1272,10 +1280,26 @@ const DEFAULT_ROUTES = [
   { group: '物販', name: '広告(物販)' },
   { group: '物販', name: '磯貝さんSNS(物販)' },
   { group: '物販', name: 'かずさんSNS(物販)' },
+  { group: '物販', name: 'いそっちさんSNS(物販)' },
+  { group: '物販', name: 'Amazon最終コンサル(物販)' },
+  { group: '物販', name: 'メルカリ最終コンサル(物販)' },
+  { group: '物販', name: 'なまいきくん協業(物販)' },
   { group: 'AI',   name: '個別相談(AI)' },
   { group: 'AI',   name: '広告(AI)' },
   { group: 'AI',   name: 'かずさんSNS(AI)' },
   { group: 'AI',   name: '美奈子さんSNS(AI)' },
+  { group: 'AI',   name: '岩瀬さんSNS(AI)' },
+  { group: 'AI',   name: '相田さんSNS(AI)' },
+  { group: 'AI',   name: '黒田さんSNS(AI)' },
+  { group: 'AI',   name: '住澤さんSNS(AI)' },
+  { group: 'AI',   name: '西水さんSNS(AI)' },
+  { group: 'AI',   name: '智春さんSNS(AI)' },
+  { group: 'AI',   name: 'SNSコンサル生(AI)' },
+  { group: 'AI',   name: '的場導線SNS(AI)' },
+  { group: 'AI',   name: 'チョーさんセミナー(AI)' },
+  { group: 'AI',   name: 'チョーさんセミナー追撃(AI)' },
+  { group: 'AI',   name: 'チョーさん導線(AI)' },
+  { group: 'AI',   name: 'しらちゃそさんセミナー(AI)' },
 ];
 
 function loadData() {
@@ -1291,13 +1315,18 @@ function loadData() {
     data.members = DEFAULT_MEMBERS.map(m => ({ ...m }));
   }
   // 商品マスターが未登録 or バージョン古い場合はデフォルト商品で初期化
-  if (!data.products || data.products.length === 0 || data.productsVersion !== 2) {
+  if (!data.products || data.products.length === 0 || data.productsVersion !== 3) {
     data.products = DEFAULT_PRODUCTS.map(p => ({ ...p }));
-    data.productsVersion = 2;
+    data.productsVersion = 3;
   }
-  // 動線マスターが未登録の場合はデフォルト動線で初期化
+  // 動線マスター: 毎回起動時に不足しているデフォルト動線を追加
   if (!data.routes || data.routes.length === 0) {
     data.routes = DEFAULT_ROUTES.map(r => ({ ...r }));
+  } else {
+    const existingNames = new Set(data.routes.map(r => r.name));
+    DEFAULT_ROUTES.forEach(r => {
+      if (!existingNames.has(r.name)) data.routes.push({ ...r });
+    });
   }
   // IDに小数点が含まれている場合に修正（旧バグのマイグレーション）
   const fixId = id => String(id).replace('.', '');
@@ -3380,7 +3409,7 @@ function openGCal(title, date, details) {
 // ==================== SHEET SYNC ====================
 const GAS_URL = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
   ? '/gas'
-  : 'https://script.google.com/macros/s/AKfycbxWKqFFOhtiM9xWF1UzNZTye3iUHy99oHB31DJfSR6w3yHysGiVfHPiNpgf8LeuBE-X/exec';
+  : 'https://script.google.com/macros/s/AKfycbxEQIzgiwmRjUn2HubpVLwTaNKrsNSot5HTrsnbLoyBzJGA1h41Fgo9rZr5Ppk8yeP-/exec';
 
 function syncFromSheet() {
   const status = document.getElementById('sync-status');
