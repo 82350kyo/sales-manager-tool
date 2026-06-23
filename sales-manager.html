@@ -4153,11 +4153,16 @@ const SHARED_KEYS = ['ptProjects', 'routes', 'products', 'members', 'goals', 'te
 function pushSharedDataToGAS() {
   const shared = {};
   SHARED_KEYS.forEach(k => { shared[k] = data[k] || []; });
-  shared._updatedAt = Date.now();
-  // データが大きいためPOSTで送信（GETはURL長制限があり失敗する）
+  const ts = Date.now();
+  shared._updatedAt = ts;
+  // ローカルのタイムスタンプも同時に更新（プルが古いデータで上書きしないよう）
+  data._sharedUpdatedAt = ts;
+  localStorage.setItem('sales-manager-data', JSON.stringify(data));
+  // no-cors + text/plain でCORSプリフライトを回避してPOST送信
   fetch(GAS_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    mode: 'no-cors',
+    headers: { 'Content-Type': 'text/plain' },
     body: JSON.stringify({ type: 'saveSharedData', data: shared })
   }).catch(() => {});
 }
