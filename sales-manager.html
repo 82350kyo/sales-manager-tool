@@ -715,7 +715,7 @@
       </div>
 
       <div class="card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:12px;">
           <div class="card-title" style="margin-bottom:0;">売上一覧</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <select id="filter-month" style="font-size:13px;padding:6px 10px;border-radius:6px;border:1.5px solid var(--border);" onchange="renderSalesList()">
@@ -725,6 +725,24 @@
               <option value="">全員</option>
             </select>
           </div>
+        </div>
+        <!-- 検索フィルターバー（LINE名・導線・結果） -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;padding:10px 12px;background:var(--surface2);border-radius:8px;">
+          <input type="text" id="filter-linename" placeholder="LINE名で検索..."
+            style="font-size:13px;padding:6px 10px;border-radius:6px;border:1.5px solid var(--border);flex:1;min-width:140px;"
+            oninput="renderSalesList()">
+          <select id="filter-category" style="font-size:13px;padding:6px 10px;border-radius:6px;border:1.5px solid var(--border);min-width:140px;" onchange="renderSalesList()">
+            <option value="">全導線</option>
+          </select>
+          <select id="filter-result" style="font-size:13px;padding:6px 10px;border-radius:6px;border:1.5px solid var(--border);min-width:120px;" onchange="renderSalesList()">
+            <option value="">全結果</option>
+            <option value="成約">成約</option>
+            <option value="未成約">未成約</option>
+            <option value="決済待ち">決済待ち</option>
+            <option value="2回目遷移">2回目遷移</option>
+            <option value="キャンセル">キャンセル</option>
+            <option value="クーリングオフ">クーリングオフ</option>
+          </select>
         </div>
         <div class="table-wrap" id="sales-list"></div>
       </div>
@@ -1145,6 +1163,153 @@
   </div>
 </div>
 
+<!-- Sale Detail Modal（全フィールド表示・編集モーダル） -->
+<div class="modal-overlay" id="sale-detail-modal" onclick="if(event.target===this)closeSaleDetailModal()">
+  <div style="background:var(--surface);padding:28px 32px;border-radius:20px;box-shadow:0 30px 80px rgba(0,0,0,0.4);width:100%;max-width:700px;max-height:90vh;overflow-y:auto;border:1px solid var(--border);position:relative;" onclick="event.stopPropagation()">
+    <!-- モーダルヘッダー -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;border-bottom:2px solid var(--surface2);padding-bottom:14px;">
+      <div style="font-size:18px;font-weight:800;color:var(--primary);">面談詳細・編集</div>
+      <button onclick="closeSaleDetailModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted);">✕</button>
+    </div>
+    <!-- hidden: 編集対象のID -->
+    <input type="hidden" id="sale-detail-id">
+
+    <!-- フォーム：2カラムグリッド -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+
+      <!-- 顧客LINE名 -->
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">顧客LINE名</label>
+        <input type="text" id="sd-linename" placeholder="まりちゃん" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;">
+      </div>
+
+      <!-- 担当者 -->
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">担当者</label>
+        <select id="sd-member" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;background:var(--surface);">
+        </select>
+      </div>
+
+      <!-- 導線 -->
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">導線</label>
+        <select id="sd-category" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;background:var(--surface);">
+          <option value="">なし</option>
+        </select>
+      </div>
+
+      <!-- 面談日 -->
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">面談日</label>
+        <input type="date" id="sd-date" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;">
+      </div>
+
+      <!-- 結果 -->
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">結果</label>
+        <select id="sd-result" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;background:var(--surface);">
+          <option value="成約">成約</option>
+          <option value="未成約">未成約</option>
+          <option value="決済待ち">決済待ち</option>
+          <option value="2回目遷移">2回目遷移</option>
+          <option value="キャンセル">キャンセル</option>
+          <option value="クーリングオフ">クーリングオフ</option>
+          <option value="追加決済">追加決済</option>
+        </select>
+      </div>
+
+      <!-- 商品 -->
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">商品</label>
+        <select id="sd-product" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;background:var(--surface);">
+          <option value="">商品を選択</option>
+        </select>
+      </div>
+
+      <!-- 売上金額 -->
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">売上金額 (円)</label>
+        <input type="number" id="sd-amount" placeholder="0" min="0" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;">
+      </div>
+
+      <!-- 着金 -->
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">着金 (円)</label>
+        <input type="number" id="sd-payment" placeholder="0" min="0" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;">
+      </div>
+
+      <!-- 着金日 -->
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">着金日</label>
+        <input type="date" id="sd-payment-date" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;">
+      </div>
+
+      <!-- 録画URL -->
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">録画URL</label>
+        <input type="text" id="sd-recording" placeholder="https://youtu.be/..." style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;">
+      </div>
+
+    </div><!-- /2カラムグリッド -->
+
+    <!-- 区切り線：顧客情報セクション -->
+    <div style="margin:20px 0 14px;padding-top:16px;border-top:2px solid var(--surface2);">
+      <div style="font-size:13px;font-weight:700;color:var(--text-muted);margin-bottom:14px;">顧客情報</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+
+        <!-- アップセル見込み -->
+        <div style="display:flex;flex-direction:column;gap:5px;">
+          <label style="font-size:11px;font-weight:700;color:var(--text-muted);">アップセル見込み</label>
+          <input type="text" id="sd-upsell" placeholder="あり / なし" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;">
+        </div>
+
+        <!-- 断り理由 -->
+        <div style="display:flex;flex-direction:column;gap:5px;">
+          <label style="font-size:11px;font-weight:700;color:var(--text-muted);">断り理由</label>
+          <input type="text" id="sd-rejection" placeholder="資金不足 / タイミング..." style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;">
+        </div>
+
+        <!-- 資金状況 -->
+        <div style="display:flex;flex-direction:column;gap:5px;">
+          <label style="font-size:11px;font-weight:700;color:var(--text-muted);">資金状況</label>
+          <input type="text" id="sd-financial" placeholder="余裕あり / 余裕なし" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;">
+        </div>
+
+        <!-- 行動の障壁 -->
+        <div style="display:flex;flex-direction:column;gap:5px;">
+          <label style="font-size:11px;font-weight:700;color:var(--text-muted);">行動の障壁</label>
+          <input type="text" id="sd-barrier" placeholder="高 / 中 / 低" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;">
+        </div>
+
+        <!-- アプローチ目安 -->
+        <div style="display:flex;flex-direction:column;gap:5px;">
+          <label style="font-size:11px;font-weight:700;color:var(--text-muted);">アプローチ目安</label>
+          <input type="text" id="sd-approach-months" placeholder="3（ヶ月後）" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;">
+        </div>
+
+        <!-- 次回アプローチ予定日 -->
+        <div style="display:flex;flex-direction:column;gap:5px;">
+          <label style="font-size:11px;font-weight:700;color:var(--text-muted);">次回アプローチ予定日</label>
+          <input type="date" id="sd-next-approach-date" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;">
+        </div>
+
+      </div>
+
+      <!-- 備考/所感（全幅） -->
+      <div style="display:flex;flex-direction:column;gap:5px;margin-top:14px;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">備考/所感</label>
+        <textarea id="sd-customer-memo" placeholder="顧客メモ・アップセル候補・所感など..." style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;resize:vertical;min-height:80px;"></textarea>
+      </div>
+    </div>
+
+    <!-- 保存ボタン -->
+    <div style="display:flex;gap:12px;margin-top:20px;">
+      <button onclick="saveSaleDetail()" class="btn btn-primary" style="flex:2;padding:14px;font-weight:800;font-size:16px;">保存する</button>
+      <button onclick="closeSaleDetailModal()" class="btn btn-outline" style="flex:1;padding:14px;font-weight:700;">閉じる</button>
+    </div>
+  </div>
+</div>
+
 <!-- Sale Edit Modal -->
 <div class="modal-overlay" id="sale-edit-modal">
   <div style="background:var(--surface);padding:30px;border-radius:24px;box-shadow:0 30px 100px rgba(0,0,0,0.5);min-width:320px;max-width:90%;border:1px solid var(--border);position:relative;" onclick="event.stopPropagation()">
@@ -1487,6 +1652,28 @@ function updateMemberSelects() {
   // メンバーセレクト更新のついでに商品・動線セレクトも更新
   updateProductSelect();
   updateRouteSelect();
+  // フィルターバーの導線セレクト（filter-category）を data.routes から動的に更新
+  updateFilterCategorySelect();
+}
+
+// 売上一覧フィルターの「導線」セレクトを data.routes から生成する
+function updateFilterCategorySelect() {
+  const sel = document.getElementById('filter-category');
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">全導線</option>';
+  // ユニークな導線名を data.routes から収集
+  const routeNames = (data.routes || []).map(r => r.name);
+  // 既存の売上データにある導線で routes に含まれていないものも追加
+  const usedCats = [...new Set(data.sales.map(s => s.category).filter(Boolean))];
+  const allCats = [...new Set([...routeNames, ...usedCats])].sort();
+  allCats.forEach(name => {
+    const o = document.createElement('option');
+    o.value = name; o.textContent = name;
+    sel.appendChild(o);
+  });
+  // 以前の選択値を維持
+  if (current) sel.value = current;
 }
 
 // ==================== 商品セレクト更新 ====================
@@ -1971,10 +2158,21 @@ function resultBadge(result) {
 function renderSalesList() {
   const monthFilter = document.getElementById('filter-month')?.value;
   const memberFilter = document.getElementById('filter-member')?.value;
+  // 追加フィルター：LINE名テキスト検索・導線・結果
+  const lineNameFilter = document.getElementById('filter-linename')?.value?.trim();
+  const categoryFilter = document.getElementById('filter-category')?.value;
+  const resultFilter = document.getElementById('filter-result')?.value;
+
   let sales = [...data.sales];
 
   if (monthFilter) sales = sales.filter(s => s.date.startsWith(monthFilter));
   if (memberFilter) sales = sales.filter(s => s.memberId === memberFilter);
+  // LINE名フィルター（s.note フィールドを対象に「含む」で絞り込み）
+  if (lineNameFilter) sales = sales.filter(s => (s.note || '').includes(lineNameFilter));
+  // 導線フィルター（完全一致）
+  if (categoryFilter) sales = sales.filter(s => s.category === categoryFilter);
+  // 結果フィルター（完全一致）
+  if (resultFilter) sales = sales.filter(s => s.result === resultFilter);
 
   const groups = {};
   const firstDates = {};
@@ -2076,21 +2274,24 @@ function renderSalesList() {
               if (parts.length) ciDetail = `<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${parts.join(' | ')}</div>`;
             }
             return `
-            <div id="sale-row-${s.id}" style="display:flex;align-items:flex-start;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
+            <div id="sale-row-${s.id}" style="display:flex;align-items:flex-start;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.15s;"
+              onclick="openSaleDetailModal('${esc(s.id)}', event)"
+              onmouseenter="this.style.background='var(--surface2)'"
+              onmouseleave="this.style.background=''">
               <div style="flex:1;">
                 <div style="display:flex;align-items:center;gap:15px;">
                   <div style="font-size:12px;color:var(--text-muted);width:80px;">${s.date}</div>
                   <div style="font-weight:700;font-size:14px;width:100px;">${fmt(s.payment)}</div>
                   <div id="result-cell-${s.id}" style="display:flex;align-items:center;gap:8px;position:relative;">
                     ${resultBadge(s.result)}
-                    <button type="button" onclick="openSaleEditModal('${esc(s.id)}', event)" class="edit-btn-mini">✏️</button>
+                    <button type="button" onclick="openSaleDetailModal('${esc(s.id)}', event)" class="edit-btn-mini">✏️</button>
                   </div>
                 </div>
                 ${ciDetail}
               </div>
               <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
                 ${s.history ? `<div class="history-tag" title="${esc(s.history)}">🕒 履歴</div>` : ''}
-                <button class="btn btn-danger btn-sm" style="padding:2px 8px;font-size:10px;" onclick="deleteSale(this.dataset.id)" data-id="${esc(s.id)}">削除</button>
+                <button class="btn btn-danger btn-sm" style="padding:2px 8px;font-size:10px;" onclick="event.stopPropagation();deleteSale(this.dataset.id)" data-id="${esc(s.id)}">削除</button>
               </div>
             </div>
           `}).join('')}
@@ -2173,6 +2374,202 @@ function openSaleEditModal(id, event) {
 function closeSaleEditModal() {
   document.getElementById('sale-edit-modal').style.display = 'none';
   document.body.style.overflow = '';
+}
+
+// ==================== 売上詳細モーダル（全フィールド表示・編集） ====================
+
+// 詳細モーダルを開く：指定IDの売上データを全フィールドに反映する
+function openSaleDetailModal(id, event) {
+  if (event) { event.preventDefault(); event.stopPropagation(); }
+  const s = data.sales.find(s => String(s.id) === String(id));
+  if (!s) return;
+
+  document.getElementById('sale-detail-id').value = id;
+
+  // 基本フィールドの反映
+  document.getElementById('sd-linename').value = s.note || '';
+  document.getElementById('sd-date').value = s.date || '';
+  document.getElementById('sd-result').value = s.result || '未成約';
+  document.getElementById('sd-amount').value = s.amount || 0;
+  document.getElementById('sd-payment').value = Math.abs(s.payment || 0);
+  document.getElementById('sd-payment-date').value = s.paymentDate || '';
+  document.getElementById('sd-recording').value = s.recording || '';
+
+  // 担当者セレクトを動的に生成
+  const memberSel = document.getElementById('sd-member');
+  memberSel.innerHTML = data.members.map(m =>
+    `<option value="${m.id}" ${m.id === s.memberId ? 'selected' : ''}>${esc(m.name)}</option>`
+  ).join('');
+
+  // 導線セレクトを動的に生成（data.routes から）
+  const catSel = document.getElementById('sd-category');
+  catSel.innerHTML = '<option value="">なし</option>';
+  const routeGroups = {};
+  (data.routes || []).forEach(r => {
+    if (!routeGroups[r.group]) routeGroups[r.group] = [];
+    routeGroups[r.group].push(r.name);
+  });
+  Object.entries(routeGroups).forEach(([grp, names]) => {
+    const og = document.createElement('optgroup');
+    og.label = '── ' + grp + ' ──';
+    names.forEach(n => {
+      const o = document.createElement('option');
+      o.value = n; o.textContent = n;
+      if (n === s.category) o.selected = true;
+      og.appendChild(o);
+    });
+    catSel.appendChild(og);
+  });
+  // 選択中の導線がリストになければ直接セット
+  if (s.category && catSel.value !== s.category) {
+    const opt = document.createElement('option');
+    opt.value = s.category; opt.textContent = s.category; opt.selected = true;
+    catSel.appendChild(opt);
+  }
+
+  // 商品セレクトを動的に生成（data.products から、グループ別optgroup）
+  const prodSel = document.getElementById('sd-product');
+  prodSel.innerHTML = '<option value="">商品を選択</option>';
+  const prodGroups = {};
+  (data.products || []).forEach(p => {
+    if (!prodGroups[p.group]) prodGroups[p.group] = [];
+    prodGroups[p.group].push(p.name);
+  });
+  let prodFound = false;
+  Object.entries(prodGroups).forEach(([grp, names]) => {
+    const og = document.createElement('optgroup');
+    og.label = '── ' + grp + ' ──';
+    names.forEach(n => {
+      const o = document.createElement('option');
+      o.value = n; o.textContent = n;
+      if (n === s.product) { o.selected = true; prodFound = true; }
+      og.appendChild(o);
+    });
+    prodSel.appendChild(og);
+  });
+  // 商品がリストにない場合もその他として追加
+  if (s.product && !prodFound) {
+    const o = document.createElement('option');
+    o.value = s.product; o.textContent = s.product; o.selected = true;
+    prodSel.appendChild(o);
+  }
+
+  // 顧客情報フィールドの反映
+  const ci = s.customerInfo || {};
+  document.getElementById('sd-upsell').value = ci.upsell || '';
+  document.getElementById('sd-rejection').value = ci.rejection || '';
+  document.getElementById('sd-financial').value = ci.financial || '';
+  document.getElementById('sd-barrier').value = ci.barrier || '';
+  document.getElementById('sd-approach-months').value = ci.approachMonths || '';
+  document.getElementById('sd-next-approach-date').value = ci.nextApproachDate || '';
+  document.getElementById('sd-customer-memo').value = ci.customerMemo || ci.secondNote || '';
+
+  // モーダル表示
+  document.getElementById('sale-detail-modal').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+// 詳細モーダルを閉じる
+function closeSaleDetailModal() {
+  document.getElementById('sale-detail-modal').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+// 詳細モーダルの保存処理：localStorage更新 → GAS送信 → 再描画
+function saveSaleDetail() {
+  const id = document.getElementById('sale-detail-id').value;
+  const s = data.sales.find(s => String(s.id) === String(id));
+  if (!s) { alert('エラー: 対象データが見つかりませんでした'); return; }
+
+  // フォームから値を取得
+  const lineName    = document.getElementById('sd-linename').value.trim();
+  const memberId    = document.getElementById('sd-member').value;
+  const category    = document.getElementById('sd-category').value;
+  const date        = document.getElementById('sd-date').value;
+  const result      = document.getElementById('sd-result').value;
+  const product     = document.getElementById('sd-product').value;
+  const amount      = parseInt(document.getElementById('sd-amount').value) || 0;
+  const paymentRaw  = parseInt(document.getElementById('sd-payment').value) || 0;
+  // クーリングオフ・キャンセルは負数で保持
+  const payment     = (result === 'クーリングオフ' || result === 'キャンセル') ? -Math.abs(paymentRaw) : Math.abs(paymentRaw);
+  const paymentDate = document.getElementById('sd-payment-date').value;
+  const recording   = document.getElementById('sd-recording').value.trim();
+
+  // 顧客情報
+  const upsell          = document.getElementById('sd-upsell').value.trim();
+  const rejection       = document.getElementById('sd-rejection').value.trim();
+  const financial       = document.getElementById('sd-financial').value.trim();
+  const barrier         = document.getElementById('sd-barrier').value.trim();
+  const approachMonths  = document.getElementById('sd-approach-months').value.trim();
+  const nextApproachDate = document.getElementById('sd-next-approach-date').value;
+  const customerMemo    = document.getElementById('sd-customer-memo').value.trim();
+
+  // localStorageのデータを更新
+  s.note        = lineName;
+  s.memberId    = memberId;
+  s.category    = category;
+  s.date        = date;
+  s.result      = result;
+  s.product     = product;
+  s.amount      = amount;
+  s.payment     = payment;
+  s.paymentDate = paymentDate;
+  s.recording   = recording;
+  if (!s.customerInfo) s.customerInfo = {};
+  s.customerInfo.upsell          = upsell;
+  s.customerInfo.rejection       = rejection;
+  s.customerInfo.financial       = financial;
+  s.customerInfo.barrier         = barrier;
+  s.customerInfo.approachMonths  = approachMonths;
+  s.customerInfo.nextApproachDate = nextApproachDate;
+  s.customerInfo.customerMemo    = customerMemo;
+
+  saveData();
+
+  // GASへ詳細更新を送信
+  const member = data.members.find(m => m.id === memberId);
+  const memberName = member ? member.name.split('(')[0].trim() : '';
+  const gasPayload = {
+    type: 'updateSaleDetail',
+    id: s.id,
+    date,
+    lineName,
+    category,
+    memberName,
+    result,
+    product,
+    amount,
+    payment,
+    paymentDate,
+    recording,
+    upsell,
+    rejection,
+    financial,
+    barrier,
+    approachMonths,
+    nextApproachDate,
+    customerMemo
+  };
+
+  fetch(GAS_URL + '?payload=' + encodeURIComponent(JSON.stringify(gasPayload)))
+    .then(r => r.json())
+    .then(res => {
+      if (res.status === 'ok') {
+        showAlert('sales-alert', 'success', `✅ ${lineName || ''}さんの情報を更新しました`);
+      } else {
+        console.warn('GAS updateSaleDetail:', res);
+        showAlert('sales-alert', 'success', '✅ 保存しました（GAS同期は後ほど確認してください）');
+      }
+    })
+    .catch(err => {
+      console.error('GAS通信エラー:', err);
+      showAlert('sales-alert', 'success', '✅ ローカルに保存しました（GAS通信エラー）');
+    });
+
+  // 再描画してモーダルを閉じる
+  renderSalesList();
+  renderDashboard();
+  closeSaleDetailModal();
 }
 
 // 編集モーダルの商品selectを更新し、currentProductを選択状態にする

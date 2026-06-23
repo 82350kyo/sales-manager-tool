@@ -158,6 +158,11 @@ function doGet(e) {
       return respond(result);
     }
 
+    if (payload && payload.type === 'updateSaleDetail') {
+      const result = updateSaleDetailRow(payload);
+      return respond(result);
+    }
+
     // リマインドテスト送信
     if (payload && payload.type === 'testReminder') {
       sendDailyReminder();
@@ -353,6 +358,74 @@ function updateSheetRow(payload) {
   if (payload.newPaymentDate) {
     sheet.getRange(targetRow, 12).setValue(payload.newPaymentDate);
   }
+
+  return { status: 'ok', updated: targetRow };
+}
+
+// =====================================================
+// IDで行を検索して全フィールドを更新（詳細編集モーダル用）
+// =====================================================
+function updateSaleDetailRow(payload) {
+  const ss = SpreadsheetApp.openById('1BMptkze_WyYL6TRG5Jzugy8aYT-AL4F4O7gnmFPKXRw');
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { status: 'error', message: 'データがありません' };
+
+  const id = String(payload.id || '');
+  const rows = sheet.getRange(2, 1, lastRow - 1, 21).getValues();
+  let targetRow = -1;
+
+  // ① ID列（M列=インデックス12）で完全一致検索
+  for (let i = 0; i < rows.length; i++) {
+    const rowId = String(rows[i][12] || '').trim();
+    if (rowId && rowId === id) { targetRow = i + 2; break; }
+  }
+
+  // ② IDで見つからない場合は 日時＋LINE名＋導線 で照合
+  if (targetRow === -1) {
+    const targetDate = String(payload.date || '').slice(0, 10);
+    const targetLine = String(payload.lineName || '').trim();
+    const targetCat  = String(payload.category || '').trim();
+    if (targetLine || targetCat) {
+      for (let i = 0; i < rows.length; i++) {
+        const rowDate = rows[i][1] instanceof Date
+          ? Utilities.formatDate(rows[i][1], 'Asia/Tokyo', 'yyyy-MM-dd')
+          : String(rows[i][1] || '').slice(0, 10);
+        const rowLine = String(rows[i][4] || '').trim();
+        const rowCat  = String(rows[i][3] || '').trim();
+        if (rowDate === targetDate && rowLine === targetLine && rowCat === targetCat) {
+          targetRow = i + 2; break;
+        }
+      }
+    }
+  }
+
+  if (targetRow === -1) {
+    return { status: 'error', message: '該当行が見つかりませんでした (ID: ' + id + ')' };
+  }
+
+  // 各列を更新（列番号は1始まり）
+  sheet.getRange(targetRow, 2).setValue(payload.date || '');          // B列: 面談日
+  sheet.getRange(targetRow, 3).setValue(payload.memberName || '');    // C列: 担当者
+  sheet.getRange(targetRow, 4).setValue(payload.category || '');      // D列: 導線
+  sheet.getRange(targetRow, 5).setValue(payload.lineName || '');      // E列: 顧客LINE名
+  sheet.getRange(targetRow, 6).setValue(payload.result || '');        // F列: 結果
+  sheet.getRange(targetRow, 7).setValue(payload.product || '');       // G列: 商品
+  sheet.getRange(targetRow, 8).setValue(Number(payload.amount) || 0); // H列: 売上金額
+  sheet.getRange(targetRow, 9).setValue(Number(payload.payment) || 0);// I列: 着金
+  // J列(10): 属性は変更しない
+  sheet.getRange(targetRow, 11).setValue(payload.recording || '');    // K列: 録画URL
+  if (payload.paymentDate) {
+    sheet.getRange(targetRow, 12).setValue(payload.paymentDate);      // L列: 着金日
+  }
+  // M列(13): IDは変更しない
+  sheet.getRange(targetRow, 14).setValue(payload.upsell || '');          // N列: アップセル見込み
+  sheet.getRange(targetRow, 15).setValue(payload.rejection || '');        // O列: 断り理由
+  sheet.getRange(targetRow, 16).setValue(payload.financial || '');        // P列: 資金状況
+  sheet.getRange(targetRow, 17).setValue(payload.barrier || '');          // Q列: 行動の障壁
+  sheet.getRange(targetRow, 18).setValue(payload.approachMonths || '');   // R列: アプローチ目安
+  sheet.getRange(targetRow, 19).setValue(payload.nextApproachDate || ''); // S列: 次回アプローチ予定日
+  sheet.getRange(targetRow, 20).setValue(payload.customerMemo || '');     // T列: 備考/所感
 
   return { status: 'ok', updated: targetRow };
 }
