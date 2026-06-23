@@ -4154,8 +4154,12 @@ function pushSharedDataToGAS() {
   const shared = {};
   SHARED_KEYS.forEach(k => { shared[k] = data[k] || []; });
   shared._updatedAt = Date.now();
-  const payload = JSON.stringify({ type: 'saveSharedData', data: shared });
-  fetch(GAS_URL + '?payload=' + encodeURIComponent(payload)).catch(() => {});
+  // データが大きいためPOSTで送信（GETはURL長制限があり失敗する）
+  fetch(GAS_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'saveSharedData', data: shared })
+  }).catch(() => {});
 }
 
 function pullSharedDataFromGAS() {

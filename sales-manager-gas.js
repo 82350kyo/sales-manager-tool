@@ -92,6 +92,11 @@ function doPost(e) {
       const result = bulkImportToSheet(payload.rows);
       return respond(result);
     }
+    // 共有データ保存（プロジェクト・動線・目標など）
+    if (payload && payload.type === 'saveSharedData') {
+      const result = saveSharedData(payload.data);
+      return respond(result);
+    }
     return respond({ ok: false, error: 'unknown type' });
   } catch (err) {
     return respond({ ok: false, error: err.toString() });
