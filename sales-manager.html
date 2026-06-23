@@ -1639,9 +1639,13 @@ let data = {
   routes: []     // 動線マスター
 };
 
+// 初期化完了フラグ（falseの間はGASへのプッシュを禁止）
+let _sharedDataReady = false;
+
 function saveData() {
   localStorage.setItem('sales-manager-data', JSON.stringify(data));
-  // 共有データをGASに2秒デバウンスでプッシュ
+  // 初期化中（GASからの最初の取得が終わる前）はプッシュしない
+  if (!_sharedDataReady) return;
   clearTimeout(saveData._timer);
   saveData._timer = setTimeout(pushSharedDataToGAS, 2000);
 }
@@ -4172,9 +4176,10 @@ function pullSharedDataFromGAS() {
   return fetch(GAS_URL + '?payload=' + encodeURIComponent(payload))
     .then(r => r.json())
     .then(res => {
+      // 取得完了（成功・失敗問わず）→ 以降のsaveDataはGASプッシュOK
+      _sharedDataReady = true;
       if (!res.ok || !res.data) return;
       const remote = res.data;
-      // ローカルより新しい場合のみ上書き（初回はremoteが必ず新しい）
       const localTs  = data._sharedUpdatedAt || 0;
       const remoteTs = remote._updatedAt    || 0;
       if (remoteTs <= localTs) return; // ローカルの方が新しければスキップ
@@ -4184,11 +4189,13 @@ function pullSharedDataFromGAS() {
       data._sharedUpdatedAt = remoteTs;
       localStorage.setItem('sales-manager-data', JSON.stringify(data));
       renderDashboard();
-      // 同期ステータス更新
       const el = document.getElementById('sync-status');
       if (el) el.textContent = '共有データ同期: ' + new Date().toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' });
     })
-    .catch(() => {});
+    .catch(() => {
+      // エラーでもフラグを立てる（GASが落ちていてもツールは使えるよう）
+      _sharedDataReady = true;
+    });
 }
 
 function syncFromSheet() {
