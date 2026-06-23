@@ -58,6 +58,7 @@ function sendDailyReminder() {
     msg += `担当：${t.member}\n`;
     msg += `👤 ${t.lineName}\n`;
     msg += `初回面談：${t.dateStr}\n`;
+    msg += `導線：${t.category}\n`;
     if (t.recording) msg += `録画：${t.recording}\n`;
     msg += '━━━━━━━━━━━━━━\n';
   }
