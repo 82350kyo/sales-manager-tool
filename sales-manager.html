@@ -2240,33 +2240,51 @@ function renderSalesList() {
       }
     }
 
-    return `
-    (() => {
-      const latestSale = sortedSales[0];
-      const firstSale  = sortedSales[sortedSales.length - 1];
-      const latestResult  = latestSale?.result  || '-';
-      const latestProduct = latestSale?.product || '-';
-      const latestCategory = latestSale?.category || first.category || '-';
-      const firstDateStr = firstSale?.date || '';
-      const hasReminder = !!nextApproachDate;
+    const latestSale = sortedSales[0];
+    const firstSale  = sortedSales[sortedSales.length - 1];
+    const latestResult   = latestSale?.result   || '-';
+    const latestProduct  = latestSale?.product  || '-';
+    const latestCategory = latestSale?.category || first.category || '-';
+    const firstDateStr   = firstSale?.date || '';
+    const hasReminder    = !!nextApproachDate;
 
-      // 導線バッジ
-      const catBadge = latestCategory !== '-'
-        ? `<span style="background:#eff6ff;color:#1d4ed8;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;">📍 ${esc(latestCategory)}</span>`
-        : '';
-      // 商品バッジ
-      const prodBadge = latestProduct !== '-'
-        ? `<span style="background:#f0fdf4;color:#166534;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;">📦 ${esc(latestProduct)}</span>`
-        : '';
-      // リマインドベル（カード名前横）
-      const bellIcon = hasReminder
-        ? `<span title="次回アプローチ: ${esc(nextApproachDate)}" style="font-size:16px;cursor:default;">🔔</span>`
-        : '';
+    const catBadge  = latestCategory !== '-'
+      ? `<span style="background:#eff6ff;color:#1d4ed8;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;">📍 ${esc(latestCategory)}</span>`
+      : '';
+    const prodBadge = latestProduct !== '-'
+      ? `<span style="background:#f0fdf4;color:#166534;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;">📦 ${esc(latestProduct)}</span>`
+      : '';
+    const bellIcon  = hasReminder
+      ? `<span title="次回アプローチ: ${esc(nextApproachDate)}" style="font-size:16px;cursor:default;">🔔</span>`
+      : '';
 
+    const timelineRows = sortedSales.map(s => {
+      const hasAmount  = (s.amount  || 0) > 0;
+      const hasPayment = Math.abs(s.payment || 0) > 0;
+      const sReminder  = s.customerInfo?.nextApproachDate || '';
       return `
-      <div class="sale-group-card ${approachClass}" style="background:var(--surface);border-radius:16px;box-shadow:0 4px 20px rgba(0,0,0,0.05);padding:20px;margin-bottom:20px;border-left:6px solid ${m?.color||'#ccc'};">
+        <div id="sale-row-${s.id}"
+          style="display:flex;align-items:center;justify-content:space-between;padding:9px 4px;border-bottom:1px solid var(--border);cursor:pointer;border-radius:8px;transition:background 0.15s;"
+          onclick="openSaleDetailModal('${esc(s.id)}', event)"
+          onmouseenter="this.style.background='rgba(0,0,0,0.03)'"
+          onmouseleave="this.style.background=''">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1;min-width:0;">
+            <span style="font-size:12px;color:var(--text-muted);white-space:nowrap;min-width:82px;">${esc(s.date)}</span>
+            <span style="font-size:13px;font-weight:700;color:${hasAmount?'#065f46':'var(--text-muted)'};white-space:nowrap;">${hasAmount?'💰 ':''}${fmt(s.amount||0)}</span>
+            <span style="font-size:12px;color:${hasPayment?'#1d4ed8':'var(--text-muted)'};white-space:nowrap;">${hasPayment?'✅ 着金: '+fmt(Math.abs(s.payment)):'着金: -'}</span>
+            <div id="result-cell-${s.id}" style="display:flex;align-items:center;gap:6px;">${resultBadge(s.result)}</div>
+            ${sReminder ? `<span title="次回: ${esc(sReminder)}" style="font-size:13px;">🔔</span>` : ''}
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;margin-left:8px;">
+            ${s.history ? `<div class="history-tag" title="${esc(s.history)}">🕒</div>` : ''}
+            <button type="button" onclick="openSaleDetailModal('${esc(s.id)}', event)" class="edit-btn-mini" title="修正">✏️</button>
+            <button class="btn btn-danger btn-sm" style="padding:2px 8px;font-size:10px;" onclick="event.stopPropagation();deleteSale(this.dataset.id)" data-id="${esc(s.id)}">削除</button>
+          </div>
+        </div>`;
+    }).join('');
 
-        <!-- ① 担当者 + 合計着金 -->
+    return `
+      <div class="sale-group-card ${approachClass}" style="background:var(--surface);border-radius:16px;box-shadow:0 4px 20px rgba(0,0,0,0.05);padding:20px;margin-bottom:20px;border-left:6px solid ${m?.color||'#ccc'};">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
           <div style="font-size:12px;color:var(--text-muted);font-weight:600;">👤 ${esc(m?.name||'不明')}</div>
           <div style="text-align:right;">
@@ -2274,69 +2292,25 @@ function renderSalesList() {
             <div style="font-size:18px;font-weight:900;color:var(--primary);">${fmt(g.totalPayment)}</div>
           </div>
         </div>
-
-        <!-- ② LINE名 + リマインドベル -->
         <div style="font-size:20px;font-weight:800;color:var(--text-main);display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
           ${esc(first.note || '顧客名なし')}
           ${bellIcon}
           ${approachBadgeHtml}
         </div>
-
-        <!-- ③ 導線・結果・商品バッジ -->
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
           ${catBadge}
           ${resultBadge(latestResult)}
           ${prodBadge}
         </div>
-
-        <!-- ④ 初回面談日 + 追加入金ボタン -->
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
           ${firstDateStr ? `<span style="font-size:12px;color:var(--text-muted);">📅 初回面談: <strong>${esc(firstDateStr)}</strong></span>` : ''}
           <button onclick='event.stopPropagation();prepareInstallment(this.dataset.id)' data-id="${esc(first.id)}" class="btn btn-outline btn-sm" style="padding:4px 10px;font-size:11px;border-radius:8px;">➕ 追加入金を報告</button>
         </div>
-
-        <!-- ⑤ タイムライン -->
         <div class="sale-timeline" style="background:var(--surface2);border-radius:12px;padding:8px 12px;">
-          ${sortedSales.map(s => {
-            const hasAmount  = (s.amount  || 0) > 0;
-            const hasPayment = Math.abs(s.payment || 0) > 0;
-            const sCi = s.customerInfo || {};
-            const sReminder = sCi.nextApproachDate;
-            return `
-            <div id="sale-row-${s.id}"
-              style="display:flex;align-items:center;justify-content:space-between;padding:9px 4px;border-bottom:1px solid var(--border);cursor:pointer;border-radius:8px;transition:background 0.15s;"
-              onclick="openSaleDetailModal('${esc(s.id)}', event)"
-              onmouseenter="this.style.background='rgba(0,0,0,0.03)'"
-              onmouseleave="this.style.background=''">
-              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1;min-width:0;">
-                <!-- 面談日 -->
-                <span style="font-size:12px;color:var(--text-muted);white-space:nowrap;min-width:82px;">${esc(s.date)}</span>
-                <!-- 成約金額 -->
-                <span style="font-size:13px;font-weight:700;color:${hasAmount?'#065f46':'var(--text-muted)'};white-space:nowrap;">
-                  ${hasAmount?'💰':''}${fmt(s.amount||0)}
-                </span>
-                <!-- 着金 -->
-                <span style="font-size:12px;color:${hasPayment?'#1d4ed8':'var(--text-muted)'};white-space:nowrap;">
-                  ${hasPayment?'✅ 着金: '+fmt(Math.abs(s.payment)):'着金: -'}
-                </span>
-                <!-- 結果 -->
-                <div id="result-cell-${s.id}" style="display:flex;align-items:center;gap:6px;">
-                  ${resultBadge(s.result)}
-                </div>
-                <!-- リマインドベル（行レベル） -->
-                ${sReminder ? `<span title="次回: ${esc(sReminder)}" style="font-size:13px;">🔔</span>` : ''}
-              </div>
-              <!-- 修正・削除ボタン -->
-              <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;margin-left:8px;">
-                ${s.history ? `<div class="history-tag" title="${esc(s.history)}">🕒</div>` : ''}
-                <button type="button" onclick="openSaleDetailModal('${esc(s.id)}', event)" class="edit-btn-mini" title="修正">✏️</button>
-                <button class="btn btn-danger btn-sm" style="padding:2px 8px;font-size:10px;" onclick="event.stopPropagation();deleteSale(this.dataset.id)" data-id="${esc(s.id)}">削除</button>
-              </div>
-            </div>
-          `}).join('')}
+          ${timelineRows}
         </div>
       </div>
-    `; })();
+    `;
   }).join('');
 }
 
