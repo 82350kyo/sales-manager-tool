@@ -517,7 +517,7 @@
         <span class="nav-icon">🎓</span><span>セミナー集計</span>
       </div>
       <div class="nav-item" onclick="showPage('projecttasks')">
-        <span class="nav-icon">📁</span><span>プロジェクトタスク</span>
+        <span class="nav-icon">📁</span><span>プロジェクト管理</span>
       </div>
 
       <div class="nav-item" onclick="showPage('settings')">
@@ -1193,7 +1193,7 @@
       <div class="page-header">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
           <div>
-            <div class="page-title">📁 プロジェクトタスク</div>
+            <div class="page-title">📁 プロジェクト管理</div>
             <div class="page-desc">プロジェクト・タスク・アクションプランを一元管理</div>
           </div>
           <button class="btn btn-primary" onclick="openPTProjectModal()">＋ 新規プロジェクト</button>
@@ -5260,14 +5260,140 @@ function renderPTProjects() {
       + '<span style="font-size:12px;font-weight:700;color:var(--primary);">' + progress + '%</span>'
       + '</div>'
       + '<button class="btn btn-outline btn-sm" onclick="openPTTaskModal(\'' + proj.id + '\')">＋ タスク</button>'
+      + '<button class="btn btn-outline btn-sm" onclick="togglePTResources(\'' + proj.id + '\')">📎 資料</button>'
       + '<button class="btn btn-outline btn-sm" onclick="openPTProjectModal(\'' + proj.id + '\')">編集</button>'
       + '<button class="btn btn-danger btn-sm" onclick="deletePTProject(\'' + proj.id + '\')">削除</button>'
       + '</div>'
       + '</div>'
       + '<div style="border-top:1px solid var(--border);margin:8px 0;"></div>'
       + (tasksHtml || '<div style="font-size:13px;color:var(--text-muted);padding:8px 0;">タスクはまだありません。「＋ タスク」から追加できます。</div>')
+      + buildPTResourcesHtml(proj)
+      + buildPTInstructionsHtml(proj)
       + '</div>';
   }).join('');
+}
+
+// -------- 関連資料・メモ HTML生成 --------
+function buildPTResourcesHtml(proj) {
+  const links = proj.links || [];
+  const memo  = proj.memo  || '';
+  const linksHtml = links.length
+    ? links.map(l =>
+        '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;">'
+        + '<a href="' + l.url + '" target="_blank" rel="noopener" style="font-size:13px;color:var(--primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">🔗 ' + (l.title || l.url) + '</a>'
+        + '<button class="btn btn-danger btn-sm" style="flex-shrink:0;" onclick="deletePTLink(\'' + proj.id + '\',\'' + l.id + '\')">✕</button>'
+        + '</div>'
+      ).join('')
+    : '<div style="font-size:12px;color:var(--text-muted);">リンクはまだありません</div>';
+  return '<div id="pt-resources-' + proj.id + '" style="display:none;margin-top:12px;border-top:1px dashed var(--border);padding-top:12px;">'
+    + '<div style="font-size:13px;font-weight:700;margin-bottom:8px;">📎 関連資料・リンク</div>'
+    + linksHtml
+    + '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">'
+    + '<input id="pt-link-title-' + proj.id + '" type="text" placeholder="タイトル（任意）" style="flex:1;min-width:100px;padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;">'
+    + '<input id="pt-link-url-' + proj.id + '" type="url" placeholder="https://..." style="flex:2;min-width:160px;padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;">'
+    + '<button class="btn btn-primary btn-sm" onclick="addPTLink(\'' + proj.id + '\')">追加</button>'
+    + '</div>'
+    + '<div style="margin-top:12px;">'
+    + '<div style="font-size:13px;font-weight:700;margin-bottom:6px;">📝 メモ</div>'
+    + '<textarea id="pt-memo-' + proj.id + '" rows="3" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;resize:vertical;" placeholder="自由記述...">' + memo + '</textarea>'
+    + '<button class="btn btn-outline btn-sm" style="margin-top:4px;" onclick="savePTMemo(\'' + proj.id + '\')">メモを保存</button>'
+    + '</div>'
+    + '</div>';
+}
+
+// -------- マネージャー指示 HTML生成 --------
+function buildPTInstructionsHtml(proj) {
+  const instrs = proj.instructions || [];
+  const instrRows = instrs.map(ins => {
+    const doneStyle = ins.done ? 'text-decoration:line-through;color:var(--text-muted);' : '';
+    const badge = ins.done
+      ? '<span style="background:#d1fae5;color:#065f46;font-size:10px;padding:2px 7px;border-radius:999px;font-weight:600;">対応済み</span>'
+      : '<span style="background:#fef3c7;color:#92400e;font-size:10px;padding:2px 7px;border-radius:999px;font-weight:600;">未対応</span>';
+    return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">'
+      + '<input type="checkbox" ' + (ins.done ? 'checked' : '') + ' style="width:16px;height:16px;cursor:pointer;accent-color:var(--primary);" onchange="togglePTInstruction(\'' + proj.id + '\',\'' + ins.id + '\')">'
+      + '<span style="flex:1;font-size:13px;' + doneStyle + '">' + ins.text + '</span>'
+      + badge
+      + '<button class="btn btn-danger btn-sm" style="flex-shrink:0;" onclick="deletePTInstruction(\'' + proj.id + '\',\'' + ins.id + '\')">✕</button>'
+      + '</div>';
+  }).join('');
+  return '<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;">'
+    + '<div style="font-size:13px;font-weight:700;margin-bottom:6px;">📋 マネージャー指示</div>'
+    + (instrRows || '<div style="font-size:12px;color:var(--text-muted);padding:4px 0;">指示はまだありません</div>')
+    + '<div style="display:flex;gap:6px;margin-top:8px;">'
+    + '<input id="pt-instr-input-' + proj.id + '" type="text" placeholder="指示内容を入力..." style="flex:1;padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;" onkeydown="if(event.key===\'Enter\')addPTInstruction(\'' + proj.id + '\')">'
+    + '<button class="btn btn-primary btn-sm" onclick="addPTInstruction(\'' + proj.id + '\')">追加</button>'
+    + '</div>'
+    + '</div>';
+}
+
+// -------- 資料・リンク操作 --------
+function togglePTResources(projId) {
+  const el = document.getElementById('pt-resources-' + projId);
+  if (!el) return;
+  el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+
+function addPTLink(projId) {
+  const url   = document.getElementById('pt-link-url-' + projId)?.value.trim();
+  const title = document.getElementById('pt-link-title-' + projId)?.value.trim();
+  if (!url) { alert('URLを入力してください'); return; }
+  const proj = getPTProjects().find(p => p.id === projId);
+  if (!proj) return;
+  if (!proj.links) proj.links = [];
+  proj.links.push({ id: genPTId(), title: title || url, url });
+  saveData();
+  renderPTProjects();
+}
+
+function deletePTLink(projId, linkId) {
+  const proj = getPTProjects().find(p => p.id === projId);
+  if (!proj) return;
+  proj.links = (proj.links || []).filter(l => l.id !== linkId);
+  saveData();
+  renderPTProjects();
+}
+
+function savePTMemo(projId) {
+  const proj = getPTProjects().find(p => p.id === projId);
+  if (!proj) return;
+  proj.memo = document.getElementById('pt-memo-' + projId)?.value || '';
+  saveData();
+  // 保存後もパネルを開いたままにする
+  setTimeout(() => {
+    const el = document.getElementById('pt-resources-' + projId);
+    if (el) el.style.display = '';
+  }, 50);
+  renderPTProjects();
+}
+
+// -------- マネージャー指示操作 --------
+function addPTInstruction(projId) {
+  const inp = document.getElementById('pt-instr-input-' + projId);
+  const text = inp?.value.trim();
+  if (!text) return;
+  const proj = getPTProjects().find(p => p.id === projId);
+  if (!proj) return;
+  if (!proj.instructions) proj.instructions = [];
+  proj.instructions.push({ id: genPTId(), text, done: false });
+  saveData();
+  renderPTProjects();
+}
+
+function togglePTInstruction(projId, instrId) {
+  const proj = getPTProjects().find(p => p.id === projId);
+  if (!proj) return;
+  const ins = (proj.instructions || []).find(i => i.id === instrId);
+  if (ins) ins.done = !ins.done;
+  saveData();
+  renderPTProjects();
+}
+
+function deletePTInstruction(projId, instrId) {
+  const proj = getPTProjects().find(p => p.id === projId);
+  if (!proj) return;
+  proj.instructions = (proj.instructions || []).filter(i => i.id !== instrId);
+  saveData();
+  renderPTProjects();
 }
 
 // -------- タスク展開・折りたたみ --------
