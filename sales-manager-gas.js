@@ -169,6 +169,12 @@ function doGet(e) {
       return respond({ ok: true, message: 'テスト送信しました' });
     }
 
+    // 担当者名の一括変更（削除・修正時にスプシと同期）
+    if (payload && payload.type === 'renameMember') {
+      const result = renameMemberInSheet(payload.oldName, payload.newName);
+      return respond(result);
+    }
+
     // payloadなし → 全行返す（同期用）
     return respond(getAllRows());
 
@@ -443,4 +449,26 @@ function sortSheet() {
       .sort({ column: 1, ascending: false });
   }
   Logger.log('ソート完了：' + (lastRow - 1) + '行を並び替えました');
+}
+
+// =====================================================
+// 担当者名の一括変更（削除・修正時にスプシと同期）
+// =====================================================
+function renameMemberInSheet(oldName, newName) {
+  const ss = SpreadsheetApp.openById('1BMptkze_WyYL6TRG5Jzugy8aYT-AL4F4O7gnmFPKXRw');
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { ok: true, updated: 0 };
+
+  const col = 3; // C列: 担当者
+  let updated = 0;
+  for (let i = 2; i <= lastRow; i++) {
+    const cell = sheet.getRange(i, col);
+    const val = String(cell.getValue() || '').replace(/[（(][^）)]*[）)]/g, '').trim();
+    if (val === oldName.trim()) {
+      cell.setValue(newName);
+      updated++;
+    }
+  }
+  return { ok: true, updated: updated };
 }

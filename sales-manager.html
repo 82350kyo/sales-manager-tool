@@ -327,6 +327,146 @@
       }
       .status-waiting.badge-alert { animation: pulse-red 2s infinite; }
     }
+
+    /* ==================== プロジェクトタスク管理 CSS ==================== */
+
+    /* プロジェクトカード */
+    .pt-project-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 4px solid #4f46e5;
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+
+    /* プロジェクトカードのヘッダー */
+    .pt-project-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    /* タスク行 */
+    .pt-task-row {
+      padding: 10px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.15s;
+      border: 1px solid transparent;
+    }
+    .pt-task-row:hover {
+      background: var(--surface2);
+      border-color: var(--border);
+    }
+
+    /* アクションプラン行 */
+    .pt-ap-row {
+      padding: 8px 8px 8px 24px;
+      border-left: 2px solid var(--border);
+      border-radius: 0 6px 6px 0;
+      margin-left: 16px;
+      transition: background 0.15s;
+    }
+    .pt-ap-row:hover {
+      background: var(--surface2);
+    }
+
+    /* ステータスバッジ */
+    .pt-status-badge {
+      cursor: pointer;
+      border-radius: 20px;
+      padding: 3px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      display: inline-block;
+      user-select: none;
+      transition: opacity 0.15s;
+      white-space: nowrap;
+    }
+    .pt-status-badge:hover {
+      opacity: 0.8;
+    }
+    /* 未着手・未実施: グレー */
+    .pt-badge-none {
+      background: #f1f5f9;
+      color: #64748b;
+    }
+    /* 進行中: 青 */
+    .pt-badge-progress {
+      background: #dbeafe;
+      color: #1d4ed8;
+    }
+    /* 完了: 緑 */
+    .pt-badge-done {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    /* プログレスバー */
+    .pt-progress-bar-wrap {
+      background: var(--surface2);
+      border-radius: 8px;
+      height: 8px;
+      overflow: hidden;
+      min-width: 80px;
+    }
+    .pt-progress-bar {
+      height: 8px;
+      border-radius: 8px;
+      background: linear-gradient(90deg, #4f46e5, #7c3aed);
+      transition: width 0.3s ease;
+    }
+
+    /* 期日: 超過 */
+    .pt-overdue {
+      color: #ef4444;
+      font-weight: 700;
+    }
+
+    /* 期日: 近日中 */
+    .pt-due-soon {
+      color: #f59e0b;
+      font-weight: 700;
+    }
+
+    /* 期日: 通常 */
+    .pt-due-normal {
+      color: var(--text-muted);
+    }
+
+    /* タスク展開エリア */
+    .pt-ap-container {
+      margin-top: 6px;
+    }
+
+    /* タスク行のフレックスレイアウト */
+    .pt-task-inner {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    /* APのフレックスレイアウト */
+    .pt-ap-inner {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    /* プロジェクトが0件のとき */
+    .pt-empty {
+      text-align: center;
+      padding: 48px 0;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
   </style>
 </head>
 <body>
@@ -376,11 +516,8 @@
       <div class="nav-item" onclick="showPage('seminar')">
         <span class="nav-icon">🎓</span><span>セミナー集計</span>
       </div>
-      <div class="nav-item" onclick="showPage('projects')">
-        <span class="nav-icon">📋</span><span>プロジェクト</span>
-      </div>
-      <div class="nav-item" onclick="showPage('teamtasks')">
-        <span class="nav-icon">✅</span><span>タスク</span>
+      <div class="nav-item" onclick="showPage('projecttasks')">
+        <span class="nav-icon">📁</span><span>プロジェクトタスク</span>
       </div>
 
       <div class="nav-item" onclick="showPage('settings')">
@@ -1051,9 +1188,47 @@
       <div id="tt-task-list"></div>
     </div>
 
-
+    <!-- プロジェクトタスク管理ページ -->
+    <div id="page-projecttasks" class="page">
+      <div class="page-header">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+          <div>
+            <div class="page-title">📁 プロジェクトタスク</div>
+            <div class="page-desc">プロジェクト・タスク・アクションプランを一元管理</div>
+          </div>
+          <button class="btn btn-primary" onclick="openPTProjectModal()">＋ 新規プロジェクト</button>
+        </div>
+      </div>
+      <div id="pt-project-list"></div>
+    </div>
 
   </main>
+</div>
+
+<!-- Member Edit Modal -->
+<div class="modal-overlay" id="member-edit-modal" style="display:none;">
+  <div class="proj-modal" style="max-width:400px;">
+    <div class="modal-title">メンバーを編集</div>
+    <input type="hidden" id="member-edit-id">
+    <div class="form-grid" style="margin-bottom:16px;">
+      <div class="form-group full">
+        <label>名前</label>
+        <input type="text" id="member-edit-name" placeholder="山田 太郎">
+      </div>
+      <div class="form-group full">
+        <label>役職</label>
+        <input type="text" id="member-edit-role" placeholder="営業担当">
+      </div>
+      <div class="form-group full">
+        <label>カラー</label>
+        <input type="color" id="member-edit-color" style="height:42px;padding:4px;width:100%;">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeMemberEditModal()">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveMemberEdit()">保存</button>
+    </div>
+  </div>
 </div>
 
 <!-- Project Form Modal -->
@@ -1159,6 +1334,109 @@
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal()">キャンセル</button>
       <button class="btn btn-danger" id="delete-confirm-btn">削除する</button>
+    </div>
+  </div>
+</div>
+
+<!-- ① プロジェクトタスク: プロジェクト追加・編集モーダル -->
+<div class="modal-overlay" id="pt-project-modal">
+  <div class="proj-modal">
+    <div class="modal-title" id="pt-proj-modal-title">新規プロジェクト</div>
+    <input type="hidden" id="pt-proj-edit-id">
+    <div class="form-grid" style="margin-bottom:16px;">
+      <div class="form-group full">
+        <label>プロジェクト名</label>
+        <input type="text" id="pt-proj-name" placeholder="例：セミナー準備">
+      </div>
+      <div class="form-group">
+        <label>プロジェクトリーダー</label>
+        <select id="pt-proj-leader">
+          <option value="">担当者を選択</option>
+        </select>
+      </div>
+      <div class="form-group full">
+        <label>説明</label>
+        <textarea id="pt-proj-desc" placeholder="プロジェクトの概要を記入..."></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closePTProjectModal()">キャンセル</button>
+      <button class="btn btn-primary" onclick="savePTProject()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ② プロジェクトタスク: タスク追加・編集モーダル -->
+<div class="modal-overlay" id="pt-task-modal">
+  <div class="proj-modal">
+    <div class="modal-title" id="pt-task-modal-title">タスクを追加</div>
+    <input type="hidden" id="pt-task-edit-id">
+    <input type="hidden" id="pt-task-proj-id">
+    <div class="form-grid" style="margin-bottom:16px;">
+      <div class="form-group full">
+        <label>タスク名</label>
+        <input type="text" id="pt-task-name" placeholder="例：資料作成">
+      </div>
+      <div class="form-group">
+        <label>担当者</label>
+        <select id="pt-task-assignee">
+          <option value="">担当者を選択</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>ステータス</label>
+        <select id="pt-task-status">
+          <option value="未着手">未着手</option>
+          <option value="進行中">進行中</option>
+          <option value="完了">完了</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>期日</label>
+        <input type="date" id="pt-task-duedate">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closePTTaskModal()">キャンセル</button>
+      <button class="btn btn-primary" onclick="savePTTask()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ③ プロジェクトタスク: アクションプラン追加・編集モーダル -->
+<div class="modal-overlay" id="pt-ap-modal">
+  <div class="proj-modal">
+    <div class="modal-title" id="pt-ap-modal-title">アクションプランを追加</div>
+    <input type="hidden" id="pt-ap-edit-id">
+    <input type="hidden" id="pt-ap-task-id">
+    <input type="hidden" id="pt-ap-proj-id">
+    <div class="form-grid" style="margin-bottom:16px;">
+      <div class="form-group full">
+        <label>アクションプラン名</label>
+        <input type="text" id="pt-ap-name" placeholder="例：資料の初稿作成">
+      </div>
+      <div class="form-group">
+        <label>担当者</label>
+        <select id="pt-ap-assignee">
+          <option value="">担当者を選択</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>ステータス</label>
+        <select id="pt-ap-status">
+          <option value="未実施">未実施</option>
+          <option value="進行中">進行中</option>
+          <option value="完了">完了</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>期日</label>
+        <input type="date" id="pt-ap-duedate">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closePTAPModal()">キャンセル</button>
+      <button class="btn btn-primary" onclick="savePTAP()">保存</button>
     </div>
   </div>
 </div>
@@ -1534,6 +1812,7 @@ function showPage(page) {
   if (page === 'projects') renderProjects();
   if (page === 'teamtasks') renderTeamTasks();
   if (page === 'settings') renderSettings();
+  if (page === 'projecttasks') renderPTProjects();
   // 項目設定ページ：商品タブを初期表示
   if (page === 'item-settings') showItemTab('products');
 }
@@ -1613,12 +1892,51 @@ function addMember() {
 
 function deleteMember(id) {
   const m = data.members.find(m => m.id === id);
-  confirmDelete(`${m.name} を削除しますか？関連する売上データは保持されます。`, () => {
-    data.members = data.members.filter(m => m.id !== id);
+  confirmDelete(`${m.name} を削除しますか？\nスプレッドシート上のこの担当者名は「アンノーン」に変更されます。`, () => {
+    // スプシ上の担当者名をアンノーンに更新（同期時に復活しないよう）
+    const payload = JSON.stringify({ type: 'renameMember', oldName: m.name, newName: 'アンノーン' });
+    fetch(GAS_URL + '?payload=' + encodeURIComponent(payload)).catch(() => {});
+    data.members = data.members.filter(mem => mem.id !== id);
     saveData();
     renderMemberList();
     updateMemberSelects();
   });
+}
+
+function openMemberEditModal(id) {
+  const m = data.members.find(m => m.id === id);
+  if (!m) return;
+  document.getElementById('member-edit-id').value = id;
+  document.getElementById('member-edit-name').value = m.name;
+  document.getElementById('member-edit-role').value = m.role || '';
+  document.getElementById('member-edit-color').value = m.color || '#4f46e5';
+  document.getElementById('member-edit-modal').style.display = 'flex';
+}
+
+function closeMemberEditModal() {
+  document.getElementById('member-edit-modal').style.display = 'none';
+}
+
+function saveMemberEdit() {
+  const id = document.getElementById('member-edit-id').value;
+  const newName = document.getElementById('member-edit-name').value.trim();
+  const newRole = document.getElementById('member-edit-role').value.trim();
+  const newColor = document.getElementById('member-edit-color').value;
+  if (!newName) { alert('名前を入力してください'); return; }
+  const m = data.members.find(m => m.id === id);
+  if (!m) return;
+  // 名前が変わった場合はスプシも更新
+  if (m.name !== newName) {
+    const payload = JSON.stringify({ type: 'renameMember', oldName: m.name, newName });
+    fetch(GAS_URL + '?payload=' + encodeURIComponent(payload)).catch(() => {});
+  }
+  m.name = newName;
+  m.role = newRole;
+  m.color = newColor;
+  saveData();
+  closeMemberEditModal();
+  renderMemberList();
+  updateMemberSelects();
 }
 
 function renderMemberList() {
@@ -1636,7 +1954,10 @@ function renderMemberList() {
         <td><strong>${esc(m.name)}</strong></td>
         <td>${esc(m.role || '-')}</td>
         <td>${fmt(total)}</td>
-        <td><button class="btn btn-danger btn-sm" onclick="deleteMember('${m.id}')">削除</button></td>
+        <td style="display:flex;gap:6px;align-items:center;">
+          <button class="btn btn-outline btn-sm" onclick="openMemberEditModal('${m.id}')">修正</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteMember('${m.id}')">削除</button>
+        </td>
       </tr>`;
     }).join('')}</tbody>
   </table></div>`;
@@ -4790,6 +5111,427 @@ function saveEditRoute(idx) {
   updateRouteSelect();
   renderRoutesList();
 }
+
+// ==================== プロジェクトタスク管理 JS ====================
+
+// data.ptProjects が未定義なら初期化して返すヘルパー
+function getPTProjects() {
+  if (!data.ptProjects) data.ptProjects = [];
+  return data.ptProjects;
+}
+
+// メンバー名を id から引くヘルパー
+function getPTMemberName(id) {
+  return (data.members || []).find(m => m.id === id)?.name || '未設定';
+}
+
+// ユニークID生成
+function genPTId() {
+  return 'pt-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+}
+
+// --------  進捗計算ヘルパー --------
+
+// タスクの進捗: アクションプランの完了率（0-100）
+// APがない場合はタスクのステータスが「完了」なら100、それ以外0
+function calcTaskProgress(task) {
+  const aps = task.actionPlans || [];
+  if (aps.length === 0) {
+    return task.status === '完了' ? 100 : 0;
+  }
+  const done = aps.filter(ap => ap.status === '完了').length;
+  return Math.round((done / aps.length) * 100);
+}
+
+// プロジェクトの進捗: タスク進捗の平均（0-100）
+function calcProjectProgress(proj) {
+  const tasks = proj.tasks || [];
+  if (tasks.length === 0) return 0;
+  const sum = tasks.reduce((acc, t) => acc + calcTaskProgress(t), 0);
+  return Math.round(sum / tasks.length);
+}
+
+// -------- 期日表示ヘルパー --------
+function formatPTDueDate(dueDateStr) {
+  if (!dueDateStr) return '<span class="pt-due-normal">期日未設定</span>';
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(dueDateStr);
+  due.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((due - today) / (1000 * 60 * 60 * 24));
+  const m = due.getMonth() + 1;
+  const d = due.getDate();
+  const label = m + '/' + d;
+  if (diffDays < 0) {
+    return '<span class="pt-overdue">⚠️ ' + Math.abs(diffDays) + '日超過 (' + label + ')</span>';
+  } else if (diffDays <= 7) {
+    return '<span class="pt-due-soon">残' + diffDays + 'd (' + label + ')</span>';
+  } else {
+    return '<span class="pt-due-normal">' + label + ' (残' + diffDays + 'd)</span>';
+  }
+}
+
+// ステータスバッジのCSSクラスを返す
+function ptBadgeClass(status) {
+  if (status === '進行中') return 'pt-badge-progress';
+  if (status === '完了') return 'pt-badge-done';
+  return 'pt-badge-none'; // 未着手・未実施
+}
+
+// -------- レンダリング --------
+
+function renderPTProjects() {
+  const container = document.getElementById('pt-project-list');
+  if (!container) return;
+  const projects = getPTProjects();
+
+  if (projects.length === 0) {
+    container.innerHTML = '<div class="pt-empty">プロジェクトがまだありません。<br>「＋ 新規プロジェクト」から追加しましょう。</div>';
+    return;
+  }
+
+  container.innerHTML = projects.map(proj => {
+    const progress = calcProjectProgress(proj);
+    const leaderName = getPTMemberName(proj.leader);
+
+    // タスク行のHTML生成
+    const tasksHtml = (proj.tasks || []).map(task => {
+      const taskProgress = calcTaskProgress(task);
+      const taskBadgeClass = ptBadgeClass(task.status);
+      const assigneeName = getPTMemberName(task.assignee);
+      const dueDateHtml = formatPTDueDate(task.dueDate);
+      // ステータスバッジはクリックでサイクル変更
+      const taskBadge = '<span class="pt-status-badge ' + taskBadgeClass + '" onclick="event.stopPropagation();cyclePTTaskStatus(\'' + proj.id + '\',\'' + task.id + '\')">' + task.status + '</span>';
+
+      // アクションプラン行のHTML（折りたたみコンテナ内）
+      const apsHtml = (task.actionPlans || []).map(ap => {
+        const apBadgeClass = ptBadgeClass(ap.status);
+        const apAssigneeName = getPTMemberName(ap.assignee);
+        const apDueDateHtml = formatPTDueDate(ap.dueDate);
+        const apBadge = '<span class="pt-status-badge ' + apBadgeClass + '" onclick="event.stopPropagation();cyclePTAPStatus(\'' + proj.id + '\',\'' + task.id + '\',\'' + ap.id + '\')">' + ap.status + '</span>';
+        return '<div class="pt-ap-row">'
+          + '<div class="pt-ap-inner">'
+          + '<span style="color:var(--text-muted);font-size:12px;">●</span>'
+          + '<span style="font-size:13px;font-weight:600;flex:1;min-width:0;">' + ap.name + '</span>'
+          + apBadge
+          + '<span style="font-size:12px;color:var(--text-muted);">担当: ' + apAssigneeName + '</span>'
+          + '<span style="font-size:12px;">' + apDueDateHtml + '</span>'
+          + '<div style="display:flex;gap:4px;" onclick="event.stopPropagation();">'
+          + '<button class="btn btn-outline btn-sm" onclick="openPTAPModal(\'' + proj.id + '\',\'' + task.id + '\',\'' + ap.id + '\')">編集</button>'
+          + '<button class="btn btn-danger btn-sm" onclick="deletePTAP(\'' + proj.id + '\',\'' + task.id + '\',\'' + ap.id + '\')">削除</button>'
+          + '</div>'
+          + '</div>'
+          + '</div>';
+      }).join('');
+
+      // タスク進捗バー
+      const taskProgressBarHtml = '<div class="pt-progress-bar-wrap" style="width:60px;"><div class="pt-progress-bar" style="width:' + taskProgress + '%;"></div></div><span style="font-size:11px;color:var(--text-muted);">' + taskProgress + '%</span>';
+
+      return '<div class="pt-task-row" onclick="togglePTTask(\'' + task.id + '\')">'
+        + '<div class="pt-task-inner">'
+        + '<span style="font-size:12px;color:var(--text-muted);">▶</span>'
+        + '<span style="font-size:14px;font-weight:600;flex:1;min-width:0;">' + task.name + '</span>'
+        + taskBadge
+        + '<span style="font-size:12px;color:var(--text-muted);">担当: ' + assigneeName + '</span>'
+        + '<span style="font-size:12px;">' + dueDateHtml + '</span>'
+        + '<div style="display:flex;align-items:center;gap:4px;">' + taskProgressBarHtml + '</div>'
+        + '<div style="display:flex;gap:4px;" onclick="event.stopPropagation();">'
+        + '<button class="btn btn-outline btn-sm" onclick="openPTAPModal(\'' + proj.id + '\',\'' + task.id + '\')">＋AP</button>'
+        + '<button class="btn btn-outline btn-sm" onclick="openPTTaskModal(\'' + proj.id + '\',\'' + task.id + '\')">編集</button>'
+        + '<button class="btn btn-danger btn-sm" onclick="deletePTTask(\'' + proj.id + '\',\'' + task.id + '\')">削除</button>'
+        + '</div>'
+        + '</div>'
+        + '<div id="pt-ap-' + task.id + '" class="pt-ap-container" style="display:none;">'
+        + (apsHtml || '<div style="padding:8px 8px 4px 24px;font-size:12px;color:var(--text-muted);">アクションプランはまだありません</div>')
+        + '</div>'
+        + '</div>';
+    }).join('');
+
+    // プロジェクトカード全体
+    return '<div class="pt-project-card">'
+      + '<div class="pt-project-header">'
+      + '<div>'
+      + '<div style="font-size:16px;font-weight:800;color:var(--text);">' + proj.name + '</div>'
+      + '<div style="font-size:12px;color:var(--text-muted);margin-top:2px;">リーダー: ' + leaderName + (proj.description ? ' &nbsp;|&nbsp; ' + proj.description : '') + '</div>'
+      + '</div>'
+      + '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">'
+      + '<div style="display:flex;align-items:center;gap:6px;">'
+      + '<div class="pt-progress-bar-wrap" style="width:100px;"><div class="pt-progress-bar" style="width:' + progress + '%;"></div></div>'
+      + '<span style="font-size:12px;font-weight:700;color:var(--primary);">' + progress + '%</span>'
+      + '</div>'
+      + '<button class="btn btn-outline btn-sm" onclick="openPTTaskModal(\'' + proj.id + '\')">＋ タスク</button>'
+      + '<button class="btn btn-outline btn-sm" onclick="openPTProjectModal(\'' + proj.id + '\')">編集</button>'
+      + '<button class="btn btn-danger btn-sm" onclick="deletePTProject(\'' + proj.id + '\')">削除</button>'
+      + '</div>'
+      + '</div>'
+      + '<div style="border-top:1px solid var(--border);margin:8px 0;"></div>'
+      + (tasksHtml || '<div style="font-size:13px;color:var(--text-muted);padding:8px 0;">タスクはまだありません。「＋ タスク」から追加できます。</div>')
+      + '</div>';
+  }).join('');
+}
+
+// -------- タスク展開・折りたたみ --------
+function togglePTTask(taskId) {
+  const el = document.getElementById('pt-ap-' + taskId);
+  if (!el) return;
+  el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+
+// -------- プロジェクト操作 --------
+
+// プロジェクト追加・編集モーダルを開く
+// id 指定なし = 新規、あり = 編集
+function openPTProjectModal(id) {
+  const proj = id ? getPTProjects().find(p => p.id === id) : null;
+  document.getElementById('pt-proj-modal-title').textContent = proj ? 'プロジェクトを編集' : '新規プロジェクト';
+  document.getElementById('pt-proj-edit-id').value = proj ? proj.id : '';
+  document.getElementById('pt-proj-name').value = proj ? proj.name : '';
+  document.getElementById('pt-proj-desc').value = proj ? (proj.description || '') : '';
+
+  // メンバーセレクトを動的生成
+  const leaderSel = document.getElementById('pt-proj-leader');
+  leaderSel.innerHTML = '<option value="">担当者を選択</option>'
+    + (data.members || []).map(m => '<option value="' + m.id + '"' + (proj && proj.leader === m.id ? ' selected' : '') + '>' + m.name + '</option>').join('');
+
+  document.getElementById('pt-project-modal').style.display = 'flex';
+}
+
+function closePTProjectModal() {
+  document.getElementById('pt-project-modal').style.display = 'none';
+}
+
+function savePTProject() {
+  const name = document.getElementById('pt-proj-name').value.trim();
+  if (!name) { alert('プロジェクト名を入力してください'); return; }
+  const editId = document.getElementById('pt-proj-edit-id').value;
+  const projects = getPTProjects();
+  if (editId) {
+    // 編集
+    const proj = projects.find(p => p.id === editId);
+    if (proj) {
+      proj.name = name;
+      proj.leader = document.getElementById('pt-proj-leader').value;
+      proj.description = document.getElementById('pt-proj-desc').value.trim();
+    }
+  } else {
+    // 新規
+    projects.push({
+      id: genPTId(),
+      name: name,
+      leader: document.getElementById('pt-proj-leader').value,
+      description: document.getElementById('pt-proj-desc').value.trim(),
+      createdAt: new Date().toISOString(),
+      tasks: []
+    });
+  }
+  saveData();
+  closePTProjectModal();
+  renderPTProjects();
+}
+
+function deletePTProject(id) {
+  if (!confirm('このプロジェクトを削除しますか？\nタスクとアクションプランもすべて削除されます。')) return;
+  data.ptProjects = getPTProjects().filter(p => p.id !== id);
+  saveData();
+  renderPTProjects();
+}
+
+// -------- タスク操作 --------
+
+// タスク追加・編集モーダルを開く
+// projId: 対象プロジェクトのID
+// taskId: 指定なし=新規、あり=編集
+function openPTTaskModal(projId, taskId) {
+  const proj = getPTProjects().find(p => p.id === projId);
+  if (!proj) return;
+  const task = taskId ? (proj.tasks || []).find(t => t.id === taskId) : null;
+  document.getElementById('pt-task-modal-title').textContent = task ? 'タスクを編集' : 'タスクを追加';
+  document.getElementById('pt-task-edit-id').value = task ? task.id : '';
+  document.getElementById('pt-task-proj-id').value = projId;
+  document.getElementById('pt-task-name').value = task ? task.name : '';
+  document.getElementById('pt-task-duedate').value = task ? (task.dueDate || '') : '';
+
+  // メンバーセレクト
+  const assigneeSel = document.getElementById('pt-task-assignee');
+  assigneeSel.innerHTML = '<option value="">担当者を選択</option>'
+    + (data.members || []).map(m => '<option value="' + m.id + '"' + (task && task.assignee === m.id ? ' selected' : '') + '>' + m.name + '</option>').join('');
+
+  // ステータスセレクト
+  const statusSel = document.getElementById('pt-task-status');
+  statusSel.value = task ? task.status : '未着手';
+
+  document.getElementById('pt-task-modal').style.display = 'flex';
+}
+
+function closePTTaskModal() {
+  document.getElementById('pt-task-modal').style.display = 'none';
+}
+
+function savePTTask() {
+  const name = document.getElementById('pt-task-name').value.trim();
+  if (!name) { alert('タスク名を入力してください'); return; }
+  const projId = document.getElementById('pt-task-proj-id').value;
+  const editId = document.getElementById('pt-task-edit-id').value;
+  const proj = getPTProjects().find(p => p.id === projId);
+  if (!proj) return;
+  if (!proj.tasks) proj.tasks = [];
+
+  if (editId) {
+    // 編集
+    const task = proj.tasks.find(t => t.id === editId);
+    if (task) {
+      task.name = name;
+      task.assignee = document.getElementById('pt-task-assignee').value;
+      task.status = document.getElementById('pt-task-status').value;
+      task.dueDate = document.getElementById('pt-task-duedate').value;
+    }
+  } else {
+    // 新規
+    proj.tasks.push({
+      id: genPTId(),
+      name: name,
+      assignee: document.getElementById('pt-task-assignee').value,
+      status: document.getElementById('pt-task-status').value,
+      dueDate: document.getElementById('pt-task-duedate').value,
+      actionPlans: []
+    });
+  }
+  saveData();
+  closePTTaskModal();
+  renderPTProjects();
+}
+
+function deletePTTask(projId, taskId) {
+  if (!confirm('このタスクを削除しますか？\nアクションプランもすべて削除されます。')) return;
+  const proj = getPTProjects().find(p => p.id === projId);
+  if (!proj) return;
+  proj.tasks = (proj.tasks || []).filter(t => t.id !== taskId);
+  saveData();
+  renderPTProjects();
+}
+
+// -------- アクションプラン操作 --------
+
+// APモーダルを開く
+// projId, taskId: 親のID
+// apId: 指定なし=新規、あり=編集
+function openPTAPModal(projId, taskId, apId) {
+  const proj = getPTProjects().find(p => p.id === projId);
+  if (!proj) return;
+  const task = (proj.tasks || []).find(t => t.id === taskId);
+  if (!task) return;
+  const ap = apId ? (task.actionPlans || []).find(a => a.id === apId) : null;
+
+  document.getElementById('pt-ap-modal-title').textContent = ap ? 'アクションプランを編集' : 'アクションプランを追加';
+  document.getElementById('pt-ap-edit-id').value = ap ? ap.id : '';
+  document.getElementById('pt-ap-task-id').value = taskId;
+  document.getElementById('pt-ap-proj-id').value = projId;
+  document.getElementById('pt-ap-name').value = ap ? ap.name : '';
+  document.getElementById('pt-ap-duedate').value = ap ? (ap.dueDate || '') : '';
+
+  // メンバーセレクト
+  const assigneeSel = document.getElementById('pt-ap-assignee');
+  assigneeSel.innerHTML = '<option value="">担当者を選択</option>'
+    + (data.members || []).map(m => '<option value="' + m.id + '"' + (ap && ap.assignee === m.id ? ' selected' : '') + '>' + m.name + '</option>').join('');
+
+  // ステータスセレクト
+  const statusSel = document.getElementById('pt-ap-status');
+  statusSel.value = ap ? ap.status : '未実施';
+
+  document.getElementById('pt-ap-modal').style.display = 'flex';
+}
+
+function closePTAPModal() {
+  document.getElementById('pt-ap-modal').style.display = 'none';
+}
+
+function savePTAP() {
+  const name = document.getElementById('pt-ap-name').value.trim();
+  if (!name) { alert('アクションプラン名を入力してください'); return; }
+  const projId = document.getElementById('pt-ap-proj-id').value;
+  const taskId = document.getElementById('pt-ap-task-id').value;
+  const editId = document.getElementById('pt-ap-edit-id').value;
+  const proj = getPTProjects().find(p => p.id === projId);
+  if (!proj) return;
+  const task = (proj.tasks || []).find(t => t.id === taskId);
+  if (!task) return;
+  if (!task.actionPlans) task.actionPlans = [];
+
+  if (editId) {
+    // 編集
+    const ap = task.actionPlans.find(a => a.id === editId);
+    if (ap) {
+      ap.name = name;
+      ap.assignee = document.getElementById('pt-ap-assignee').value;
+      ap.status = document.getElementById('pt-ap-status').value;
+      ap.dueDate = document.getElementById('pt-ap-duedate').value;
+    }
+  } else {
+    // 新規
+    task.actionPlans.push({
+      id: genPTId(),
+      name: name,
+      assignee: document.getElementById('pt-ap-assignee').value,
+      status: document.getElementById('pt-ap-status').value,
+      dueDate: document.getElementById('pt-ap-duedate').value
+    });
+  }
+  saveData();
+  closePTAPModal();
+  renderPTProjects();
+}
+
+function deletePTAP(projId, taskId, apId) {
+  if (!confirm('このアクションプランを削除しますか？')) return;
+  const proj = getPTProjects().find(p => p.id === projId);
+  if (!proj) return;
+  const task = (proj.tasks || []).find(t => t.id === taskId);
+  if (!task) return;
+  task.actionPlans = (task.actionPlans || []).filter(a => a.id !== apId);
+  saveData();
+  renderPTProjects();
+}
+
+// -------- ステータス循環変更 --------
+
+// タスクのステータスを循環: 未着手→進行中→完了→未着手
+function cyclePTTaskStatus(projId, taskId) {
+  const proj = getPTProjects().find(p => p.id === projId);
+  if (!proj) return;
+  const task = (proj.tasks || []).find(t => t.id === taskId);
+  if (!task) return;
+  const cycle = ['未着手', '進行中', '完了'];
+  const idx = cycle.indexOf(task.status);
+  task.status = cycle[(idx + 1) % cycle.length];
+  saveData();
+  renderPTProjects();
+}
+
+// APのステータスを循環: 未実施→進行中→完了→未実施
+function cyclePTAPStatus(projId, taskId, apId) {
+  const proj = getPTProjects().find(p => p.id === projId);
+  if (!proj) return;
+  const task = (proj.tasks || []).find(t => t.id === taskId);
+  if (!task) return;
+  const ap = (task.actionPlans || []).find(a => a.id === apId);
+  if (!ap) return;
+  const cycle = ['未実施', '進行中', '完了'];
+  const idx = cycle.indexOf(ap.status);
+  ap.status = cycle[(idx + 1) % cycle.length];
+  saveData();
+  renderPTProjects();
+}
+
+// モーダルオーバーレイをクリックで閉じる処理（プロジェクトタスクモーダル）
+document.getElementById('pt-project-modal').addEventListener('click', function(e) {
+  if (e.target === this) closePTProjectModal();
+});
+document.getElementById('pt-task-modal').addEventListener('click', function(e) {
+  if (e.target === this) closePTTaskModal();
+});
+document.getElementById('pt-ap-modal').addEventListener('click', function(e) {
+  if (e.target === this) closePTAPModal();
+});
 </script>
 </body>
 </html>
