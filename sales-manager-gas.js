@@ -175,6 +175,16 @@ function doGet(e) {
       return respond(result);
     }
 
+    // 共有データ取得（プロジェクト・動線・目標など）
+    if (payload && payload.type === 'getSharedData') {
+      return respond(getSharedData());
+    }
+
+    // 共有データ保存
+    if (payload && payload.type === 'saveSharedData') {
+      return respond(saveSharedData(payload.data));
+    }
+
     // payloadなし → 全行返す（同期用）
     return respond(getAllRows());
 
@@ -471,4 +481,33 @@ function renameMemberInSheet(oldName, newName) {
     }
   }
   return { ok: true, updated: updated };
+}
+
+// =====================================================
+// 共有データの読み書き（プロジェクト・動線・目標など）
+// シート「ツール共有データ」のA1にJSON保存
+// =====================================================
+function getSharedData() {
+  try {
+    const ss = SpreadsheetApp.openById('1BMptkze_WyYL6TRG5Jzugy8aYT-AL4F4O7gnmFPKXRw');
+    let sheet = ss.getSheetByName('ツール共有データ');
+    if (!sheet) return { ok: true, data: null };
+    const val = sheet.getRange('A1').getValue();
+    if (!val) return { ok: true, data: null };
+    return { ok: true, data: JSON.parse(val) };
+  } catch (e) {
+    return { ok: false, error: e.toString() };
+  }
+}
+
+function saveSharedData(d) {
+  try {
+    const ss = SpreadsheetApp.openById('1BMptkze_WyYL6TRG5Jzugy8aYT-AL4F4O7gnmFPKXRw');
+    let sheet = ss.getSheetByName('ツール共有データ');
+    if (!sheet) sheet = ss.insertSheet('ツール共有データ');
+    sheet.getRange('A1').setValue(JSON.stringify(d));
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.toString() };
+  }
 }

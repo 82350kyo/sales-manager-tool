@@ -1641,6 +1641,9 @@ let data = {
 
 function saveData() {
   localStorage.setItem('sales-manager-data', JSON.stringify(data));
+  // 共有データをGASに2秒デバウンスでプッシュ
+  clearTimeout(saveData._timer);
+  saveData._timer = setTimeout(pushSharedDataToGAS, 2000);
 }
 
 const MEMBER_ORDER = ['岡崎', '廣瀬', '木元', '的場', '西澤', '山本', '円石', '若松', '與田', '大槻', '増井'];
@@ -4142,6 +4145,43 @@ const GAS_URL = (location.hostname === 'localhost' || location.hostname === '127
   ? '/gas'
   : 'https://script.google.com/macros/s/AKfycbyydr3z_aUAb__aAu61CyWXuavbZzo4C7u8jiBYWssty5hHLflXshvriZiVs366ovnw/exec';
 
+// ==================== 共有データ同期（プロジェクト・動線・目標など） ====================
+
+// 共有対象のキー一覧
+const SHARED_KEYS = ['ptProjects', 'routes', 'products', 'members', 'goals', 'teamtasks', 'projects'];
+
+function pushSharedDataToGAS() {
+  const shared = {};
+  SHARED_KEYS.forEach(k => { shared[k] = data[k] || []; });
+  shared._updatedAt = Date.now();
+  const payload = JSON.stringify({ type: 'saveSharedData', data: shared });
+  fetch(GAS_URL + '?payload=' + encodeURIComponent(payload)).catch(() => {});
+}
+
+function pullSharedDataFromGAS() {
+  const payload = JSON.stringify({ type: 'getSharedData' });
+  return fetch(GAS_URL + '?payload=' + encodeURIComponent(payload))
+    .then(r => r.json())
+    .then(res => {
+      if (!res.ok || !res.data) return;
+      const remote = res.data;
+      // ローカルより新しい場合のみ上書き（初回はremoteが必ず新しい）
+      const localTs  = data._sharedUpdatedAt || 0;
+      const remoteTs = remote._updatedAt    || 0;
+      if (remoteTs <= localTs) return; // ローカルの方が新しければスキップ
+      SHARED_KEYS.forEach(k => {
+        if (remote[k] !== undefined) data[k] = remote[k];
+      });
+      data._sharedUpdatedAt = remoteTs;
+      localStorage.setItem('sales-manager-data', JSON.stringify(data));
+      renderDashboard();
+      // 同期ステータス更新
+      const el = document.getElementById('sync-status');
+      if (el) el.textContent = '共有データ同期: ' + new Date().toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' });
+    })
+    .catch(() => {});
+}
+
 function syncFromSheet() {
   const status = document.getElementById('sync-status');
   status.textContent = '同期中...';
@@ -4855,8 +4895,7 @@ fetch(GAS_URL)
     });
     data.members = data.members.filter(m => !toRm.includes(m.id));
     data.sales.sort((a, b) => b.date.localeCompare(a.date));
-    saveData();
-    saveData();
+    localStorage.setItem('sales-manager-data', JSON.stringify(data));
     renderDashboard();
   })
   .catch(() => {
@@ -4866,10 +4905,13 @@ fetch(GAS_URL)
 renderDashboard();
 document.getElementById('loading-overlay').style.display = 'none';
 
-// 5分ごとに自動同期
-setInterval(() => syncFromSheet(), 5 * 60 * 1000);
+// 5分ごとに自動同期（売上 + 共有データ）
+setInterval(() => { syncFromSheet(); pullSharedDataFromGAS(); }, 5 * 60 * 1000);
+// 1分ごとに共有データだけ高頻度で同期
+setInterval(() => pullSharedDataFromGAS(), 60 * 1000);
 // ページ読み込み時に即時同期
 syncFromSheet();
+pullSharedDataFromGAS();
 
 // ==================== 項目設定ページ ====================
 
