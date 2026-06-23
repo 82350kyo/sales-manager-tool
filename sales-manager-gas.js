@@ -7,6 +7,82 @@ const SHEET_NAME = '売上報告';
 const LINE_GROUP_ID = 'C87ef2d287f760158419805a3887ac7f9';
 
 // =====================================================
+// 毎朝リマインド通知（タイムトリガーで自動実行）
+// =====================================================
+function sendDailyReminder() {
+  const ss = SpreadsheetApp.openById('1BMptkze_WyYL6TRG5Jzugy8aYT-AL4F4O7gnmFPKXRw');
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+
+  const today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+  const rows = sheet.getRange(2, 1, lastRow - 1, 21).getValues();
+
+  const targets = [];
+  for (const row of rows) {
+    const raw = row[18]; // S列: 次回アプローチ予定日
+    if (!raw) continue;
+    const nextDate = raw instanceof Date
+      ? Utilities.formatDate(raw, 'Asia/Tokyo', 'yyyy-MM-dd')
+      : String(raw).slice(0, 10);
+    if (nextDate !== today) continue;
+
+    // 初回面談日（B列）を M/d 形式に
+    const rawDate = row[1];
+    let dateStr = '';
+    if (rawDate instanceof Date) {
+      dateStr = Utilities.formatDate(rawDate, 'Asia/Tokyo', 'M/d');
+    } else {
+      const parts = String(rawDate).slice(0, 10).split('-');
+      if (parts.length === 3) dateStr = `${parseInt(parts[1])}/${parseInt(parts[2])}`;
+    }
+
+    const recording = String(row[10] || '').trim();
+
+    targets.push({
+      lineName:  String(row[4] || '').trim(),   // E列: 顧客LINE名
+      member:    String(row[2] || '').trim(),   // C列: 担当者
+      dateStr:   dateStr,                        // B列: 初回面談日
+      category:  String(row[3] || '').trim(),   // D列: 導線
+      recording: (recording && recording !== 'なし' && recording !== '-') ? recording : '',
+    });
+  }
+
+  if (targets.length === 0) return;
+
+  const todayLabel = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'M/d');
+  let msg = `📅 本日のアプローチリスト（${todayLabel}）\n`;
+  msg += '━━━━━━━━━━━━━━\n';
+
+  for (const t of targets) {
+    msg += `👤 ${t.lineName}\n`;
+    msg += `担当：${t.member}\n`;
+    msg += `初回面談：${t.dateStr}\n`;
+    msg += `導線：${t.category}\n`;
+    if (t.recording) msg += `録画：${t.recording}\n`;
+    msg += '━━━━━━━━━━━━━━\n';
+  }
+
+  msg += `\n計${targets.length}件`;
+  sendLineMessage(msg);
+}
+
+// LINE グループにメッセージ送信（汎用）
+function sendLineMessage(text) {
+  const token = PropertiesService.getScriptProperties().getProperty('LINE_TOKEN');
+  if (!token) return;
+  UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { 'Authorization': 'Bearer ' + token },
+    payload: JSON.stringify({
+      to: LINE_GROUP_ID,
+      messages: [{ type: 'text', text: text }]
+    })
+  });
+}
+
+// =====================================================
 // LINE一括インポート用（doPost）
 // =====================================================
 function doPost(e) {
@@ -80,6 +156,12 @@ function doGet(e) {
     if (payload && payload.type === 'updateResult') {
       const result = updateSheetRow(payload);
       return respond(result);
+    }
+
+    // リマインドテスト送信
+    if (payload && payload.type === 'testReminder') {
+      sendDailyReminder();
+      return respond({ ok: true, message: 'テスト送信しました' });
     }
 
     // payloadなし → 全行返す（同期用）
