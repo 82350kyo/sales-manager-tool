@@ -749,6 +749,12 @@
                   <label>アプローチ目安</label>
                   <select id="sale-approach-months" onchange="calcNextApproachDate()">
                     <option value="">未設定</option>
+                    <option value="1d">1日後</option>
+                    <option value="2d">2日後</option>
+                    <option value="3d">3日後</option>
+                    <option value="5d">5日後</option>
+                    <option value="7d">1週間後</option>
+                    <option value="14d">2週間後</option>
                     <option value="1">1ヶ月後</option>
                     <option value="2">2ヶ月後</option>
                     <option value="3">3ヶ月後</option>
@@ -811,6 +817,12 @@
                   <label>アプローチ目安</label>
                   <select id="sale-approach-months-nc" onchange="calcNextApproachDate()">
                     <option value="">未設定</option>
+                    <option value="1d">1日後</option>
+                    <option value="2d">2日後</option>
+                    <option value="3d">3日後</option>
+                    <option value="5d">5日後</option>
+                    <option value="7d">1週間後</option>
+                    <option value="14d">2週間後</option>
                     <option value="1">1ヶ月後</option>
                     <option value="2">2ヶ月後</option>
                     <option value="3">3ヶ月後</option>
@@ -1538,37 +1550,78 @@
         <!-- アップセル見込み -->
         <div style="display:flex;flex-direction:column;gap:5px;">
           <label style="font-size:11px;font-weight:700;color:var(--text-muted);">アップセル見込み</label>
-          <input type="text" id="sd-upsell" placeholder="あり / なし" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;">
+          <select id="sd-upsell" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;background:var(--surface2);">
+            <option value="">未設定</option>
+            <option value="あり">あり</option>
+            <option value="なし">なし</option>
+          </select>
         </div>
 
         <!-- 断り理由 -->
         <div style="display:flex;flex-direction:column;gap:5px;">
           <label style="font-size:11px;font-weight:700;color:var(--text-muted);">断り理由</label>
-          <input type="text" id="sd-rejection" placeholder="資金不足 / タイミング..." style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;">
+          <select id="sd-rejection" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;background:var(--surface2);">
+            <option value="">未選択</option>
+            <option value="資金不足">資金不足</option>
+            <option value="タイミング">タイミング</option>
+            <option value="必要性を感じない">必要性を感じない</option>
+            <option value="検討中">検討中</option>
+            <option value="その他">その他</option>
+          </select>
         </div>
 
         <!-- 資金状況 -->
         <div style="display:flex;flex-direction:column;gap:5px;">
           <label style="font-size:11px;font-weight:700;color:var(--text-muted);">資金状況</label>
-          <input type="text" id="sd-financial" placeholder="余裕あり / 余裕なし" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;">
+          <select id="sd-financial" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;background:var(--surface2);">
+            <option value="">未選択</option>
+            <option value="余裕あり">余裕あり</option>
+            <option value="余裕なし">余裕なし</option>
+          </select>
         </div>
 
         <!-- 行動の障壁 -->
         <div style="display:flex;flex-direction:column;gap:5px;">
           <label style="font-size:11px;font-weight:700;color:var(--text-muted);">行動の障壁</label>
-          <input type="text" id="sd-barrier" placeholder="高 / 中 / 低" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;">
+          <select id="sd-barrier" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;background:var(--surface2);">
+            <option value="">未選択</option>
+            <option value="高">高</option>
+            <option value="中">中</option>
+            <option value="低">低</option>
+          </select>
         </div>
 
         <!-- アプローチ目安 -->
         <div style="display:flex;flex-direction:column;gap:5px;">
           <label style="font-size:11px;font-weight:700;color:var(--text-muted);">アプローチ目安</label>
-          <input type="text" id="sd-approach-months" placeholder="3（ヶ月後）" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;">
+          <select id="sd-approach-months" onchange="calcSDNextApproachDate()" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;background:var(--surface2);">
+            <option value="">未設定</option>
+            <option value="1d">1日後</option>
+            <option value="2d">2日後</option>
+            <option value="3d">3日後</option>
+            <option value="5d">5日後</option>
+            <option value="7d">1週間後</option>
+            <option value="14d">2週間後</option>
+            <option value="1">1ヶ月後</option>
+            <option value="2">2ヶ月後</option>
+            <option value="3">3ヶ月後</option>
+            <option value="4">4ヶ月後</option>
+            <option value="5">5ヶ月後</option>
+            <option value="6">6ヶ月後</option>
+            <option value="7">7ヶ月後</option>
+            <option value="8">8ヶ月後</option>
+            <option value="9">9ヶ月後</option>
+            <option value="10">10ヶ月後</option>
+            <option value="11">11ヶ月後</option>
+            <option value="12">12ヶ月後</option>
+          </select>
         </div>
 
         <!-- 次回アプローチ予定日 -->
         <div style="display:flex;flex-direction:column;gap:5px;">
           <label style="font-size:11px;font-weight:700;color:var(--text-muted);">次回アプローチ予定日</label>
           <input type="date" id="sd-next-approach-date" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;">
+          <span id="sd-next-approach-preview" style="font-size:11px;color:var(--primary);font-weight:700;"></span>
         </div>
 
       </div>
@@ -2163,28 +2216,60 @@ function updateCustomerInfoSection() {
   if (addRow) addRow.style.display = result === '追加決済' ? '' : 'none';
 }
 
+function addApproachOffset(base, val) {
+  if (!val) return null;
+  const d = new Date(base.getFullYear(), base.getMonth(), base.getDate());
+  if (val.endsWith('d')) {
+    d.setDate(d.getDate() + parseInt(val));
+  } else {
+    d.setMonth(d.getMonth() + parseInt(val));
+  }
+  return d;
+}
+
+function toDateStr(d) {
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
 function calcNextApproachDate() {
   const baseDate = document.getElementById('sale-date')?.value;
   if (!baseDate) return;
   const base = new Date(baseDate);
 
   // 成約側
-  const mC = parseInt(document.getElementById('sale-approach-months')?.value || '0');
-  if (mC > 0) {
-    const d = new Date(base.getFullYear(), base.getMonth() + mC, base.getDate());
-    const str = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  const valC = document.getElementById('sale-approach-months')?.value;
+  const nextC = addApproachOffset(base, valC);
+  if (nextC) {
     const el = document.getElementById('sale-next-approach');
-    if (el) el.value = str;
+    if (el) el.value = toDateStr(nextC);
   }
   // 未成約側
-  const mNC = parseInt(document.getElementById('sale-approach-months-nc')?.value || '0');
-  if (mNC > 0) {
-    const d = new Date(base.getFullYear(), base.getMonth() + mNC, base.getDate());
-    const str = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  const valNC = document.getElementById('sale-approach-months-nc')?.value;
+  const nextNC = addApproachOffset(base, valNC);
+  if (nextNC) {
     const el = document.getElementById('sale-next-approach-nc');
-    if (el) el.value = str;
+    if (el) el.value = toDateStr(nextNC);
   }
   previewSaleReport();
+}
+
+// 詳細モーダル用：アプローチ目安から次回アプローチ予定日を自動計算
+function calcSDNextApproachDate() {
+  const val = document.getElementById('sd-approach-months')?.value;
+  const dateEl = document.getElementById('sd-next-approach-date');
+  const previewEl = document.getElementById('sd-next-approach-preview');
+  if (!val || !dateEl) return;
+  const today = new Date();
+  const base = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const next = addApproachOffset(base, val);
+  if (!next) return;
+  const str = toDateStr(next);
+  dateEl.value = str;
+  if (previewEl) {
+    const m = next.getMonth() + 1;
+    const d = next.getDate();
+    previewEl.textContent = '→ ' + m + '月' + d + '日 目安';
+  }
 }
 
 // 時刻文字列を30分刻みに丸めるヘルパー関数
@@ -2804,6 +2889,14 @@ function openSaleDetailModal(id, event) {
   document.getElementById('sd-approach-months').value = ci.approachMonths || '';
   document.getElementById('sd-next-approach-date').value = ci.nextApproachDate || '';
   document.getElementById('sd-customer-memo').value = ci.customerMemo || ci.secondNote || '';
+  // 次回アプローチ日のプレビュー表示
+  const previewEl = document.getElementById('sd-next-approach-preview');
+  if (previewEl && ci.nextApproachDate) {
+    const dp = new Date(ci.nextApproachDate + 'T00:00:00');
+    previewEl.textContent = '→ ' + (dp.getMonth()+1) + '月' + dp.getDate() + '日 目安';
+  } else if (previewEl) {
+    previewEl.textContent = '';
+  }
 
   // モーダル表示
   document.getElementById('sale-detail-modal').style.display = 'flex';
@@ -5210,7 +5303,7 @@ function calcProjectProgress(proj) {
 }
 
 // -------- 期日表示ヘルパー --------
-function formatPTDueDate(dueDateStr) {
+function formatPTDueDate(dueDateStr, isDone) {
   if (!dueDateStr) return '<span class="pt-due-normal">期日未設定</span>';
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -5221,11 +5314,13 @@ function formatPTDueDate(dueDateStr) {
   const d = due.getDate();
   const label = m + '/' + d;
   if (diffDays < 0) {
+    // 完了タスクは超過表示なし（日付のみ）
+    if (isDone) return '<span style="color:var(--text-muted);">' + label + '</span>';
     return '<span class="pt-overdue">⚠️ ' + Math.abs(diffDays) + '日超過 (' + label + ')</span>';
   } else if (diffDays <= 7) {
-    return '<span class="pt-due-soon">残' + diffDays + 'd (' + label + ')</span>';
+    return '<span class="pt-due-soon">残' + diffDays + '日 (' + label + ')</span>';
   } else {
-    return '<span class="pt-due-normal">' + label + ' (残' + diffDays + 'd)</span>';
+    return '<span class="pt-due-normal">' + label + ' (残' + diffDays + '日)</span>';
   }
 }
 
@@ -5257,7 +5352,7 @@ function renderPTProjects() {
       const taskProgress = calcTaskProgress(task);
       const taskBadgeClass = ptBadgeClass(task.status);
       const assigneeName = getPTMemberName(task.assignee);
-      const dueDateHtml = formatPTDueDate(task.dueDate);
+      const dueDateHtml = formatPTDueDate(task.dueDate, task.status === '完了');
       // ステータスバッジはクリックでサイクル変更
       const taskBadge = '<span class="pt-status-badge ' + taskBadgeClass + '" onclick="event.stopPropagation();cyclePTTaskStatus(\'' + proj.id + '\',\'' + task.id + '\')">' + task.status + '</span>';
 
@@ -5265,7 +5360,7 @@ function renderPTProjects() {
       const apsHtml = (task.actionPlans || []).map(ap => {
         const apBadgeClass = ptBadgeClass(ap.status);
         const apAssigneeName = getPTMemberName(ap.assignee);
-        const apDueDateHtml = formatPTDueDate(ap.dueDate);
+        const apDueDateHtml = formatPTDueDate(ap.dueDate, ap.status === '完了');
         const apBadge = '<span class="pt-status-badge ' + apBadgeClass + '" onclick="event.stopPropagation();cyclePTAPStatus(\'' + proj.id + '\',\'' + task.id + '\',\'' + ap.id + '\')">' + ap.status + '</span>';
         return '<div class="pt-ap-row">'
           + '<div class="pt-ap-inner">'
