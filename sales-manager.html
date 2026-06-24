@@ -1550,7 +1550,8 @@
       <!-- 録画URL -->
       <div style="display:flex;flex-direction:column;gap:5px;">
         <label style="font-size:11px;font-weight:700;color:var(--text-muted);">録画URL</label>
-        <input type="text" id="sd-recording" placeholder="https://youtu.be/..." style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;">
+        <input type="text" id="sd-recording" placeholder="https://youtu.be/..." style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;" oninput="updateRecordingLink()">
+        <a id="sd-recording-link" href="#" target="_blank" rel="noopener" style="display:none;font-size:12px;color:var(--primary);font-weight:700;word-break:break-all;">▶ 録画を開く</a>
       </div>
 
     </div><!-- /2カラムグリッド -->
@@ -2244,6 +2245,19 @@ function calcNextApproachDate() {
   previewSaleReport();
 }
 
+// 録画URLリンクを更新
+function updateRecordingLink() {
+  const url = document.getElementById('sd-recording')?.value.trim();
+  const link = document.getElementById('sd-recording-link');
+  if (!link) return;
+  if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+    link.href = url;
+    link.style.display = 'block';
+  } else {
+    link.style.display = 'none';
+  }
+}
+
 // 詳細モーダル用：アプローチ目安から次回アプローチ予定日を自動計算
 function calcSDNextApproachDate() {
   const val = document.getElementById('sd-approach-months')?.value;
@@ -2812,6 +2826,7 @@ function openSaleDetailModal(id, event) {
   document.getElementById('sd-payment').value = Math.abs(s.payment || 0);
   document.getElementById('sd-payment-date').value = s.paymentDate || '';
   document.getElementById('sd-recording').value = s.recording || '';
+  updateRecordingLink();
 
   // 担当者セレクトを動的に生成
   const memberSel = document.getElementById('sd-member');
