@@ -190,6 +190,11 @@ function doGet(e) {
       return respond(saveSharedData(payload.data));
     }
 
+    // 録画URL一括取得
+    if (payload && payload.type === 'getAllRecordings') {
+      return respond(getAllRecordings());
+    }
+
     // payloadなし → 全行返す（同期用）
     return respond(getAllRows());
 
@@ -512,6 +517,30 @@ function saveSharedData(d) {
     if (!sheet) sheet = ss.insertSheet('ツール共有データ');
     sheet.getRange('A1').setValue(JSON.stringify(d));
     return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.toString() };
+  }
+}
+
+// =====================================================
+// 録画URL一括取得（スプレッドシートのID→録画URLマップ）
+// =====================================================
+function getAllRecordings() {
+  try {
+    const ss = SpreadsheetApp.openById('1BMptkze_WyYL6TRG5Jzugy8aYT-AL4F4O7gnmFPKXRw');
+    const sheet = ss.getSheetByName(SHEET_NAME);
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) return { ok: true, data: [] };
+    const rows = sheet.getRange(2, 1, lastRow - 1, 13).getValues(); // A〜M列
+    const result = [];
+    for (const row of rows) {
+      const id        = String(row[12] || '').trim(); // M列: ID
+      const recording = String(row[10] || '').trim(); // K列: 録画URL
+      if (id && recording && recording !== 'なし' && recording !== '-') {
+        result.push({ id, recording });
+      }
+    }
+    return { ok: true, data: result };
   } catch (e) {
     return { ok: false, error: e.toString() };
   }

@@ -1115,7 +1115,10 @@
         <div class="card-title">スプレッドシート同期</div>
         <p style="font-size:14px;color:var(--text-muted);margin-bottom:16px;">Googleスプレッドシートの売上データを取り込みます。</p>
         <div id="sync-alert"></div>
-        <button class="btn btn-primary" onclick="syncFromSheet()">🔄 スプシから同期</button>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn btn-primary" onclick="syncFromSheet()">🔄 スプシから同期</button>
+          <button class="btn btn-outline" onclick="syncRecordingsFromGAS()">🎥 録画URL同期</button>
+        </div>
         <div id="sync-status" style="margin-top:12px;font-size:13px;color:var(--text-muted);"></div>
       </div>
 
@@ -4301,6 +4304,37 @@ function pullSharedDataFromGAS() {
     .catch(() => {
       // エラーでもフラグを立てる（GASが落ちていてもツールは使えるよう）
       _sharedDataReady = true;
+    });
+}
+
+function syncRecordingsFromGAS() {
+  const status = document.getElementById('sync-status');
+  status.textContent = '録画URL同期中...';
+  const payload = JSON.stringify({ type: 'getAllRecordings' });
+  fetch(GAS_URL + '?payload=' + encodeURIComponent(payload))
+    .then(r => r.json())
+    .then(res => {
+      if (!res.ok || !res.data) { showAlert('sync-alert', 'error', '録画URL取得に失敗しました'); return; }
+      let updated = 0;
+      res.data.forEach(({ id, recording }) => {
+        const sale = data.sales.find(s => String(s.id) === String(id));
+        if (sale) {
+          sale.recording = recording;
+          updated++;
+        }
+      });
+      if (updated > 0) {
+        saveData();
+        renderSalesList();
+        status.textContent = `🎥 録画URL ${updated}件 を反映しました`;
+        showAlert('sync-alert', 'success', `録画URL ${updated}件 を同期しました`);
+      } else {
+        status.textContent = '録画URLの新しい同期データはありませんでした';
+      }
+    })
+    .catch(() => {
+      showAlert('sync-alert', 'error', '録画URL同期に失敗しました');
+      status.textContent = '';
     });
 }
 
