@@ -775,8 +775,8 @@
                   <span style="font-size:11px;color:var(--text-muted);">アプローチ目安から自動計算</span>
                 </div>
                 <div class="form-group full">
-                  <label>備考</label>
-                  <textarea id="sale-customer-memo" placeholder="顧客メモ（アップセル商品候補など）" oninput="previewSaleReport()"></textarea>
+                  <label>1回目面談の所感</label>
+                  <textarea id="sale-customer-memo" placeholder="1回目面談の手応えや所感を入力" oninput="previewSaleReport()"></textarea>
                 </div>
               </div>
             </div>
@@ -843,8 +843,8 @@
                   <span style="font-size:11px;color:var(--text-muted);">アプローチ目安から自動計算</span>
                 </div>
                 <div class="form-group full">
-                  <label>2回目アプローチ後の所感</label>
-                  <textarea id="sale-second-note" placeholder="2回目アプローチ時の手応えや所感を入力" oninput="previewSaleReport()"></textarea>
+                  <label>1回目面談の所感</label>
+                  <textarea id="sale-second-note" placeholder="1回目面談の手応えや所感を入力" oninput="previewSaleReport()"></textarea>
                 </div>
               </div>
             </div>
@@ -1339,6 +1339,19 @@
 </div>
 
 <!-- Delete Confirm Modal -->
+<!-- 完了トースト通知 -->
+<div id="success-toast" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999;pointer-events:none;">
+  <div id="success-toast-inner" style="background:#fff;border-radius:24px;box-shadow:0 20px 60px rgba(0,0,0,0.25);padding:36px 48px;text-align:center;min-width:260px;border:2px solid #4caf50;animation:toastFadeIn 0.3s ease;">
+    <div style="font-size:52px;margin-bottom:10px;">✅</div>
+    <div id="success-toast-msg" style="font-size:18px;font-weight:800;color:#222;"></div>
+    <div id="success-toast-sub" style="font-size:13px;color:#666;margin-top:6px;"></div>
+  </div>
+</div>
+<style>
+@keyframes toastFadeIn { from { opacity:0; transform:translate(-50%,-50%) scale(0.85); } to { opacity:1; transform:translate(-50%,-50%) scale(1); } }
+@keyframes toastFadeOut { from { opacity:1; } to { opacity:0; } }
+</style>
+
 <div class="modal-overlay" id="delete-modal">
   <div class="modal">
     <div class="modal-title">削除の確認</div>
@@ -1626,10 +1639,16 @@
 
       </div>
 
-      <!-- 備考/所感（全幅） -->
+      <!-- 1回目面談の所感（全幅） -->
       <div style="display:flex;flex-direction:column;gap:5px;margin-top:14px;">
-        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">備考/所感</label>
-        <textarea id="sd-customer-memo" placeholder="顧客メモ・アップセル候補・所感など..." style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;resize:vertical;min-height:80px;"></textarea>
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">📝 1回目面談の所感</label>
+        <textarea id="sd-first-note" placeholder="1回目面談の手応えや所感..." style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;resize:vertical;min-height:80px;"></textarea>
+      </div>
+
+      <!-- 2回目アプローチの所感（全幅） -->
+      <div style="display:flex;flex-direction:column;gap:5px;margin-top:10px;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">📝 2回目アプローチの所感</label>
+        <textarea id="sd-second-note" placeholder="2回目アプローチ時の手応えや所感..." style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;resize:vertical;min-height:80px;"></textarea>
       </div>
     </div>
 
@@ -2340,14 +2359,15 @@ function addSale() {
     customerInfo.upsell = document.getElementById('sale-upsell')?.value || '';
     customerInfo.approachMonths = document.getElementById('sale-approach-months')?.value || '';
     customerInfo.nextApproachDate = document.getElementById('sale-next-approach')?.value || '';
-    customerInfo.customerMemo = document.getElementById('sale-customer-memo')?.value.trim() || '';
+    customerInfo.firstNote = document.getElementById('sale-customer-memo')?.value.trim() || '';
+    customerInfo.customerMemo = customerInfo.firstNote; // 後方互換
   } else if (isNonContract) {
     customerInfo.rejection = document.getElementById('sale-rejection')?.value || '';
     customerInfo.financial = document.getElementById('sale-financial')?.value || '';
     customerInfo.barrier = document.getElementById('sale-barrier')?.value || '';
     customerInfo.approachMonths = document.getElementById('sale-approach-months-nc')?.value || '';
     customerInfo.nextApproachDate = document.getElementById('sale-next-approach-nc')?.value || '';
-    customerInfo.secondNote = document.getElementById('sale-second-note')?.value.trim() || '';
+    customerInfo.firstNote = document.getElementById('sale-second-note')?.value.trim() || '';
   }
 
   data.sales.push({ id, date, time, memberId, amount, payment, paymentDate, category, result, note: lineName, memo: note, product, recording, source: 'local', customerInfo, additionalAmount, ...(rowType ? { rowType } : {}) });
@@ -2386,7 +2406,7 @@ function addSale() {
         console.error('GAS書き込みエラー:', res.error);
         showAlert('sales-alert', 'error', '⚠️ スプレッドシートへの保存に失敗しました。管理者に連絡してください。エラー: ' + (res.error || '不明'));
       } else {
-        showAlert('sales-alert', 'success', '✅ 保存・LINE送信完了！スプレッドシートにも記録されました。');
+        showSuccessToast('送信完了！', 'スプレッドシート・LINEへ記録されました');
       }
     })
     .catch(err => {
@@ -2412,7 +2432,7 @@ function addSale() {
   ].forEach(fid => { const el = document.getElementById(fid); if(el) el.value = ''; });
   updateCustomerInfoSection();
 
-  showAlert('sales-alert', 'success', '保存しました！LINEグループへ送信中...');
+  showSuccessToast('保存しました！', 'LINEグループへ送信中...');
   updateMonthFilter();
   renderSalesList();
 }
@@ -2888,7 +2908,10 @@ function openSaleDetailModal(id, event) {
   document.getElementById('sd-barrier').value = ci.barrier || '';
   document.getElementById('sd-approach-months').value = ci.approachMonths || '';
   document.getElementById('sd-next-approach-date').value = ci.nextApproachDate || '';
-  document.getElementById('sd-customer-memo').value = ci.customerMemo || ci.secondNote || '';
+  // 1回目所感（新フィールド優先、旧データはcustomerMemo/secondNoteから読む）
+  document.getElementById('sd-first-note').value = ci.firstNote || ci.customerMemo || '';
+  // 2回目所感（詳細モーダルからのみ編集可能）
+  document.getElementById('sd-second-note').value = ci.secondNote || '';
   // 次回アプローチ日のプレビュー表示
   const previewEl = document.getElementById('sd-next-approach-preview');
   if (previewEl && ci.nextApproachDate) {
@@ -2936,7 +2959,8 @@ function saveSaleDetail() {
   const barrier         = document.getElementById('sd-barrier').value.trim();
   const approachMonths  = document.getElementById('sd-approach-months').value.trim();
   const nextApproachDate = document.getElementById('sd-next-approach-date').value;
-  const customerMemo    = document.getElementById('sd-customer-memo').value.trim();
+  const firstNote       = document.getElementById('sd-first-note').value.trim();
+  const secondNote      = document.getElementById('sd-second-note').value.trim();
 
   // localStorageのデータを更新
   s.note        = lineName;
@@ -2956,7 +2980,9 @@ function saveSaleDetail() {
   s.customerInfo.barrier         = barrier;
   s.customerInfo.approachMonths  = approachMonths;
   s.customerInfo.nextApproachDate = nextApproachDate;
-  s.customerInfo.customerMemo    = customerMemo;
+  s.customerInfo.firstNote       = firstNote;
+  s.customerInfo.secondNote      = secondNote;
+  s.customerInfo.customerMemo    = firstNote; // 後方互換
 
   saveData();
 
@@ -4895,6 +4921,23 @@ function showAlert(id, type, msg) {
   if (!el) return;
   el.innerHTML = `<div class="alert alert-${type === 'error' ? 'error' : 'success'}">${esc(msg)}</div>`;
   setTimeout(() => { el.innerHTML = ''; }, 3000);
+}
+
+function showSuccessToast(msg, sub) {
+  const toast = document.getElementById('success-toast');
+  const inner = document.getElementById('success-toast-inner');
+  const msgEl = document.getElementById('success-toast-msg');
+  const subEl = document.getElementById('success-toast-sub');
+  if (!toast) return;
+  msgEl.textContent = msg || '送信完了！';
+  subEl.textContent = sub || '';
+  inner.style.animation = 'toastFadeIn 0.3s ease';
+  toast.style.display = 'block';
+  clearTimeout(showSuccessToast._t);
+  showSuccessToast._t = setTimeout(() => {
+    inner.style.animation = 'toastFadeOut 0.4s ease forwards';
+    setTimeout(() => { toast.style.display = 'none'; }, 400);
+  }, 2500);
 }
 
 let deleteCallback = null;
