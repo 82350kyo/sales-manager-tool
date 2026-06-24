@@ -2189,34 +2189,6 @@ function buildSaleReportMsg() {
   msg += `録画：${recording}\n`;
   msg += `属性：${note}`;
 
-  // 顧客情報を追記
-  const isContract = result === '成約' || result === '追加決済';
-  const isNonContract = result === '未成約' || result === '2回目遷移' || result === '決済待ち';
-  if (isContract) {
-    const upsell = document.getElementById('sale-upsell')?.value;
-    const nextApproach = document.getElementById('sale-next-approach')?.value;
-    const customerMemo = document.getElementById('sale-customer-memo')?.value.trim();
-    if (upsell || nextApproach || customerMemo) {
-      msg += '\n\n【顧客情報】\n';
-      if (upsell) msg += `アップセル見込み：${upsell}\n`;
-      if (nextApproach) msg += `次回アプローチ：${nextApproach}\n`;
-      if (customerMemo) msg += `備考：${customerMemo}`;
-    }
-  } else if (isNonContract) {
-    const rejection = document.getElementById('sale-rejection')?.value;
-    const financial = document.getElementById('sale-financial')?.value;
-    const barrier = document.getElementById('sale-barrier')?.value;
-    const nextApproach = document.getElementById('sale-next-approach-nc')?.value;
-    const secondNote = document.getElementById('sale-second-note')?.value.trim();
-    if (rejection || financial || barrier || nextApproach || secondNote) {
-      msg += '\n\n【顧客情報】\n';
-      if (rejection) msg += `断り理由：${rejection}\n`;
-      if (financial) msg += `資金状況：${financial}\n`;
-      if (barrier) msg += `行動の障壁：${barrier}\n`;
-      if (nextApproach) msg += `次回アプローチ：${nextApproach}\n`;
-      if (secondNote) msg += `所感：${secondNote}`;
-    }
-  }
   return msg;
 }
 
