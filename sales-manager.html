@@ -2186,7 +2186,7 @@ function buildSaleReportMsg() {
   msg += `日時：${dateStr}\n`;
   msg += `導線：${category}\n`;
   msg += `LINE名：${lineName}\n`;
-  msg += `成約結果：${result}\n`;
+  msg += `成約結果：${result}${product ? '　' + product : ''}\n`;
   msg += `録画：${recording}\n`;
   msg += `属性：${note}`;
 
