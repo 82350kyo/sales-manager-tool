@@ -2998,7 +2998,7 @@ function saveSaleDetail() {
     barrier,
     approachMonths,
     nextApproachDate,
-    customerMemo
+    customerMemo: firstNote
   };
 
   fetch(GAS_URL + '?payload=' + encodeURIComponent(JSON.stringify(gasPayload)))
@@ -4401,11 +4401,11 @@ function syncFromSheet() {
         if (existingLocal) {
           // すでに入力済みのものがあれば、スプシ側の本物のIDで上書きする
           const rowVals = Object.values(row).map(v => String(v || ""));
-          const realId = row['ID'] || rowVals.reduce((found, v) => {
+          const realId = rowVals.reduce((found, v) => {
             if (found) return found;
-            const m = v.match(/sale-[a-z0-9.]+/i);
+            const m = v.match(/(?:sale|import)-[a-z0-9.]+/i);
             return m ? m[0] : null;
-          }, null) || row['タイムスタンプ'];
+          }, null) || String(row['ID'] || '').trim() || row['タイムスタンプ'];
           if (realId) existingLocal.id = String(realId);
           existingLocal.history = row['履歴'] || '';
           // スプシの顧客情報もマージ（次回アプローチ日などを反映）
@@ -4472,10 +4472,12 @@ function syncFromSheet() {
         const allVals = Object.values(row).map(v => String(v || ""));
         const foundSaleId = allVals.reduce((found, v) => {
           if (found) return found;
-          const m = v.match(/sale-[a-z0-9.]+/i);
+          const m = v.match(/(?:sale|import)-[a-z0-9.]+/i);
           return m ? m[0] : null;
         }, null);
-        const saleId = foundSaleId || (row['ID'] ? 'sheet-id-' + String(Number(row['ID'])) : null) || ('sheet-row-' + row['_rowIdx']);
+        // IDをそのまま使う（import-0001など文字列IDも正しく保持）
+        const rawId = String(row['ID'] || '').trim();
+        const saleId = foundSaleId || (rawId ? rawId : null) || ('sheet-row-' + row['_rowIdx']);
         // 着金日を読み込む（UTC ISO対応）
         const payDateRaw = row['着金日'] || '';
         let paymentDate = '';
