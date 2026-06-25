@@ -1120,6 +1120,25 @@
       <div id="knowledge-list"></div>
     </div>
 
+    <!-- ナレッジ詳細ポップアップ -->
+    <div class="modal-overlay" id="knowledge-detail-modal" onclick="closeKnowledgeDetail()">
+      <div style="background:var(--surface);padding:28px;border-radius:24px;box-shadow:0 30px 100px rgba(0,0,0,0.4);width:min(600px,95vw);border:1px solid var(--border);max-height:85vh;overflow-y:auto;" onclick="event.stopPropagation()">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+          <div>
+            <div id="kn-detail-cat" style="font-size:11px;font-weight:700;color:var(--primary);margin-bottom:4px;"></div>
+            <div id="kn-detail-title" style="font-size:20px;font-weight:900;color:var(--text);"></div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
+            <button id="kn-detail-edit-btn" style="background:none;border:1.5px solid var(--border);border-radius:10px;padding:7px 14px;cursor:pointer;font-size:13px;font-weight:700;color:var(--text-muted);">✏️ 編集</button>
+            <span onclick="closeKnowledgeDetail()" style="cursor:pointer;font-size:22px;color:var(--text-muted);padding:4px 8px;">×</span>
+          </div>
+        </div>
+        <div id="kn-detail-body" style="font-size:14px;color:var(--text);line-height:1.85;white-space:pre-wrap;background:var(--surface2);border-radius:12px;padding:16px;margin-bottom:14px;display:none;"></div>
+        <div id="kn-detail-links" style="display:flex;gap:16px;flex-wrap:wrap;"></div>
+        <div id="kn-detail-date" style="font-size:11px;color:var(--text-muted);margin-top:14px;"></div>
+      </div>
+    </div>
+
     <!-- ナレッジ追加・編集モーダル -->
     <div class="modal-overlay" id="knowledge-modal" onclick="closeKnowledgeModal()">
       <div style="background:var(--surface);padding:28px;border-radius:24px;box-shadow:0 30px 100px rgba(0,0,0,0.4);width:min(560px,95vw);border:1px solid var(--border);max-height:90vh;overflow-y:auto;" onclick="event.stopPropagation()">
@@ -5097,39 +5116,59 @@ function renderKnowledge() {
     grouped[cat].push(k);
   });
 
-  function renderCard(k) {
-    const videoLink = k.video ? `<a href="${esc(k.video)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:5px;color:#e53e3e;font-size:13px;font-weight:700;text-decoration:none;">▶ 動画を見る</a>` : '';
-    const refLink = k.link ? `<a href="${esc(k.link)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:5px;color:var(--primary);font-size:13px;font-weight:700;text-decoration:none;">🔗 参考資料</a>` : '';
+  function renderBadgeRow(k) {
     const dateStr = k.createdAt ? new Date(k.createdAt).toLocaleDateString('ja-JP', { month:'numeric', day:'numeric' }) : '';
+    const hasVideo = k.video ? '▶' : '';
+    const hasLink = k.link ? '🔗' : '';
+    const icons = [hasVideo, hasLink].filter(Boolean).join(' ');
     return `
-      <div class="card" style="display:flex;flex-direction:column;gap:10px;flex:1;min-width:280px;">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
-          <div style="display:flex;flex-direction:column;gap:4px;flex:1;">
-            <span style="font-size:11px;color:var(--text-muted);">${dateStr}</span>
-            <div style="font-size:15px;font-weight:800;color:var(--text);">${esc(k.title || '')}</div>
-          </div>
-          <div style="display:flex;gap:6px;flex-shrink:0;">
-            <button onclick="openKnowledgeModal('${esc(k.id)}')" style="background:none;border:1.5px solid var(--border);border-radius:8px;padding:4px 9px;cursor:pointer;font-size:12px;color:var(--text-muted);">✏️</button>
-            <button onclick="deleteKnowledge('${esc(k.id)}')" style="background:none;border:1.5px solid #fee2e2;border-radius:8px;padding:4px 9px;cursor:pointer;font-size:12px;color:#e53e3e;">🗑️</button>
-          </div>
+      <div onclick="openKnowledgeDetail('${esc(k.id)}')" style="display:flex;align-items:center;width:100%;box-sizing:border-box;background:var(--surface);border:1.5px solid var(--border);border-radius:12px;padding:13px 16px;cursor:pointer;transition:background 0.15s;gap:12px;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='var(--surface)'">
+        <div style="flex:1;font-size:14px;font-weight:700;color:var(--text);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">${esc(k.title || '')}</div>
+        ${icons ? `<div style="font-size:13px;color:var(--text-muted);flex-shrink:0;">${icons}</div>` : ''}
+        <div style="font-size:11px;color:var(--text-muted);flex-shrink:0;">${dateStr}</div>
+        <div style="display:flex;gap:6px;flex-shrink:0;" onclick="event.stopPropagation()">
+          <button onclick="openKnowledgeModal('${esc(k.id)}')" style="background:none;border:1.5px solid var(--border);border-radius:8px;padding:4px 9px;cursor:pointer;font-size:12px;color:var(--text-muted);">✏️</button>
+          <button onclick="deleteKnowledge('${esc(k.id)}')" style="background:none;border:1.5px solid #fee2e2;border-radius:8px;padding:4px 9px;cursor:pointer;font-size:12px;color:#e53e3e;">🗑️</button>
         </div>
-        ${k.body ? `<div style="font-size:13px;color:var(--text);line-height:1.7;white-space:pre-wrap;background:var(--surface2);border-radius:10px;padding:10px 12px;flex:1;">${esc(k.body)}</div>` : ''}
-        ${(videoLink || refLink) ? `<div style="display:flex;gap:12px;flex-wrap:wrap;">${videoLink}${refLink}</div>` : ''}
       </div>`;
   }
 
   list.style.display = 'block';
   list.innerHTML = catOrder.map(cat => `
     <div style="margin-bottom:28px;">
-      <div style="display:flex;align-items:center;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;margin-bottom:10px;">
         <div style="background:var(--primary);color:#fff;padding:5px 18px;border-radius:10px 0 0 10px;font-size:13px;font-weight:800;white-space:nowrap;">${esc(cat)}</div>
         <div style="flex:1;height:3px;background:var(--primary);opacity:0.25;border-radius:0 10px 10px 0;"></div>
       </div>
-      <div style="display:flex;gap:14px;flex-wrap:wrap;">
-        ${grouped[cat].map(k => renderCard(k)).join('')}
+      <div style="display:flex;flex-direction:column;gap:7px;">
+        ${grouped[cat].map(k => renderBadgeRow(k)).join('')}
       </div>
     </div>
   `).join('');
+}
+
+function openKnowledgeDetail(id) {
+  const k = getKnowledge().find(k => k.id === id);
+  if (!k) return;
+  document.getElementById('kn-detail-cat').textContent = k.category || '';
+  document.getElementById('kn-detail-title').textContent = k.title || '';
+  const bodyEl = document.getElementById('kn-detail-body');
+  if (k.body) { bodyEl.textContent = k.body; bodyEl.style.display = 'block'; }
+  else { bodyEl.style.display = 'none'; }
+  const linksEl = document.getElementById('kn-detail-links');
+  linksEl.innerHTML = '';
+  if (k.video) linksEl.innerHTML += `<a href="${esc(k.video)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;color:#e53e3e;font-size:14px;font-weight:700;text-decoration:none;background:#fff0f0;padding:8px 14px;border-radius:10px;">▶ 動画を見る</a>`;
+  if (k.link) linksEl.innerHTML += `<a href="${esc(k.link)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;color:var(--primary);font-size:14px;font-weight:700;text-decoration:none;background:var(--surface2);padding:8px 14px;border-radius:10px;">🔗 参考資料を開く</a>`;
+  const dateStr = k.createdAt ? new Date(k.createdAt).toLocaleDateString('ja-JP', { year:'numeric', month:'long', day:'numeric' }) : '';
+  document.getElementById('kn-detail-date').textContent = dateStr ? `追加日: ${dateStr}` : '';
+  document.getElementById('kn-detail-edit-btn').onclick = () => { closeKnowledgeDetail(); openKnowledgeModal(id); };
+  document.getElementById('knowledge-detail-modal').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeKnowledgeDetail() {
+  document.getElementById('knowledge-detail-modal').style.display = 'none';
+  document.body.style.overflow = '';
 }
 
 function openKnowledgeModal(id) {
