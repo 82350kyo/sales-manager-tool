@@ -5102,7 +5102,7 @@ function renderKnowledge() {
     const refLink = k.link ? `<a href="${esc(k.link)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:5px;color:var(--primary);font-size:13px;font-weight:700;text-decoration:none;">🔗 参考資料</a>` : '';
     const dateStr = k.createdAt ? new Date(k.createdAt).toLocaleDateString('ja-JP', { month:'numeric', day:'numeric' }) : '';
     return `
-      <div class="card" style="display:flex;flex-direction:column;gap:10px;min-width:280px;max-width:400px;flex:1;">
+      <div class="card" style="display:flex;flex-direction:column;gap:10px;flex:1;min-width:280px;">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
           <div style="display:flex;flex-direction:column;gap:4px;flex:1;">
             <span style="font-size:11px;color:var(--text-muted);">${dateStr}</span>
