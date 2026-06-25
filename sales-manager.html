@@ -1117,7 +1117,7 @@
       </div>
 
       <!-- ナレッジ一覧 -->
-      <div id="knowledge-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;"></div>
+      <div id="knowledge-list"></div>
     </div>
 
     <!-- ナレッジ追加・編集モーダル -->
@@ -5088,27 +5088,48 @@ function renderKnowledge() {
     return;
   }
 
-  list.innerHTML = items.map(k => {
-    const catBadge = k.category ? `<span style="background:var(--primary);color:#fff;border-radius:999px;padding:2px 10px;font-size:11px;font-weight:700;">${esc(k.category)}</span>` : '';
+  // カテゴリ別にグループ化
+  const grouped = {};
+  const catOrder = [];
+  items.forEach(k => {
+    const cat = k.category || '未分類';
+    if (!grouped[cat]) { grouped[cat] = []; catOrder.push(cat); }
+    grouped[cat].push(k);
+  });
+
+  function renderCard(k) {
     const videoLink = k.video ? `<a href="${esc(k.video)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:5px;color:#e53e3e;font-size:13px;font-weight:700;text-decoration:none;">▶ 動画を見る</a>` : '';
     const refLink = k.link ? `<a href="${esc(k.link)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:5px;color:var(--primary);font-size:13px;font-weight:700;text-decoration:none;">🔗 参考資料</a>` : '';
     const dateStr = k.createdAt ? new Date(k.createdAt).toLocaleDateString('ja-JP', { month:'numeric', day:'numeric' }) : '';
     return `
-      <div class="card" style="display:flex;flex-direction:column;gap:10px;position:relative;">
+      <div class="card" style="display:flex;flex-direction:column;gap:10px;min-width:280px;max-width:400px;flex:1;">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
-          <div style="display:flex;flex-direction:column;gap:6px;flex:1;">
-            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">${catBadge}<span style="font-size:11px;color:var(--text-muted);">${dateStr}</span></div>
-            <div style="font-size:16px;font-weight:800;color:var(--text);">${esc(k.title || '')}</div>
+          <div style="display:flex;flex-direction:column;gap:4px;flex:1;">
+            <span style="font-size:11px;color:var(--text-muted);">${dateStr}</span>
+            <div style="font-size:15px;font-weight:800;color:var(--text);">${esc(k.title || '')}</div>
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0;">
-            <button onclick="openKnowledgeModal('${esc(k.id)}')" style="background:none;border:1.5px solid var(--border);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:13px;color:var(--text-muted);">✏️</button>
-            <button onclick="deleteKnowledge('${esc(k.id)}')" style="background:none;border:1.5px solid #fee2e2;border-radius:8px;padding:5px 10px;cursor:pointer;font-size:13px;color:#e53e3e;">🗑️</button>
+            <button onclick="openKnowledgeModal('${esc(k.id)}')" style="background:none;border:1.5px solid var(--border);border-radius:8px;padding:4px 9px;cursor:pointer;font-size:12px;color:var(--text-muted);">✏️</button>
+            <button onclick="deleteKnowledge('${esc(k.id)}')" style="background:none;border:1.5px solid #fee2e2;border-radius:8px;padding:4px 9px;cursor:pointer;font-size:12px;color:#e53e3e;">🗑️</button>
           </div>
         </div>
-        ${k.body ? `<div style="font-size:14px;color:var(--text);line-height:1.75;white-space:pre-wrap;background:var(--surface2);border-radius:10px;padding:12px 14px;">${esc(k.body)}</div>` : ''}
+        ${k.body ? `<div style="font-size:13px;color:var(--text);line-height:1.7;white-space:pre-wrap;background:var(--surface2);border-radius:10px;padding:10px 12px;flex:1;">${esc(k.body)}</div>` : ''}
         ${(videoLink || refLink) ? `<div style="display:flex;gap:12px;flex-wrap:wrap;">${videoLink}${refLink}</div>` : ''}
       </div>`;
-  }).join('');
+  }
+
+  list.style.display = 'block';
+  list.innerHTML = catOrder.map(cat => `
+    <div style="margin-bottom:28px;">
+      <div style="display:flex;align-items:center;margin-bottom:12px;">
+        <div style="background:var(--primary);color:#fff;padding:5px 18px;border-radius:10px 0 0 10px;font-size:13px;font-weight:800;white-space:nowrap;">${esc(cat)}</div>
+        <div style="flex:1;height:3px;background:var(--primary);opacity:0.25;border-radius:0 10px 10px 0;"></div>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;">
+        ${grouped[cat].map(k => renderCard(k)).join('')}
+      </div>
+    </div>
+  `).join('');
 }
 
 function openKnowledgeModal(id) {
