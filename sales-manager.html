@@ -520,6 +520,10 @@
         <span class="nav-icon">📁</span><span>プロジェクト管理</span>
       </div>
 
+      <div class="nav-item" onclick="showPage('knowledge')">
+        <span class="nav-icon">📚</span><span>Bチームナレッジ</span>
+      </div>
+
       <div class="nav-item" onclick="showPage('settings')">
         <span class="nav-icon">⚙️</span><span>設定</span>
       </div>
@@ -1093,6 +1097,79 @@
       <div class="card">
         <div class="card-title">セミナー選抜ランキング</div>
         <div id="seminar-leaderboard" class="ranking-list"></div>
+      </div>
+    </div>
+
+    <!-- Bチームナレッジ -->
+    <div id="page-knowledge" class="page">
+      <div class="page-header">
+        <div class="page-title">📚 Bチームナレッジ</div>
+        <div class="page-desc">Bチームの学びや気づきを蓄積するナレッジベース</div>
+      </div>
+
+      <!-- カテゴリフィルター＋追加ボタン -->
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px;">
+        <select id="kn-filter-cat" onchange="renderKnowledge()" style="padding:8px 12px;border-radius:10px;border:1.5px solid var(--border);font-size:14px;background:var(--surface2);">
+          <option value="">すべて</option>
+        </select>
+        <input type="text" id="kn-search" placeholder="🔍 キーワード検索..." oninput="renderKnowledge()" style="padding:8px 12px;border-radius:10px;border:1.5px solid var(--border);font-size:14px;flex:1;min-width:160px;">
+        <button class="btn btn-primary" onclick="openKnowledgeModal()" style="white-space:nowrap;">＋ ナレッジを追加</button>
+      </div>
+
+      <!-- ナレッジ一覧 -->
+      <div id="knowledge-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;"></div>
+    </div>
+
+    <!-- ナレッジ追加・編集モーダル -->
+    <div class="modal-overlay" id="knowledge-modal" onclick="closeKnowledgeModal()">
+      <div style="background:var(--surface);padding:28px;border-radius:24px;box-shadow:0 30px 100px rgba(0,0,0,0.4);width:min(560px,95vw);border:1px solid var(--border);max-height:90vh;overflow-y:auto;" onclick="event.stopPropagation()">
+        <div style="font-size:18px;font-weight:900;margin-bottom:20px;color:var(--primary);border-bottom:3px solid var(--surface2);padding-bottom:12px;">
+          <span id="kn-modal-title">ナレッジを追加</span>
+          <span onclick="closeKnowledgeModal()" style="float:right;cursor:pointer;font-size:20px;color:var(--text-muted);">×</span>
+        </div>
+        <input type="hidden" id="kn-edit-id">
+
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <!-- タイトル -->
+          <div style="display:flex;flex-direction:column;gap:5px;">
+            <label style="font-size:11px;font-weight:700;color:var(--text-muted);">タイトル *</label>
+            <input type="text" id="kn-title" placeholder="例：クロージングで使えるフレーズ" style="border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;font-size:14px;">
+          </div>
+
+          <!-- カテゴリ -->
+          <div style="display:flex;flex-direction:column;gap:5px;">
+            <label style="font-size:11px;font-weight:700;color:var(--text-muted);">カテゴリ</label>
+            <div style="display:flex;gap:8px;">
+              <select id="kn-cat-select" onchange="document.getElementById('kn-category').value=this.value" style="flex:1;border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;font-size:14px;background:var(--surface2);">
+                <option value="">カテゴリを選択または入力</option>
+              </select>
+              <input type="text" id="kn-category" placeholder="新規カテゴリ名" style="flex:1;border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;font-size:14px;">
+            </div>
+          </div>
+
+          <!-- 本文 -->
+          <div style="display:flex;flex-direction:column;gap:5px;">
+            <label style="font-size:11px;font-weight:700;color:var(--text-muted);">内容・学び</label>
+            <textarea id="kn-body" placeholder="学んだこと、気づき、ポイントなどを記入..." style="border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;font-size:14px;resize:vertical;min-height:120px;"></textarea>
+          </div>
+
+          <!-- 動画URL -->
+          <div style="display:flex;flex-direction:column;gap:5px;">
+            <label style="font-size:11px;font-weight:700;color:var(--text-muted);">動画URL（YouTube等）</label>
+            <input type="text" id="kn-video" placeholder="https://youtu.be/..." style="border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;font-size:14px;">
+          </div>
+
+          <!-- 参考リンク -->
+          <div style="display:flex;flex-direction:column;gap:5px;">
+            <label style="font-size:11px;font-weight:700;color:var(--text-muted);">参考リンク・資料URL</label>
+            <input type="text" id="kn-link" placeholder="https://..." style="border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;font-size:14px;">
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px;margin-top:20px;">
+          <button onclick="saveKnowledge()" class="btn btn-primary" style="flex:2;padding:13px;font-weight:800;">保存する</button>
+          <button onclick="closeKnowledgeModal()" class="btn btn-outline" style="flex:1;padding:13px;">閉じる</button>
+        </div>
       </div>
     </div>
 
@@ -1896,6 +1973,7 @@ function showPage(page) {
   if (page === 'teamtasks') renderTeamTasks();
   if (page === 'settings') renderSettings();
   if (page === 'projecttasks') renderPTProjects();
+  if (page === 'knowledge') renderKnowledge();
   // 項目設定ページ：商品タブを初期表示
   if (page === 'item-settings') showItemTab('products');
 }
@@ -4261,7 +4339,7 @@ const GAS_URL = (location.hostname === 'localhost' || location.hostname === '127
 // ==================== 共有データ同期（プロジェクト・動線・目標など） ====================
 
 // 共有対象のキー一覧
-const SHARED_KEYS = ['ptProjects', 'routes', 'products', 'members', 'goals', 'teamtasks', 'projects'];
+const SHARED_KEYS = ['ptProjects', 'routes', 'products', 'members', 'goals', 'teamtasks', 'projects', 'knowledge'];
 
 function pushSharedDataToGAS() {
   const shared = {};
@@ -4957,6 +5035,139 @@ function getLast12Months() {
     months.push({ key: getMonthKey(d), label: `${d.getFullYear()%100}年${d.getMonth()+1}月` });
   }
   return months;
+}
+
+// ==================== Bチームナレッジ ====================
+
+function getKnowledge() {
+  if (!data.knowledge) data.knowledge = [];
+  return data.knowledge;
+}
+
+function genKnId() {
+  return 'kn-' + Date.now() + '-' + Math.floor(Math.random() * 1e6);
+}
+
+function getKnCategories() {
+  const cats = new Set();
+  getKnowledge().forEach(k => { if (k.category) cats.add(k.category); });
+  return [...cats].sort();
+}
+
+function renderKnowledge() {
+  const list = document.getElementById('knowledge-list');
+  if (!list) return;
+  const filterCat = document.getElementById('kn-filter-cat')?.value || '';
+  const search = (document.getElementById('kn-search')?.value || '').toLowerCase();
+
+  // カテゴリフィルターのoption更新
+  const catSel = document.getElementById('kn-filter-cat');
+  if (catSel) {
+    const current = catSel.value;
+    catSel.innerHTML = '<option value="">すべて</option>';
+    getKnCategories().forEach(c => {
+      const o = document.createElement('option');
+      o.value = c; o.textContent = c;
+      if (c === current) o.selected = true;
+      catSel.appendChild(o);
+    });
+  }
+
+  const items = getKnowledge().filter(k => {
+    if (filterCat && k.category !== filterCat) return false;
+    if (search && !(
+      (k.title || '').toLowerCase().includes(search) ||
+      (k.body || '').toLowerCase().includes(search) ||
+      (k.category || '').toLowerCase().includes(search)
+    )) return false;
+    return true;
+  });
+
+  if (items.length === 0) {
+    list.innerHTML = '<div style="color:var(--text-muted);font-size:14px;padding:24px;">ナレッジがありません。「＋ ナレッジを追加」から登録してください。</div>';
+    return;
+  }
+
+  list.innerHTML = items.map(k => {
+    const catBadge = k.category ? `<span style="background:var(--primary);color:#fff;border-radius:999px;padding:2px 10px;font-size:11px;font-weight:700;">${esc(k.category)}</span>` : '';
+    const videoLink = k.video ? `<a href="${esc(k.video)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:5px;color:#e53e3e;font-size:13px;font-weight:700;text-decoration:none;">▶ 動画を見る</a>` : '';
+    const refLink = k.link ? `<a href="${esc(k.link)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:5px;color:var(--primary);font-size:13px;font-weight:700;text-decoration:none;">🔗 参考資料</a>` : '';
+    const dateStr = k.createdAt ? new Date(k.createdAt).toLocaleDateString('ja-JP', { month:'numeric', day:'numeric' }) : '';
+    return `
+      <div class="card" style="display:flex;flex-direction:column;gap:10px;position:relative;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+          <div style="display:flex;flex-direction:column;gap:6px;flex:1;">
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">${catBadge}<span style="font-size:11px;color:var(--text-muted);">${dateStr}</span></div>
+            <div style="font-size:16px;font-weight:800;color:var(--text);">${esc(k.title || '')}</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0;">
+            <button onclick="openKnowledgeModal('${esc(k.id)}')" style="background:none;border:1.5px solid var(--border);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:13px;color:var(--text-muted);">✏️</button>
+            <button onclick="deleteKnowledge('${esc(k.id)}')" style="background:none;border:1.5px solid #fee2e2;border-radius:8px;padding:5px 10px;cursor:pointer;font-size:13px;color:#e53e3e;">🗑️</button>
+          </div>
+        </div>
+        ${k.body ? `<div style="font-size:14px;color:var(--text);line-height:1.75;white-space:pre-wrap;background:var(--surface2);border-radius:10px;padding:12px 14px;">${esc(k.body)}</div>` : ''}
+        ${(videoLink || refLink) ? `<div style="display:flex;gap:12px;flex-wrap:wrap;">${videoLink}${refLink}</div>` : ''}
+      </div>`;
+  }).join('');
+}
+
+function openKnowledgeModal(id) {
+  const k = id ? getKnowledge().find(k => k.id === id) : null;
+  document.getElementById('kn-modal-title').textContent = k ? 'ナレッジを編集' : 'ナレッジを追加';
+  document.getElementById('kn-edit-id').value = k ? k.id : '';
+  document.getElementById('kn-title').value = k ? (k.title || '') : '';
+  document.getElementById('kn-category').value = k ? (k.category || '') : '';
+  document.getElementById('kn-body').value = k ? (k.body || '') : '';
+  document.getElementById('kn-video').value = k ? (k.video || '') : '';
+  document.getElementById('kn-link').value = k ? (k.link || '') : '';
+
+  // カテゴリ選択肢を更新
+  const sel = document.getElementById('kn-cat-select');
+  if (sel) {
+    sel.innerHTML = '<option value="">カテゴリを選択または入力</option>';
+    getKnCategories().forEach(c => {
+      const o = document.createElement('option');
+      o.value = c; o.textContent = c;
+      if (k && c === k.category) o.selected = true;
+      sel.appendChild(o);
+    });
+  }
+
+  document.getElementById('knowledge-modal').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeKnowledgeModal() {
+  document.getElementById('knowledge-modal').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function saveKnowledge() {
+  const id = document.getElementById('kn-edit-id').value;
+  const title = document.getElementById('kn-title').value.trim();
+  if (!title) { alert('タイトルを入力してください'); return; }
+  const category = document.getElementById('kn-category').value.trim();
+  const body = document.getElementById('kn-body').value.trim();
+  const video = document.getElementById('kn-video').value.trim();
+  const link = document.getElementById('kn-link').value.trim();
+
+  if (id) {
+    const k = getKnowledge().find(k => k.id === id);
+    if (k) { k.title = title; k.category = category; k.body = body; k.video = video; k.link = link; k.updatedAt = Date.now(); }
+  } else {
+    getKnowledge().unshift({ id: genKnId(), title, category, body, video, link, createdAt: Date.now() });
+  }
+  saveData();
+  closeKnowledgeModal();
+  renderKnowledge();
+}
+
+function deleteKnowledge(id) {
+  confirmDelete('このナレッジを削除しますか？', () => {
+    data.knowledge = getKnowledge().filter(k => k.id !== id);
+    saveData();
+    renderKnowledge();
+  });
 }
 
 function showAlert(id, type, msg) {
