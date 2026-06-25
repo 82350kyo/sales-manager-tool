@@ -4401,7 +4401,6 @@ function syncFromSheet() {
         if (existingLocal) {
           // すでに入力済みのものがあれば、スプシ側の本物のIDで上書きする
           const rowVals = Object.values(row).map(v => String(v || ""));
-          // M列(ID)やN列(履歴)を個別に取得
           const realId = row['ID'] || rowVals.reduce((found, v) => {
             if (found) return found;
             const m = v.match(/sale-[a-z0-9.]+/i);
@@ -4409,6 +4408,16 @@ function syncFromSheet() {
           }, null) || row['タイムスタンプ'];
           if (realId) existingLocal.id = String(realId);
           existingLocal.history = row['履歴'] || '';
+          // スプシの顧客情報もマージ（次回アプローチ日などを反映）
+          const ciMerge = existingLocal.customerInfo || {};
+          if (!ciMerge.nextApproachDate) ciMerge.nextApproachDate = toJstDate(row['次回アプローチ予定日'] || '');
+          if (!ciMerge.approachMonths)   ciMerge.approachMonths   = String(row['アプローチ目安'] || '');
+          if (!ciMerge.upsell)           ciMerge.upsell           = String(row['アップセル見込み'] || '');
+          if (!ciMerge.rejection)        ciMerge.rejection        = String(row['断り理由'] || '');
+          if (!ciMerge.financial)        ciMerge.financial        = String(row['資金状況'] || '');
+          if (!ciMerge.barrier)          ciMerge.barrier          = String(row['行動の障壁'] || '');
+          if (!ciMerge.firstNote)        ciMerge.firstNote        = String(row['備考／所感'] || row['備考/所感'] || '');
+          existingLocal.customerInfo = ciMerge;
           return;
         }
 
@@ -4481,7 +4490,17 @@ function syncFromSheet() {
         const product = row['商品'] || '';
         const history = row['履歴'] || '';
         const rowType = (result.includes('追加決済') || result.includes('決済')) && !result.includes('待ち') ? '追加決済' : undefined;
-        data.sales.push({ id: saleId, date: dateStr, memberId: member.id, amount, payment: payment2, paymentDate, product, category, business, result, note, source: 'sheet', rowType, history });
+        // スプシの顧客情報列をcustomerInfoにマッピング
+        const ciFromSheet = {
+          nextApproachDate: toJstDate(row['次回アプローチ予定日'] || ''),
+          approachMonths:   String(row['アプローチ目安'] || ''),
+          upsell:           String(row['アップセル見込み'] || ''),
+          rejection:        String(row['断り理由'] || ''),
+          financial:        String(row['資金状況'] || ''),
+          barrier:          String(row['行動の障壁'] || ''),
+          firstNote:        String(row['備考／所感'] || row['備考/所感'] || ''),
+        };
+        data.sales.push({ id: saleId, date: dateStr, memberId: member.id, amount, payment: payment2, paymentDate, product, category, business, result, note, source: 'sheet', rowType, history, customerInfo: ciFromSheet });
         addedSales++;
       });
 
