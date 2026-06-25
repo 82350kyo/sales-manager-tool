@@ -1120,78 +1120,6 @@
       <div id="knowledge-list"></div>
     </div>
 
-    <!-- ナレッジ詳細ポップアップ -->
-    <div class="modal-overlay" id="knowledge-detail-modal" onclick="closeKnowledgeDetail()">
-      <div style="background:var(--surface);padding:28px;border-radius:24px;box-shadow:0 30px 100px rgba(0,0,0,0.4);width:min(600px,95vw);border:1px solid var(--border);max-height:85vh;overflow-y:auto;" onclick="event.stopPropagation()">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
-          <div>
-            <div id="kn-detail-cat" style="font-size:11px;font-weight:700;color:var(--primary);margin-bottom:4px;"></div>
-            <div id="kn-detail-title" style="font-size:20px;font-weight:900;color:var(--text);"></div>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
-            <button id="kn-detail-edit-btn" style="background:none;border:1.5px solid var(--border);border-radius:10px;padding:7px 14px;cursor:pointer;font-size:13px;font-weight:700;color:var(--text-muted);">✏️ 編集</button>
-            <span onclick="closeKnowledgeDetail()" style="cursor:pointer;font-size:22px;color:var(--text-muted);padding:4px 8px;">×</span>
-          </div>
-        </div>
-        <div id="kn-detail-body" style="font-size:14px;color:var(--text);line-height:1.85;white-space:pre-wrap;background:var(--surface2);border-radius:12px;padding:16px;margin-bottom:14px;display:none;"></div>
-        <div id="kn-detail-links" style="display:flex;gap:16px;flex-wrap:wrap;"></div>
-        <div id="kn-detail-date" style="font-size:11px;color:var(--text-muted);margin-top:14px;"></div>
-      </div>
-    </div>
-
-    <!-- ナレッジ追加・編集モーダル -->
-    <div class="modal-overlay" id="knowledge-modal" onclick="closeKnowledgeModal()">
-      <div style="background:var(--surface);padding:28px;border-radius:24px;box-shadow:0 30px 100px rgba(0,0,0,0.4);width:min(560px,95vw);border:1px solid var(--border);max-height:90vh;overflow-y:auto;" onclick="event.stopPropagation()">
-        <div style="font-size:18px;font-weight:900;margin-bottom:20px;color:var(--primary);border-bottom:3px solid var(--surface2);padding-bottom:12px;">
-          <span id="kn-modal-title">ナレッジを追加</span>
-          <span onclick="closeKnowledgeModal()" style="float:right;cursor:pointer;font-size:20px;color:var(--text-muted);">×</span>
-        </div>
-        <input type="hidden" id="kn-edit-id">
-
-        <div style="display:flex;flex-direction:column;gap:14px;">
-          <!-- タイトル -->
-          <div style="display:flex;flex-direction:column;gap:5px;">
-            <label style="font-size:11px;font-weight:700;color:var(--text-muted);">タイトル *</label>
-            <input type="text" id="kn-title" placeholder="例：クロージングで使えるフレーズ" style="border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;font-size:14px;">
-          </div>
-
-          <!-- カテゴリ -->
-          <div style="display:flex;flex-direction:column;gap:5px;">
-            <label style="font-size:11px;font-weight:700;color:var(--text-muted);">カテゴリ</label>
-            <div style="display:flex;gap:8px;">
-              <select id="kn-cat-select" onchange="document.getElementById('kn-category').value=this.value" style="flex:1;border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;font-size:14px;background:var(--surface2);">
-                <option value="">カテゴリを選択または入力</option>
-              </select>
-              <input type="text" id="kn-category" placeholder="新規カテゴリ名" style="flex:1;border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;font-size:14px;">
-            </div>
-          </div>
-
-          <!-- 本文 -->
-          <div style="display:flex;flex-direction:column;gap:5px;">
-            <label style="font-size:11px;font-weight:700;color:var(--text-muted);">内容・学び</label>
-            <textarea id="kn-body" placeholder="学んだこと、気づき、ポイントなどを記入..." style="border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;font-size:14px;resize:vertical;min-height:120px;"></textarea>
-          </div>
-
-          <!-- 動画URL -->
-          <div style="display:flex;flex-direction:column;gap:5px;">
-            <label style="font-size:11px;font-weight:700;color:var(--text-muted);">動画URL（YouTube等）</label>
-            <input type="text" id="kn-video" placeholder="https://youtu.be/..." style="border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;font-size:14px;">
-          </div>
-
-          <!-- 参考リンク -->
-          <div style="display:flex;flex-direction:column;gap:5px;">
-            <label style="font-size:11px;font-weight:700;color:var(--text-muted);">参考リンク・資料URL</label>
-            <input type="text" id="kn-link" placeholder="https://..." style="border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;font-size:14px;">
-          </div>
-        </div>
-
-        <div style="display:flex;gap:10px;margin-top:20px;">
-          <button onclick="saveKnowledge()" class="btn btn-primary" style="flex:2;padding:13px;font-weight:800;">保存する</button>
-          <button onclick="closeKnowledgeModal()" class="btn btn-outline" style="flex:1;padding:13px;">閉じる</button>
-        </div>
-      </div>
-    </div>
-
     <!-- Settings -->
     <div id="page-settings" class="page">
       <div class="page-header">
@@ -1314,6 +1242,67 @@
     </div>
 
   </main>
+</div>
+
+<!-- ナレッジ詳細ポップアップ -->
+<div class="modal-overlay" id="knowledge-detail-modal" onclick="closeKnowledgeDetail()">
+  <div style="background:var(--surface);padding:28px;border-radius:24px;box-shadow:0 30px 100px rgba(0,0,0,0.4);width:min(600px,95vw);border:1px solid var(--border);max-height:85vh;overflow-y:auto;" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+      <div>
+        <div id="kn-detail-cat" style="font-size:11px;font-weight:700;color:var(--primary);margin-bottom:4px;"></div>
+        <div id="kn-detail-title" style="font-size:20px;font-weight:900;color:var(--text);"></div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
+        <button id="kn-detail-edit-btn" style="background:none;border:1.5px solid var(--border);border-radius:10px;padding:7px 14px;cursor:pointer;font-size:13px;font-weight:700;color:var(--text-muted);">✏️ 編集</button>
+        <span onclick="closeKnowledgeDetail()" style="cursor:pointer;font-size:22px;color:var(--text-muted);padding:4px 8px;">×</span>
+      </div>
+    </div>
+    <div id="kn-detail-body" style="font-size:14px;color:var(--text);line-height:1.85;white-space:pre-wrap;background:var(--surface2);border-radius:12px;padding:16px;margin-bottom:14px;display:none;"></div>
+    <div id="kn-detail-links" style="display:flex;gap:16px;flex-wrap:wrap;"></div>
+    <div id="kn-detail-date" style="font-size:11px;color:var(--text-muted);margin-top:14px;"></div>
+  </div>
+</div>
+
+<!-- ナレッジ追加・編集モーダル -->
+<div class="modal-overlay" id="knowledge-modal" onclick="closeKnowledgeModal()">
+  <div style="background:var(--surface);padding:28px;border-radius:24px;box-shadow:0 30px 100px rgba(0,0,0,0.4);width:min(560px,95vw);border:1px solid var(--border);max-height:90vh;overflow-y:auto;" onclick="event.stopPropagation()">
+    <div style="font-size:18px;font-weight:900;margin-bottom:20px;color:var(--primary);border-bottom:3px solid var(--surface2);padding-bottom:12px;">
+      <span id="kn-modal-title">ナレッジを追加</span>
+      <span onclick="closeKnowledgeModal()" style="float:right;cursor:pointer;font-size:20px;color:var(--text-muted);">×</span>
+    </div>
+    <input type="hidden" id="kn-edit-id">
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">タイトル *</label>
+        <input type="text" id="kn-title" placeholder="例：クロージングで使えるフレーズ" style="border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;font-size:14px;">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">カテゴリ</label>
+        <div style="display:flex;gap:8px;">
+          <select id="kn-cat-select" onchange="document.getElementById('kn-category').value=this.value" style="flex:1;border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;font-size:14px;background:var(--surface2);">
+            <option value="">カテゴリを選択または入力</option>
+          </select>
+          <input type="text" id="kn-category" placeholder="新規カテゴリ名" style="flex:1;border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;font-size:14px;">
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">内容・学び</label>
+        <textarea id="kn-body" placeholder="学んだこと、気づき、ポイントなどを記入..." style="border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;font-size:14px;resize:vertical;min-height:120px;"></textarea>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">動画URL（YouTube等）</label>
+        <input type="text" id="kn-video" placeholder="https://youtu.be/..." style="border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;font-size:14px;">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">参考リンク・資料URL</label>
+        <input type="text" id="kn-link" placeholder="https://..." style="border:1.5px solid var(--border);border-radius:10px;padding:10px 14px;font-size:14px;">
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:20px;">
+      <button onclick="saveKnowledge()" class="btn btn-primary" style="flex:2;padding:13px;font-weight:800;">保存する</button>
+      <button onclick="closeKnowledgeModal()" class="btn btn-outline" style="flex:1;padding:13px;">閉じる</button>
+    </div>
+  </div>
 </div>
 
 <!-- Member Edit Modal -->
