@@ -4349,15 +4349,31 @@ const GAS_URL = (location.hostname === 'localhost' || location.hostname === '127
 // 共有対象のキー一覧
 const SHARED_KEYS = ['ptProjects', 'routes', 'products', 'members', 'goals', 'teamtasks', 'projects', 'knowledge'];
 
-function pushSharedDataToGAS() {
+async function pushSharedDataToGAS() {
   const shared = {};
   SHARED_KEYS.forEach(k => { shared[k] = data[k] || []; });
+
+  // 他メンバーのデータを上書きしないよう、先にGASの現状を読んで配列をマージ
+  try {
+    const remoteRes = await fetch(GAS_URL + '?payload=' + encodeURIComponent(JSON.stringify({ type: 'getSharedData' }))).then(r => r.json());
+    if (remoteRes.ok && remoteRes.data) {
+      SHARED_KEYS.forEach(k => {
+        const local = data[k] || [];
+        const remote = remoteRes.data[k] || [];
+        if (Array.isArray(local) && Array.isArray(remote) && remote.length > 0) {
+          const localIds = new Set(local.map(x => x.id).filter(Boolean));
+          const merged = [...local, ...remote.filter(x => x.id && !localIds.has(x.id))];
+          shared[k] = merged;
+          data[k] = merged;
+        }
+      });
+    }
+  } catch (e) {}
+
   const ts = Date.now();
   shared._updatedAt = ts;
-  // ローカルのタイムスタンプも同時に更新（プルが古いデータで上書きしないよう）
   data._sharedUpdatedAt = ts;
   localStorage.setItem('sales-manager-data', JSON.stringify(data));
-  // no-cors + text/plain でCORSプリフライトを回避してPOST送信
   fetch(GAS_URL, {
     method: 'POST',
     mode: 'no-cors',
@@ -4377,13 +4393,24 @@ function pullSharedDataFromGAS() {
       const remote = res.data;
       const localTs  = data._sharedUpdatedAt || 0;
       const remoteTs = remote._updatedAt    || 0;
-      if (remoteTs <= localTs) return; // ローカルの方が新しければスキップ
+      let changed = false;
       SHARED_KEYS.forEach(k => {
-        if (remote[k] !== undefined) data[k] = remote[k];
+        if (remote[k] === undefined) return;
+        if (Array.isArray(remote[k])) {
+          // 配列はIDで差分マージ（リモートにしかない要素を追加）
+          const local = data[k] || [];
+          const localIds = new Set(local.map(x => x.id).filter(Boolean));
+          const newItems = remote[k].filter(x => x.id && !localIds.has(x.id));
+          if (newItems.length > 0) { data[k] = [...local, ...newItems]; changed = true; }
+        } else if (remoteTs > localTs) {
+          data[k] = remote[k]; changed = true;
+        }
       });
-      data._sharedUpdatedAt = remoteTs;
+      if (remoteTs > localTs) { data._sharedUpdatedAt = remoteTs; changed = true; }
+      if (!changed) return;
       localStorage.setItem('sales-manager-data', JSON.stringify(data));
       renderDashboard();
+      if (document.getElementById('page-knowledge')?.classList.contains('active')) renderKnowledge();
       const el = document.getElementById('sync-status');
       if (el) el.textContent = '共有データ同期: ' + new Date().toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' });
     })
