@@ -5411,6 +5411,8 @@ fetch(GAS_URL)
     data.sales.sort((a, b) => b.date.localeCompare(a.date));
     localStorage.setItem('sales-manager-data', JSON.stringify(data));
     renderDashboard();
+    if (document.getElementById('page-sales')?.classList.contains('active')) renderSalesList();
+    if (document.getElementById('page-reports')?.classList.contains('active')) renderReports();
   })
   .catch(() => {
     renderDashboard();
