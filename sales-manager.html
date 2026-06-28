@@ -591,6 +591,10 @@
         <div class="page-title">面談報告</div>
         <div class="page-desc">入力するだけで自動的にLINEメッセージが生成されます</div>
       </div>
+      <div style="background:#fff8e1;border:1.5px solid #f5c518;border-radius:12px;padding:14px 16px;margin-bottom:16px;font-size:13px;line-height:1.7;color:#5a4a00;">
+        📝 <strong>新規実施</strong>については、下記のフォームに入力して面談結果を報告してください。<br>
+        ✏️ <strong>面談結果の修正や追加入金</strong>については、売上一覧からLINE名で検索して該当者の鉛筆マーク（編集ボタン）から報告内容を修正してください。
+      </div>
 
       <!-- アポ報告チェックリスト（非表示化） -->
       <div id="appointment-checklist-container" style="display:none;"></div>
@@ -601,17 +605,6 @@
           <div class="card-title">面談内容を入力</div>
           <div id="sales-alert"></div>
           
-          <!-- 連動中メッセージ -->
-          <div id="installment-header" style="display:none;margin-bottom:16px;padding:12px 16px;background:var(--primary-light, #eef2ff);border:2px solid var(--primary);border-radius:12px;display:flex;align-items:center;justify-content:space-between;animation: fadeIn 0.3s ease;">
-            <div style="display:flex;align-items:center;gap:10px;">
-              <span style="font-size:20px;">🔗</span>
-              <div>
-                <div style="font-size:11px;color:var(--primary);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">追加入金を報告中</div>
-                <div id="installment-customer-name" style="font-size:15px;font-weight:800;color:var(--text-main);">○○ 様</div>
-              </div>
-            </div>
-            <button onclick="clearInstallmentMode()" class="btn btn-outline btn-sm" style="background:white;padding:4px 12px;font-size:11px;">解除して新規入力</button>
-          </div>
           <div class="form-grid">
             <div class="form-group">
               <label>担当者 *</label>
@@ -2818,7 +2811,6 @@ function renderSalesList() {
         </div>
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
           ${firstDateStr ? `<span style="font-size:12px;color:var(--text-muted);">📅 初回面談: <strong>${esc(firstDateStr)}</strong></span>` : ''}
-          <button onclick='event.stopPropagation();prepareInstallment(this.dataset.id)' data-id="${esc(first.id)}" class="btn btn-outline btn-sm" style="padding:4px 10px;font-size:11px;border-radius:8px;">➕ 追加入金を報告</button>
         </div>
         <div class="sale-timeline" style="background:var(--surface2);border-radius:12px;padding:8px 12px;">
           ${timelineRows}
