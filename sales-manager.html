@@ -4531,6 +4531,9 @@ function syncFromSheet() {
           }, null) || String(row['ID'] || '').trim() || row['タイムスタンプ'];
           if (realId) existingLocal.id = String(realId);
           existingLocal.history = row['履歴'] || '';
+          // 録画URLをスプシから補完（ローカルに未設定の場合）
+          const recFromSheet = String(row['録画URL'] || row['録画'] || '').trim();
+          if (!existingLocal.recording && recFromSheet) existingLocal.recording = recFromSheet;
           // スプシの顧客情報もマージ（次回アプローチ日などを反映）
           const ciMerge = existingLocal.customerInfo || {};
           if (!ciMerge.nextApproachDate) ciMerge.nextApproachDate = toJstDate(row['次回アプローチ予定日'] || '');
@@ -4603,6 +4606,7 @@ function syncFromSheet() {
         }
         const product = row['商品'] || '';
         const history = row['履歴'] || '';
+        const recording = String(row['録画URL'] || row['録画'] || '').trim();
         const rowType = (result.includes('追加決済') || result.includes('決済')) && !result.includes('待ち') ? '追加決済' : undefined;
         // スプシの顧客情報列をcustomerInfoにマッピング
         const ciFromSheet = {
@@ -4614,7 +4618,7 @@ function syncFromSheet() {
           barrier:          String(row['行動の障壁'] || ''),
           firstNote:        String(row['備考／所感'] || row['備考/所感'] || ''),
         };
-        data.sales.push({ id: saleId, date: dateStr, memberId: member.id, amount, payment: payment2, paymentDate, product, category, business, result, note, source: 'sheet', rowType, history, customerInfo: ciFromSheet });
+        data.sales.push({ id: saleId, date: dateStr, memberId: member.id, amount, payment: payment2, paymentDate, product, category, business, result, note, recording, source: 'sheet', rowType, history, customerInfo: ciFromSheet });
         addedSales++;
       });
 
