@@ -1065,6 +1065,7 @@
         <button class="period-btn" onclick="setRankingPeriod('3month',this)">直近3ヶ月</button>
         <button class="period-btn" onclick="setRankingPeriod('all',this)">全期間</button>
       </div>
+      <div id="ranking-date-range" style="font-size:12px;color:var(--text-muted);margin-bottom:12px;padding:6px 4px;"></div>
       <!-- 業種フィルタータブ -->
       <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
         <button class="period-btn active" id="rbus-all" onclick="setRankingBusiness('総合',this)">🏆 総合</button>
@@ -4671,6 +4672,37 @@ function setRankingBusiness(bus, btn) {
   btn.classList.add('active');
   renderRanking();
 }
+function fmtRangeDate(d) {
+  return `${d.getMonth()+1}/${d.getDate()}`;
+}
+function updateRankingDateRange() {
+  const el = document.getElementById('ranking-date-range');
+  if (!el) return;
+  const now = new Date();
+  const y = now.getFullYear(), m = now.getMonth();
+  let label = '';
+  if (rankingPeriod === '7days') {
+    const from = new Date(now); from.setDate(now.getDate() - 7);
+    const to   = new Date(now); to.setDate(now.getDate() - 1);
+    label = `📅 対象期間：${fmtRangeDate(from)}〜${fmtRangeDate(to)}`;
+  } else if (rankingPeriod === 'month') {
+    const from = new Date(y, m, 1);
+    const to   = new Date(now);
+    label = `📅 対象期間：${fmtRangeDate(from)}〜${fmtRangeDate(to)}`;
+  } else if (rankingPeriod === 'last') {
+    const from = new Date(y, m-1, 1);
+    const to   = new Date(y, m, 0);
+    label = `📅 対象期間：${from.getFullYear()}/${fmtRangeDate(from)}〜${to.getFullYear()}/${fmtRangeDate(to)}`;
+  } else if (rankingPeriod === '3month') {
+    const from = new Date(y, m-2, 1);
+    const to   = new Date(now);
+    label = `📅 対象期間：${from.getFullYear()}/${fmtRangeDate(from)}〜${fmtRangeDate(to)}`;
+  } else if (rankingPeriod === 'all') {
+    label = '📅 対象期間：全期間';
+  }
+  el.textContent = label;
+}
+
 function getRankingDateFilter() {
   const now = new Date();
   const y = now.getFullYear(), m = now.getMonth();
@@ -4720,6 +4752,7 @@ function getBusinessType(category) {
   return '';
 }
 function renderRanking() {
+  updateRankingDateRange();
   const el = document.getElementById('ranking-list');
   if (!data.members.length) {
     el.innerHTML = '<div class="empty-state"><div class="icon">👥</div><p>メンバーを登録してください</p></div>';
