@@ -545,3 +545,149 @@ function getAllRecordings() {
     return { ok: false, error: e.toString() };
   }
 }
+
+// =====================================================
+// 週次ランキング通知（毎週月曜8時 タイムトリガーで自動実行）
+// =====================================================
+function sendWeeklyRanking() {
+  const ss = SpreadsheetApp.openById('1BMptkze_WyYL6TRG5Jzugy8aYT-AL4F4O7gnmFPKXRw');
+  const sheet = ss.getSheetByName('売上報告');
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+
+  // 先週月曜〜日曜を計算（トリガー実行日=月曜を基点に7日前〜1日前）
+  const today = new Date();
+  const lastMon = new Date(today); lastMon.setDate(today.getDate() - 7); lastMon.setHours(0,0,0,0);
+  const lastSun = new Date(today); lastSun.setDate(today.getDate() - 1); lastSun.setHours(23,59,59,999);
+  const startStr = Utilities.formatDate(lastMon, 'Asia/Tokyo', 'M/d');
+  const endStr   = Utilities.formatDate(lastSun, 'Asia/Tokyo', 'M/d');
+
+  const rows = sheet.getRange(2, 1, lastRow - 1, 21).getValues();
+
+  // 業種判定（D列の導線文字列からAI・物販を識別）
+  function getBusType(cat) {
+    const c = String(cat || '');
+    if (c.includes('(AI)') || c.includes('（AI）') ||
+        ['チョーさん','イーサン','浩志さん','的場'].some(kw => c.includes(kw))) return 'AI';
+    if (c.includes('(物販)') || c.includes('（物販）') || c.includes('物販')) return '物販';
+    return '';
+  }
+
+  // 先週の行を抽出し担当者別に集計
+  const stats = {}; // { name: { busyo: {...}, ai: {...}, all: {...} } }
+
+  rows.forEach(row => {
+    const rawDate = row[1]; // B列 面談日
+    if (!rawDate) return;
+    const d = rawDate instanceof Date ? rawDate : new Date(rawDate);
+    if (isNaN(d) || d < lastMon || d > lastSun) return;
+
+    const name    = String(row[2] || '').replace(/[（(][^）)]*[）)]/g, '').trim(); // C列 担当者
+    const cat     = String(row[3] || ''); // D列 導線
+    const result  = String(row[5] || ''); // F列 結果
+    const amount  = Number(String(row[7] || '0').replace(/[^0-9]/g, '')) || 0; // H列 売上金額
+    const payment = Number(String(row[8] || '0').replace(/[^0-9]/g, '')) || 0; // I列 着金
+    const bus     = getBusType(cat);
+    if (!name) return;
+
+    const keys = ['all'];
+    if (bus) keys.push(bus);
+    keys.forEach(key => {
+      if (!stats[name]) stats[name] = {};
+      if (!stats[name][key]) stats[name][key] = { apo: 0, cancel: 0, keiyaku: 0, seiyakuAmt: 0, chakkin: 0 };
+      const s = stats[name][key];
+      s.apo++;
+      if (result === 'キャンセル') s.cancel++;
+      if (result === '成約' || result.startsWith('成約')) {
+        s.keiyaku++;
+        s.seiyakuAmt += amount;
+        s.chakkin += payment;
+      }
+    });
+  });
+
+  // ランキング生成（着金額順、上位top件）
+  function buildRanking(busKey, top) {
+    const entries = Object.entries(stats)
+      .filter(([, v]) => v[busKey])
+      .map(([name, v]) => {
+        const s = v[busKey];
+        const mendan = s.apo - s.cancel;
+        const rate = mendan > 0 ? (s.keiyaku / mendan * 100).toFixed(1) : '-';
+        const tanka = s.keiyaku > 0 ? Math.round(s.seiyakuAmt / s.keiyaku) : null;
+        const chakkinRate = s.seiyakuAmt > 0 ? (s.chakkin / s.seiyakuAmt * 100).toFixed(1) : '-';
+        return { name, chakkin: s.chakkin, apo: s.apo, mendan, keiyaku: s.keiyaku, rate, seiyakuAmt: s.seiyakuAmt, tanka, chakkinRate };
+      })
+      .sort((a, b) => b.chakkin - a.chakkin)
+      .slice(0, top);
+
+    if (entries.length === 0) return '（データなし）';
+    const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
+    return entries.map((e, i) => {
+      const fmt = n => n >= 10000 ? `¥${(n/10000).toFixed(n%10000===0?0:1)}万` : `¥${n.toLocaleString()}`;
+      return [
+        `${medals[i]} ${i+1}位 ${e.name}`,
+        `　💴 着金額：${fmt(e.chakkin)}`,
+        `　📋 アポ数：${e.apo}件`,
+        `　🤝 面談実施：${e.mendan}件`,
+        `　✅ 成約数：${e.keiyaku}件 ／ 成約率：${e.rate}%`,
+        `　💰 成約額：${fmt(e.seiyakuAmt)}`,
+        `　💵 平均成約単価：${e.tanka !== null ? fmt(e.tanka) : '-'}`,
+        `　📊 着金率：${e.chakkinRate}%`,
+      ].join('\n');
+    }).join('\n\n');
+  }
+
+  // LINEに送信するメッセージを組み立て
+  const msg = [
+    `📊 先週の営業成績ランキング`,
+    `（${startStr}〜${endStr}）`,
+    `━━━━━━━━━━━━━━━━`,
+    ``,
+    `🏪 物販 週間ランキング`,
+    `＊着金額順`,
+    ``,
+    buildRanking('物販', 5),
+    ``,
+    `━━━━━━━━━━━━━━━━`,
+    ``,
+    `🤖 AI 週間ランキング`,
+    `＊着金額順`,
+    ``,
+    buildRanking('AI', 5),
+    ``,
+    `━━━━━━━━━━━━━━━━`,
+    ``,
+    `🏆 総合 週間ランキング`,
+    `＊着金額順・物販＋AI合算`,
+    ``,
+    buildRanking('all', 5),
+    ``,
+    `━━━━━━━━━━━━━━━━`,
+    `🔗 詳細はツールで確認`,
+    `https://82350kyo.github.io/sales-manager-tool/sales-manager.html`,
+  ].join('\n');
+
+  // LINE Messaging APIで送信（トークンは既存のdailyReminderと同じスクリプトプロパティから取得）
+  const LINE_TOKEN = PropertiesService.getScriptProperties().getProperty('LINE_TOKEN');
+  UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
+    method: 'post',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + LINE_TOKEN },
+    payload: JSON.stringify({ to: LINE_GROUP_ID, messages: [{ type: 'text', text: msg }] })
+  });
+}
+
+// =====================================================
+// 週次ランキングトリガーのセットアップ（初回のみ手動実行）
+// =====================================================
+function setupWeeklyRankingTrigger() {
+  // 既存の同名トリガーを削除してから再作成（重複防止）
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'sendWeeklyRanking') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('sendWeeklyRanking')
+    .timeBased()
+    .onWeekDay(ScriptApp.WeekDay.MONDAY)
+    .atHour(8)
+    .create();
+}

@@ -1073,6 +1073,12 @@
         <button class="period-btn" onclick="setRankingPeriod('year',this)">今年</button>
         <button class="period-btn" onclick="setRankingPeriod('all',this)">全期間</button>
       </div>
+      <!-- 業種フィルタータブ -->
+      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+        <button class="period-btn active" id="rbus-all" onclick="setRankingBusiness('総合',this)">🏆 総合</button>
+        <button class="period-btn" id="rbus-busyo" onclick="setRankingBusiness('物販',this)">🏪 物販</button>
+        <button class="period-btn" id="rbus-ai" onclick="setRankingBusiness('AI',this)">🤖 AI</button>
+      </div>
       <div id="ranking-list" class="ranking-list"></div>
     </div>
 
@@ -4656,9 +4662,17 @@ function syncFromSheet() {
 
 // ==================== RANKING ====================
 let rankingPeriod = 'month';
+let rankingBusiness = '総合'; // 業種フィルター（総合・物販・AI）
 function setRankingPeriod(period, btn) {
   rankingPeriod = period;
   document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderRanking();
+}
+// 業種タブ切替関数
+function setRankingBusiness(bus, btn) {
+  rankingBusiness = bus;
+  document.querySelectorAll('#rbus-all,#rbus-busyo,#rbus-ai').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   renderRanking();
 }
@@ -4704,6 +4718,14 @@ function getRankingDateFilter() {
   }
   return () => true;
 }
+// カテゴリ文字列から業種（AI / 物販 / ''）を判定する関数
+function getBusinessType(category) {
+  const c = String(category || '');
+  if (c.includes('(AI)') || c.includes('（AI）') ||
+      ['チョーさん','イーサン','浩志さん','的場'].some(kw => c.includes(kw))) return 'AI';
+  if (c.includes('(物販)') || c.includes('（物販）') || c.includes('物販')) return '物販';
+  return '';
+}
 function renderRanking() {
   const el = document.getElementById('ranking-list');
   if (!data.members.length) {
@@ -4713,25 +4735,41 @@ function renderRanking() {
   const filter = getRankingDateFilter();
   const getResult2 = s => s.result || (s.category||'').split(' ').pop();
   const ranked = data.members.map(m => {
-    const mSales = data.sales.filter(s => s.memberId === m.id && filter(s));
-    const totalPayment = mSales.reduce((a, s) => a + (s.payment||0), 0);
-    const coolingOff = mSales.filter(s => getResult2(s) === 'クーリングオフ').reduce((a, s) => a + Math.abs(s.payment||0), 0);
+    let mSales = data.sales.filter(s => s.memberId === m.id && filter(s));
+    // 業種フィルター（総合以外の場合はカテゴリで絞り込む）
+    if (rankingBusiness !== '総合') {
+      mSales = mSales.filter(s => getBusinessType(s.category) === rankingBusiness);
+    }
     const normal = mSales.filter(s => s.rowType !== '追加決済');
-    const cancel = normal.filter(s => getResult2(s) === 'キャンセル').length;
-    const mendan = normal.length - cancel;
-    const keiyaku = normal.filter(s => getResult2(s).startsWith('成約')).length;
+    const cancelCnt = normal.filter(s => getResult2(s) === 'キャンセル').length;
+    const mendan = normal.length - cancelCnt;
+    const keiyakuRows = normal.filter(s => getResult2(s).startsWith('成約'));
+    const keiyaku = keiyakuRows.length;
     const seiyakuRate = mendan > 0 ? (keiyaku / mendan * 100) : null;
-    const tanka = keiyaku > 0 ? Math.round((totalPayment - coolingOff) / keiyaku) : null;
+    // 成約額（売上金額の合計）
+    const seiyakuAmount = keiyakuRows.reduce((a, s) => a + (s.amount || 0), 0);
+    // 着金額
+    const chakkinAmount = mSales.reduce((a, s) => a + (s.payment || 0), 0);
+    const coolingOff = mSales.filter(s => getResult2(s) === 'クーリングオフ').reduce((a, s) => a + Math.abs(s.payment||0), 0);
     const coolingCnt = mSales.filter(s => getResult2(s) === 'クーリングオフ').length;
-    const total = totalPayment - coolingOff;
-    return { m, total, cnt: normal.length, mendan, keiyaku, seiyakuRate, tanka, coolingCnt, coolingOff };
-  }).sort((a, b) => b.total - a.total);
+    const net = chakkinAmount - coolingOff;
+    // 平均成約単価（成約額ベース）
+    const tanka = keiyaku > 0 ? Math.round(seiyakuAmount / keiyaku) : null;
+    // 着金率 = 着金額 / 成約額
+    const chakkinRate = seiyakuAmount > 0 ? (net / seiyakuAmount * 100) : null;
+    return { m, total: net, cnt: normal.length, mendan, keiyaku, seiyakuRate, seiyakuAmount, tanka, chakkinRate, coolingCnt, coolingOff };
+  }).filter(r => r.cnt > 0 || r.total > 0).sort((a, b) => b.total - a.total);
+
+  if (ranked.length === 0) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">📊</div><p>該当期間のデータがありません</p></div>';
+    return;
+  }
 
   const max = ranked[0]?.total || 1;
   const medals = ['🥇', '🥈', '🥉'];
 
   el.innerHTML = ranked.map((r, i) => {
-    const pct = max > 0 ? (r.total / max * 100) : 0;
+    const pct = max > 0 ? Math.max(r.total / max * 100, 0) : 0;
     const rankClass = i < 3 ? ` rank-${i+1}` : '';
     const medalOrNum = i < 3
       ? `<div class="ranking-medal">${medals[i]}</div>`
@@ -4749,12 +4787,14 @@ function renderRanking() {
             <div class="ranking-bar-fill" style="width:${pct}%;background:${r.m.color}"></div>
           </div>
         </div>
-        <div class="ranking-sub" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:4px;">
+        <div class="ranking-sub" style="display:flex;gap:14px;flex-wrap:wrap;margin-top:4px;">
           <span>アポ ${r.cnt}件</span>
           <span>面談 ${r.mendan}件</span>
-          <span>契約 <strong style="color:var(--success)">${r.keiyaku}件</strong></span>
+          <span>成約 <strong style="color:var(--success)">${r.keiyaku}件</strong></span>
           <span>成約率 ${r.seiyakuRate !== null ? r.seiyakuRate.toFixed(1)+'%' : '-'}</span>
-          <span>成約単価 ${r.tanka !== null ? fmt(r.tanka) : '-'}</span>
+          <span>成約額 ${r.seiyakuAmount > 0 ? fmt(r.seiyakuAmount) : '-'}</span>
+          <span>平均単価 ${r.tanka !== null ? fmt(r.tanka) : '-'}</span>
+          <span>着金率 ${r.chakkinRate !== null ? r.chakkinRate.toFixed(1)+'%' : '-'}</span>
           ${r.coolingCnt > 0 ? `<span style="color:var(--danger)">クーオフ ${r.coolingCnt}件 / ${fmt(r.coolingOff)}</span>` : ''}
         </div>
       </div>
