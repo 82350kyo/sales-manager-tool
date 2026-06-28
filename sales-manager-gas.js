@@ -555,7 +555,7 @@ function sendWeeklyRanking() {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return;
 
-  // 先週月曜〜日曜を計算（トリガー実行日=月曜を基点に7日前〜1日前）
+  // 直近7日間（月曜8時トリガー時 = 前週月曜〜昨日日曜）
   const today = new Date();
   const lastMon = new Date(today); lastMon.setDate(today.getDate() - 7); lastMon.setHours(0,0,0,0);
   const lastSun = new Date(today); lastSun.setDate(today.getDate() - 1); lastSun.setHours(23,59,59,999);
@@ -606,69 +606,41 @@ function sendWeeklyRanking() {
     });
   });
 
-  // ランキング生成（着金額順、上位top件）
-  function buildRanking(busKey, top) {
-    const entries = Object.entries(stats)
-      .filter(([, v]) => v[busKey])
-      .map(([name, v]) => {
-        const s = v[busKey];
-        const mendan = s.apo - s.cancel;
-        const rate = mendan > 0 ? (s.keiyaku / mendan * 100).toFixed(1) : '-';
-        const tanka = s.keiyaku > 0 ? Math.round(s.seiyakuAmt / s.keiyaku) : null;
-        const chakkinRate = s.seiyakuAmt > 0 ? (s.chakkin / s.seiyakuAmt * 100).toFixed(1) : '-';
-        return { name, chakkin: s.chakkin, apo: s.apo, mendan, keiyaku: s.keiyaku, rate, seiyakuAmt: s.seiyakuAmt, tanka, chakkinRate };
-      })
-      .sort((a, b) => b.chakkin - a.chakkin)
-      .slice(0, top);
+  // 総合ランキング生成（着金額順、全員）
+  const entries = Object.entries(stats)
+    .filter(([, v]) => v['all'])
+    .map(([name, v]) => {
+      const s = v['all'];
+      const mendan = s.apo - s.cancel;
+      const rate = mendan > 0 ? (s.keiyaku / mendan * 100).toFixed(1) : '-';
+      const tanka = s.keiyaku > 0 ? Math.round(s.seiyakuAmt / s.keiyaku) : null;
+      return { name, chakkin: s.chakkin, mendan, keiyaku: s.keiyaku, rate, tanka };
+    })
+    .sort((a, b) => b.chakkin - a.chakkin);
 
-    if (entries.length === 0) return '（データなし）';
-    const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
-    return entries.map((e, i) => {
-      const fmt = n => n >= 10000 ? `¥${(n/10000).toFixed(n%10000===0?0:1)}万` : `¥${n.toLocaleString()}`;
-      return [
-        `${medals[i]} ${i+1}位 ${e.name}`,
-        `　💴 着金額：${fmt(e.chakkin)}`,
-        `　📋 アポ数：${e.apo}件`,
-        `　🤝 面談実施：${e.mendan}件`,
-        `　✅ 成約数：${e.keiyaku}件 ／ 成約率：${e.rate}%`,
-        `　💰 成約額：${fmt(e.seiyakuAmt)}`,
-        `　💵 平均成約単価：${e.tanka !== null ? fmt(e.tanka) : '-'}`,
-        `　📊 着金率：${e.chakkinRate}%`,
-      ].join('\n');
-    }).join('\n\n');
-  }
+  const fmt = n => n >= 10000 ? `¥${(n/10000).toFixed(n%10000===0?0:1)}万` : `¥${n.toLocaleString()}`;
+  const rankLines = entries.length === 0 ? '（データなし）' : entries.map((e, i) => {
+    return [
+      `${i+1}位 ${e.name}`,
+      `・着金額：${fmt(e.chakkin)}`,
+      `・面談実施数：${e.mendan}件`,
+      `・成約数：${e.keiyaku}件`,
+      `・成約率：${e.rate}%`,
+      `・平均成約単価：${e.tanka !== null ? fmt(e.tanka) : '-'}`,
+    ].join('\n');
+  }).join('\n\n');
 
-  // LINEに送信するメッセージを組み立て
   const msg = [
-    `📊 先週の営業成績ランキング`,
-    `（${startStr}〜${endStr}）`,
+    `📊 先週の営業成績ランキング（${startStr}〜${endStr}）`,
+    `🏆 週間ランキング 物販＋AI`,
     `━━━━━━━━━━━━━━━━`,
     ``,
-    `🏪 物販 週間ランキング`,
-    `＊着金額順`,
+    rankLines,
     ``,
-    buildRanking('物販', 5),
-    ``,
-    `━━━━━━━━━━━━━━━━`,
-    ``,
-    `🤖 AI 週間ランキング`,
-    `＊着金額順`,
-    ``,
-    buildRanking('AI', 5),
-    ``,
-    `━━━━━━━━━━━━━━━━`,
-    ``,
-    `🏆 総合 週間ランキング`,
-    `＊着金額順・物販＋AI合算`,
-    ``,
-    buildRanking('all', 5),
-    ``,
-    `━━━━━━━━━━━━━━━━`,
     `🔗 詳細はツールで確認`,
     `https://82350kyo.github.io/sales-manager-tool/sales-manager.html`,
   ].join('\n');
 
-  // LINE Messaging APIで送信（トークンは既存のdailyReminderと同じスクリプトプロパティから取得）
   const LINE_TOKEN = PropertiesService.getScriptProperties().getProperty('LINE_TOKEN');
   UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
     method: 'post',
