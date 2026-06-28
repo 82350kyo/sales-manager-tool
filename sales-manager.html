@@ -4355,12 +4355,21 @@ async function pushSharedDataToGAS() {
   try {
     const remoteRes = await fetch(GAS_URL + '?payload=' + encodeURIComponent(JSON.stringify({ type: 'getSharedData' }))).then(r => r.json());
     if (remoteRes.ok && remoteRes.data) {
+      // 削除済みIDをリモートとマージ（union）してGASにも伝播させる
+      const remoteDeleted = remoteRes.data._deletedKnowledgeIds || [];
+      const localDeleted = data._deletedKnowledgeIds || [];
+      const mergedDeleted = [...new Set([...localDeleted, ...remoteDeleted])];
+      data._deletedKnowledgeIds = mergedDeleted;
+      shared._deletedKnowledgeIds = mergedDeleted;
+      const deletedSet = new Set(mergedDeleted);
+
       SHARED_KEYS.forEach(k => {
         const local = data[k] || [];
         const remote = remoteRes.data[k] || [];
         if (Array.isArray(local) && Array.isArray(remote) && remote.length > 0) {
           const localIds = new Set(local.map(x => x.id).filter(Boolean));
-          const merged = [...local, ...remote.filter(x => x.id && !localIds.has(x.id))];
+          // 削除済みIDはリモートから追加しない
+          const merged = [...local, ...remote.filter(x => x.id && !localIds.has(x.id) && !deletedSet.has(x.id))];
           shared[k] = merged;
           data[k] = merged;
         }
@@ -4392,14 +4401,30 @@ function pullSharedDataFromGAS() {
       const localTs  = data._sharedUpdatedAt || 0;
       const remoteTs = remote._updatedAt    || 0;
       let changed = false;
+      // 削除済みIDをリモートとマージ（union）して双方向に同期
+      const remoteDeleted = remote._deletedKnowledgeIds || [];
+      const localDeleted = data._deletedKnowledgeIds || [];
+      const mergedDeleted = [...new Set([...localDeleted, ...remoteDeleted])];
+      if (mergedDeleted.length > (data._deletedKnowledgeIds || []).length) {
+        data._deletedKnowledgeIds = mergedDeleted;
+        changed = true;
+      }
+      const deletedSet = new Set(mergedDeleted);
+
       SHARED_KEYS.forEach(k => {
         if (remote[k] === undefined) return;
         if (Array.isArray(remote[k])) {
-          // 配列はIDで差分マージ（リモートにしかない要素を追加）
+          // 配列はIDで差分マージ（リモートにしかない要素を追加、削除済みは除外）
           const local = data[k] || [];
           const localIds = new Set(local.map(x => x.id).filter(Boolean));
-          const newItems = remote[k].filter(x => x.id && !localIds.has(x.id));
+          const newItems = remote[k].filter(x => x.id && !localIds.has(x.id) && !deletedSet.has(x.id));
           if (newItems.length > 0) { data[k] = [...local, ...newItems]; changed = true; }
+          // knowledgeは削除済みをローカルからも除去
+          if (k === 'knowledge' && mergedDeleted.length > 0) {
+            const before = (data[k] || []).length;
+            data[k] = (data[k] || []).filter(x => !deletedSet.has(x.id));
+            if (data[k].length !== before) changed = true;
+          }
         } else if (remoteTs > localTs) {
           data[k] = remote[k]; changed = true;
         }
@@ -5142,6 +5167,14 @@ function getLast12Months() {
 
 function getKnowledge() {
   if (!data.knowledge) data.knowledge = [];
+  const deleted = new Set(data._deletedKnowledgeIds || []);
+  // 削除済みを除外 + IDで重複排除
+  const seen = new Set();
+  data.knowledge = data.knowledge.filter(k => {
+    if (!k.id || deleted.has(k.id) || seen.has(k.id)) return false;
+    seen.add(k.id);
+    return true;
+  });
   return data.knowledge;
 }
 
@@ -5307,6 +5340,9 @@ function saveKnowledge() {
 function deleteKnowledge(id) {
   confirmDelete('このナレッジを削除しますか？', () => {
     data.knowledge = getKnowledge().filter(k => k.id !== id);
+    // 削除済みIDリストに追加（GAS同期時に復活させないため）
+    if (!data._deletedKnowledgeIds) data._deletedKnowledgeIds = [];
+    if (!data._deletedKnowledgeIds.includes(id)) data._deletedKnowledgeIds.push(id);
     saveData();
     renderKnowledge();
   });
