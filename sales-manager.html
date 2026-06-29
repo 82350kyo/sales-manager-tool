@@ -1894,6 +1894,17 @@ const DEFAULT_ROUTES = [
   { group: '物販', name: 'Amazon最終コンサル(物販)' },
   { group: '物販', name: 'メルカリ最終コンサル(物販)' },
   { group: '物販', name: 'なまいきくん協業(物販)' },
+  { group: '物販', name: 'アクセサリーセミナー(物販)' },
+  { group: '物販', name: '3大物革命物販セミナー(物販)' },
+  { group: '物販', name: '個別相談 物販オプチャ募集(物販)' },
+  { group: '物販', name: '最終コンサル(物販)' },
+  { group: '物販', name: 'カツタさん導線(なまいきくん)(物販)' },
+  { group: '物販', name: 'きたみさんセミナー(物販)' },
+  { group: '物販', name: '架電(物販)' },
+  { group: '物販', name: 'S導線(物販)' },
+  { group: '物販', name: 'しおんさん導線(なまいきくん)(物販)' },
+  { group: '物販', name: 'WKさん導線(なまいきくん)(物販)' },
+  { group: '物販', name: '外部チョーさんリスト(物販)' },
   { group: 'AI',   name: '個別相談(AI)' },
   { group: 'AI',   name: '広告(AI)' },
   { group: 'AI',   name: 'かずさんSNS(AI)' },
@@ -1910,6 +1921,18 @@ const DEFAULT_ROUTES = [
   { group: 'AI',   name: 'チョーさんセミナー追撃(AI)' },
   { group: 'AI',   name: 'チョーさん導線(AI)' },
   { group: 'AI',   name: 'しらちゃそさんセミナー(AI)' },
+  { group: 'AI',   name: '的場セミナー(AI)' },
+  { group: 'AI',   name: '的場導線(AI)' },
+  { group: 'AI',   name: '個別相談 オプチャ募集(AI)' },
+  { group: 'AI',   name: 'チョーさんリスト用(AI)' },
+  { group: 'AI',   name: '継承コンサル(AI)' },
+  { group: 'AI',   name: '個別相談 AIオプチャ募集(AI)' },
+  { group: 'AI',   name: '浩志さんSNS(AI)' },
+  { group: 'AI',   name: 'かざま君導線(なまいきくん)(AI)' },
+  { group: 'AI',   name: 'なまいきくん協業(AI)' },
+  { group: 'AI',   name: 'イーサン導線(なまいきくん)(AI)' },
+  { group: 'AI',   name: 'ふくださん導線(なまいきくん)(AI)' },
+  { group: 'AI',   name: 'AI副業0→1達成セミナー(AI)' },
 ];
 
 function loadData() {
@@ -1938,6 +1961,11 @@ function loadData() {
       if (!existingNames.has(r.name)) data.routes.push({ ...r });
     });
   }
+  // 動線・商品に安定IDを付与（id欠落で同期時に全消去されるバグの修正）
+  // id がない既存レコードへ後付けでIDをバックフィルする
+  (data.routes   || []).forEach(r => { if (!r.id) r.id = 'route:'   + r.group + ':' + r.name; });
+  (data.products || []).forEach(p => { if (!p.id) p.id = 'product:' + p.group + ':' + p.name; });
+
   // IDに小数点が含まれている場合に修正（旧バグのマイグレーション）
   const fixId = id => String(id).replace('.', '');
   const idMap = {};
@@ -5568,7 +5596,8 @@ function addProduct() {
   const name = nameInp?.value.trim();
   if (!group || !name) { alert('グループ名と商品名を入力してください'); return; }
   if (!data.products) data.products = [];
-  data.products.push({ group, name });
+  // 新規追加時から安定IDを付与（id欠落で同期時に消えるバグの修正）
+  data.products.push({ group, name, id: 'product:' + group + ':' + name });
   saveData();
   updateProductSelect();
   if (nameInp) nameInp.value = '';
@@ -5579,6 +5608,12 @@ function addProduct() {
 // 商品を削除
 function deleteProduct(idx) {
   if (!confirm('この商品を削除しますか？')) return;
+  const removed = data.products[idx];
+  // 削除済みIDをリストに追加（GAS同期時にリモートから復活させないため）
+  if (removed?.id) {
+    if (!data._deleted_products) data._deleted_products = [];
+    if (!data._deleted_products.includes(removed.id)) data._deleted_products.push(removed.id);
+  }
   data.products.splice(idx, 1);
   saveData();
   updateProductSelect();
@@ -5602,8 +5637,16 @@ function saveEditProductGroup(grpIdx) {
   if (!input) return;
   const newName = input.value.trim();
   const oldName = _editProdGroups[grpIdx];
-  if (!newName || !oldName) return;
-  (data.products || []).forEach(p => { if (p.group === oldName) p.group = newName; });
+  if (!newName || !oldName || newName === oldName) return;
+  // グループ名変更時: 旧IDを削除済みに積んで新IDを再発行（他デバイスから旧IDで復活しないよう）
+  if (!data._deleted_products) data._deleted_products = [];
+  (data.products || []).forEach(p => {
+    if (p.group === oldName) {
+      if (p.id && !data._deleted_products.includes(p.id)) data._deleted_products.push(p.id);
+      p.group = newName;
+      p.id = 'product:' + newName + ':' + p.name;
+    }
+  });
   delete _editProdGroups[grpIdx];
   saveData();
   updateProductSelect();
@@ -5627,7 +5670,14 @@ function saveEditProduct(idx) {
   if (!input) return;
   const newName = input.value.trim();
   if (!newName) return;
-  data.products[idx].name = newName;
+  const product = data.products[idx];
+  // 旧IDを削除済みに積んで、名前変更後の新IDを再発行（他デバイスから旧IDで復活しないよう）
+  if (product.id && product.name !== newName) {
+    if (!data._deleted_products) data._deleted_products = [];
+    if (!data._deleted_products.includes(product.id)) data._deleted_products.push(product.id);
+  }
+  product.name = newName;
+  product.id = 'product:' + product.group + ':' + newName;
   saveData();
   updateProductSelect();
   renderProductsList();
@@ -5681,7 +5731,8 @@ function addRoute() {
   const name = nameInp?.value.trim();
   if (!group || !name) { alert('グループ名と動線名を入力してください'); return; }
   if (!data.routes) data.routes = [];
-  data.routes.push({ group, name });
+  // 新規追加時から安定IDを付与（id欠落で同期時に消えるバグの修正）
+  data.routes.push({ group, name, id: 'route:' + group + ':' + name });
   saveData();
   updateRouteSelect();
   if (nameInp) nameInp.value = '';
@@ -5692,6 +5743,12 @@ function addRoute() {
 // 動線を削除
 function deleteRoute(idx) {
   if (!confirm('この動線を削除しますか？')) return;
+  const removed = data.routes[idx];
+  // 削除済みIDをリストに追加（GAS同期時にリモートから復活させないため）
+  if (removed?.id) {
+    if (!data._deleted_routes) data._deleted_routes = [];
+    if (!data._deleted_routes.includes(removed.id)) data._deleted_routes.push(removed.id);
+  }
   data.routes.splice(idx, 1);
   saveData();
   updateRouteSelect();
@@ -5715,8 +5772,16 @@ function saveEditRouteGroup(grpIdx) {
   if (!input) return;
   const newName = input.value.trim();
   const oldName = _editRouteGroups[grpIdx];
-  if (!newName || !oldName) return;
-  (data.routes || []).forEach(r => { if (r.group === oldName) r.group = newName; });
+  if (!newName || !oldName || newName === oldName) return;
+  // グループ名変更時: 旧IDを削除済みに積んで新IDを再発行（他デバイスから旧IDで復活しないよう）
+  if (!data._deleted_routes) data._deleted_routes = [];
+  (data.routes || []).forEach(r => {
+    if (r.group === oldName) {
+      if (r.id && !data._deleted_routes.includes(r.id)) data._deleted_routes.push(r.id);
+      r.group = newName;
+      r.id = 'route:' + newName + ':' + r.name;
+    }
+  });
   delete _editRouteGroups[grpIdx];
   saveData();
   updateRouteSelect();
@@ -5740,7 +5805,14 @@ function saveEditRoute(idx) {
   if (!input) return;
   const newName = input.value.trim();
   if (!newName) return;
-  data.routes[idx].name = newName;
+  const route = data.routes[idx];
+  // 旧IDを削除済みに積んで、名前変更後の新IDを再発行（他デバイスから旧IDで復活しないよう）
+  if (route.id && route.name !== newName) {
+    if (!data._deleted_routes) data._deleted_routes = [];
+    if (!data._deleted_routes.includes(route.id)) data._deleted_routes.push(route.id);
+  }
+  route.name = newName;
+  route.id = 'route:' + route.group + ':' + newName;
   saveData();
   updateRouteSelect();
   renderRoutesList();
