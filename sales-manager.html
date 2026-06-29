@@ -2061,10 +2061,12 @@ function addMember() {
 function deleteMember(id) {
   const m = data.members.find(m => m.id === id);
   confirmDelete(`${m.name} を削除しますか？\nスプレッドシート上のこの担当者名は「アンノーン」に変更されます。`, () => {
-    // スプシ上の担当者名をアンノーンに更新（同期時に復活しないよう）
     const payload = JSON.stringify({ type: 'renameMember', oldName: m.name, newName: 'アンノーン' });
     fetch(GAS_URL + '?payload=' + encodeURIComponent(payload)).catch(() => {});
     data.members = data.members.filter(mem => mem.id !== id);
+    // 削除済みIDをリストに追加（GAS同期時にリモートから復活させないため）
+    if (!data._deleted_members) data._deleted_members = [];
+    if (!data._deleted_members.includes(id)) data._deleted_members.push(id);
     saveData();
     renderMemberList();
     updateMemberSelects();
@@ -4351,28 +4353,30 @@ async function pushSharedDataToGAS() {
   const shared = {};
   SHARED_KEYS.forEach(k => { shared[k] = data[k] || []; });
 
-  // 他メンバーのデータを上書きしないよう、先にGASの現状を読んで配列をマージ
   try {
     const remoteRes = await fetch(GAS_URL + '?payload=' + encodeURIComponent(JSON.stringify({ type: 'getSharedData' }))).then(r => r.json());
     if (remoteRes.ok && remoteRes.data) {
-      // 削除済みIDをリモートとマージ（union）してGASにも伝播させる
-      const remoteDeleted = remoteRes.data._deletedKnowledgeIds || [];
-      const localDeleted = data._deletedKnowledgeIds || [];
-      const mergedDeleted = [...new Set([...localDeleted, ...remoteDeleted])];
-      data._deletedKnowledgeIds = mergedDeleted;
-      shared._deletedKnowledgeIds = mergedDeleted;
-      const deletedSet = new Set(mergedDeleted);
+      // 各キーごとの削除済みIDをリモートとunionマージ
+      const deletedSets = {};
+      SHARED_KEYS.forEach(k => {
+        const key = `_deleted_${k}`;
+        const legacyKey = k === 'knowledge' ? '_deletedKnowledgeIds' : null;
+        const remoteDeleted = (remoteRes.data[key] || []).concat(legacyKey ? (remoteRes.data[legacyKey] || []) : []);
+        const localDeleted = (data[key] || []).concat(legacyKey ? (data[legacyKey] || []) : []);
+        const merged = [...new Set([...localDeleted, ...remoteDeleted])];
+        data[key] = merged;
+        shared[key] = merged;
+        deletedSets[k] = new Set(merged);
+      });
 
       SHARED_KEYS.forEach(k => {
-        const local = data[k] || [];
+        const del = deletedSets[k];
+        const local = (data[k] || []).filter(x => x.id && !del.has(x.id));
         const remote = remoteRes.data[k] || [];
-        if (Array.isArray(local) && Array.isArray(remote) && remote.length > 0) {
-          const localIds = new Set(local.map(x => x.id).filter(Boolean));
-          // 削除済みIDはリモートから追加しない
-          const merged = [...local, ...remote.filter(x => x.id && !localIds.has(x.id) && !deletedSet.has(x.id))];
-          shared[k] = merged;
-          data[k] = merged;
-        }
+        const localIds = new Set(local.map(x => x.id));
+        const merged = [...local, ...remote.filter(x => x.id && !localIds.has(x.id) && !del.has(x.id))];
+        shared[k] = merged;
+        data[k] = merged;
       });
     }
   } catch (e) {}
@@ -4401,30 +4405,30 @@ function pullSharedDataFromGAS() {
       const localTs  = data._sharedUpdatedAt || 0;
       const remoteTs = remote._updatedAt    || 0;
       let changed = false;
-      // 削除済みIDをリモートとマージ（union）して双方向に同期
-      const remoteDeleted = remote._deletedKnowledgeIds || [];
-      const localDeleted = data._deletedKnowledgeIds || [];
-      const mergedDeleted = [...new Set([...localDeleted, ...remoteDeleted])];
-      if (mergedDeleted.length > (data._deletedKnowledgeIds || []).length) {
-        data._deletedKnowledgeIds = mergedDeleted;
-        changed = true;
-      }
-      const deletedSet = new Set(mergedDeleted);
+
+      // 各キーごとの削除済みIDをリモートとunionマージ
+      const deletedSets = {};
+      SHARED_KEYS.forEach(k => {
+        const key = `_deleted_${k}`;
+        const legacyKey = k === 'knowledge' ? '_deletedKnowledgeIds' : null;
+        const remoteDeleted = (remote[key] || []).concat(legacyKey ? (remote[legacyKey] || []) : []);
+        const localDeleted = (data[key] || []).concat(legacyKey ? (data[legacyKey] || []) : []);
+        const merged = [...new Set([...localDeleted, ...remoteDeleted])];
+        if (merged.length !== (data[key] || []).length) { data[key] = merged; changed = true; }
+        deletedSets[k] = new Set(merged);
+      });
 
       SHARED_KEYS.forEach(k => {
         if (remote[k] === undefined) return;
         if (Array.isArray(remote[k])) {
-          // 配列はIDで差分マージ（リモートにしかない要素を追加、削除済みは除外）
-          const local = data[k] || [];
-          const localIds = new Set(local.map(x => x.id).filter(Boolean));
-          const newItems = remote[k].filter(x => x.id && !localIds.has(x.id) && !deletedSet.has(x.id));
+          const del = deletedSets[k];
+          const localBefore = (data[k] || []).length;
+          data[k] = (data[k] || []).filter(x => x.id && !del.has(x.id));
+          if (data[k].length !== localBefore) changed = true;
+          const local = data[k];
+          const localIds = new Set(local.map(x => x.id));
+          const newItems = remote[k].filter(x => x.id && !localIds.has(x.id) && !del.has(x.id));
           if (newItems.length > 0) { data[k] = [...local, ...newItems]; changed = true; }
-          // knowledgeは削除済みをローカルからも除去
-          if (k === 'knowledge' && mergedDeleted.length > 0) {
-            const before = (data[k] || []).length;
-            data[k] = (data[k] || []).filter(x => !deletedSet.has(x.id));
-            if (data[k].length !== before) changed = true;
-          }
         } else if (remoteTs > localTs) {
           data[k] = remote[k]; changed = true;
         }
@@ -4434,6 +4438,7 @@ function pullSharedDataFromGAS() {
       localStorage.setItem('sales-manager-data', JSON.stringify(data));
       renderDashboard();
       if (document.getElementById('page-knowledge')?.classList.contains('active')) renderKnowledge();
+      if (document.getElementById('page-members')?.classList.contains('active')) renderMemberList();
       const el = document.getElementById('sync-status');
       if (el) el.textContent = '共有データ同期: ' + new Date().toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' });
     })
@@ -5167,7 +5172,8 @@ function getLast12Months() {
 
 function getKnowledge() {
   if (!data.knowledge) data.knowledge = [];
-  const deleted = new Set(data._deletedKnowledgeIds || []);
+  // 新キー（_deleted_knowledge）と旧キー（_deletedKnowledgeIds）の両方を参照（後方互換）
+  const deleted = new Set([...(data._deleted_knowledge || []), ...(data._deletedKnowledgeIds || [])]);
   // 削除済みを除外 + IDで重複排除
   const seen = new Set();
   data.knowledge = data.knowledge.filter(k => {
@@ -5341,8 +5347,8 @@ function deleteKnowledge(id) {
   confirmDelete('このナレッジを削除しますか？', () => {
     data.knowledge = getKnowledge().filter(k => k.id !== id);
     // 削除済みIDリストに追加（GAS同期時に復活させないため）
-    if (!data._deletedKnowledgeIds) data._deletedKnowledgeIds = [];
-    if (!data._deletedKnowledgeIds.includes(id)) data._deletedKnowledgeIds.push(id);
+    if (!data._deleted_knowledge) data._deleted_knowledge = [];
+    if (!data._deleted_knowledge.includes(id)) data._deleted_knowledge.push(id);
     saveData();
     renderKnowledge();
   });
