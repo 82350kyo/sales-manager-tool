@@ -656,10 +656,148 @@ function setupWeeklyRankingTrigger() {
   // 既存の同名トリガーを削除してから再作成（重複防止）
   ScriptApp.getProjectTriggers().forEach(t => {
     if (t.getHandlerFunction() === 'sendWeeklyRanking') ScriptApp.deleteTrigger(t);
+    if (t.getHandlerFunction() === 'sendWeeklyRankingImage') ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('sendWeeklyRanking')
+  ScriptApp.newTrigger('sendWeeklyRankingImage')
     .timeBased()
     .onWeekDay(ScriptApp.WeekDay.MONDAY)
     .atHour(8)
     .create();
+}
+
+// =====================================================
+// 週次ランキング通知（画像版・OpenAI DALL-E 3使用）
+// sendWeeklyRanking の上位互換。毎週月曜8時自動実行。
+// 事前準備: スクリプトプロパティに OPENAI_API_KEY を設定すること
+// =====================================================
+function sendWeeklyRankingImage() {
+  const ss = SpreadsheetApp.openById('1BMptkze_WyYL6TRG5Jzugy8aYT-AL4F4O7gnmFPKXRw');
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+
+  const today = new Date();
+  const lastMon = new Date(today); lastMon.setDate(today.getDate() - 7); lastMon.setHours(0,0,0,0);
+  const lastSun = new Date(today); lastSun.setDate(today.getDate() - 1); lastSun.setHours(23,59,59,999);
+  const startStr = Utilities.formatDate(lastMon, 'Asia/Tokyo', 'M/d');
+  const endStr   = Utilities.formatDate(lastSun, 'Asia/Tokyo', 'M/d');
+
+  const rows = sheet.getRange(2, 1, lastRow - 1, 21).getValues();
+
+  function getBusType(cat) {
+    const c = String(cat || '');
+    if (c.includes('(AI)') || c.includes('（AI）') ||
+        ['チョーさん','イーサン','浩志さん','的場'].some(kw => c.includes(kw))) return 'AI';
+    if (c.includes('(物販)') || c.includes('（物販）') || c.includes('物販')) return '物販';
+    return '';
+  }
+
+  const stats = {};
+  rows.forEach(row => {
+    const rawDate = row[1];
+    if (!rawDate) return;
+    const d = rawDate instanceof Date ? rawDate : new Date(rawDate);
+    if (isNaN(d) || d < lastMon || d > lastSun) return;
+    const name    = String(row[2] || '').replace(/[（(][^）)]*[）)]/g, '').trim();
+    const cat     = String(row[3] || '');
+    const result  = String(row[5] || '');
+    const amount  = Number(String(row[7] || '0').replace(/[^0-9]/g, '')) || 0;
+    const payment = Number(String(row[8] || '0').replace(/[^0-9]/g, '')) || 0;
+    const bus     = getBusType(cat);
+    if (!name) return;
+    const keys = ['all'];
+    if (bus) keys.push(bus);
+    keys.forEach(key => {
+      if (!stats[name]) stats[name] = {};
+      if (!stats[name][key]) stats[name][key] = { apo: 0, cancel: 0, keiyaku: 0, seiyakuAmt: 0, chakkin: 0 };
+      const s = stats[name][key];
+      s.apo++;
+      if (result === 'キャンセル') s.cancel++;
+      if (result === '成約' || result.startsWith('成約')) {
+        s.keiyaku++;
+        s.seiyakuAmt += amount;
+        s.chakkin += payment;
+      }
+    });
+  });
+
+  const entries = Object.entries(stats)
+    .filter(([, v]) => v['all'])
+    .map(([name, v]) => {
+      const s = v['all'];
+      const mendan = s.apo - s.cancel;
+      const rate = mendan > 0 ? (s.keiyaku / mendan * 100).toFixed(1) : '-';
+      const tanka = s.keiyaku > 0 ? Math.round(s.seiyakuAmt / s.keiyaku) : null;
+      return { name, chakkin: s.chakkin, mendan, keiyaku: s.keiyaku, rate, tanka };
+    })
+    .sort((a, b) => b.chakkin - a.chakkin);
+
+  if (entries.length === 0) {
+    sendWeeklyRanking();
+    return;
+  }
+
+  const fmt = n => n >= 10000 ? `${(n/10000).toFixed(n%10000===0?0:1)}万円` : `${n.toLocaleString()}円`;
+  const medals = ['🥇', '🥈', '🥉'];
+  const rankText = entries.map((e, i) =>
+    `${medals[i] || `${i+1}位`} ${e.name}：${fmt(e.chakkin)}（成約${e.keiyaku}件・成約率${e.rate}%）`
+  ).join('\n');
+
+  const prompt = `日本語の営業チーム週間売上ランキングカード画像を作成。
+
+タイトル：「週間売上ランキング ${startStr}〜${endStr}」
+
+ランキング：
+${rankText}
+
+デザイン：濃紺背景にゴールドアクセント、白テキスト、1位〜3位にトロフィーアイコン、各メンバーの順位・名前・着金額・成約件数を大きく表示、プロフェッショナルな企業スタイル、1080×1080ピクセル正方形。`;
+
+  const openaiKey = PropertiesService.getScriptProperties().getProperty('OPENAI_API_KEY');
+  const openaiRes = UrlFetchApp.fetch('https://api.openai.com/v1/images/generations', {
+    method: 'post',
+    headers: {
+      'Authorization': 'Bearer ' + openaiKey,
+      'Content-Type': 'application/json'
+    },
+    payload: JSON.stringify({
+      model: 'dall-e-3',
+      prompt: prompt,
+      n: 1,
+      size: '1024x1024',
+      quality: 'hd',
+      response_format: 'url'
+    }),
+    muteHttpExceptions: true
+  });
+
+  const openaiData = JSON.parse(openaiRes.getContentText());
+  if (!openaiData.data || !openaiData.data[0] || !openaiData.data[0].url) {
+    sendWeeklyRanking(); // 画像生成失敗時はテキスト版にフォールバック
+    return;
+  }
+
+  const imageUrl = openaiData.data[0].url;
+  const lineToken = PropertiesService.getScriptProperties().getProperty('LINE_TOKEN');
+  UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
+    method: 'post',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + lineToken
+    },
+    payload: JSON.stringify({
+      to: LINE_GROUP_ID,
+      messages: [
+        {
+          type: 'image',
+          originalContentUrl: imageUrl,
+          previewImageUrl: imageUrl
+        },
+        {
+          type: 'text',
+          text: `🔗 詳細はツールで確認\nhttps://82350kyo.github.io/sales-manager-tool/sales-manager.html`
+        }
+      ]
+    }),
+    muteHttpExceptions: true
+  });
 }
