@@ -1010,6 +1010,11 @@
         <div class="card-title">メンバー別KPI目標</div>
         <div id="member-kpi-section"></div>
       </div>
+      <!-- メンバー別アクションプランカード -->
+      <div class="card" style="margin-top:24px;">
+        <div class="card-title">📋 メンバー別アクションプラン</div>
+        <div id="member-action-plan-section"></div>
+      </div>
     </div>
 
     <!-- Reports -->
@@ -1800,8 +1805,9 @@ let data = {
   projects: [],
   teamTasks: [],
   dailyReports: [],
-  products: [],  // 商品マスター
-  routes: []     // 動線マスター
+  products: [],      // 商品マスター
+  routes: [],        // 動線マスター
+  actionPlans: []    // メンバー別アクションプラン
 };
 
 // 初期化完了フラグ（falseの間はGASへのプッシュを禁止）
@@ -3440,6 +3446,8 @@ function renderGoalsPage() {
 
   // シミュレーターを描画（renderGoalsPage の末尾で呼ぶ）
   renderGoalSimulator();
+  // アクションプランを描画（renderGoalsPage の末尾で呼ぶ）
+  renderActionPlans();
 }
 
 function saveTeamGoal() {
@@ -3702,6 +3710,137 @@ function applySimulatorToKPI() {
   saveData();
   renderGoalsPage(); // KPI テーブルにも即反映される
 }
+
+// ==================== ACTION PLANS ====================
+
+/**
+ * メンバー別アクションプランを描画する。
+ * renderGoalsPage() の末尾から呼ばれる。
+ */
+function renderActionPlans() {
+  const el = document.getElementById('member-action-plan-section');
+  if (!el) return;
+
+  // メンバーが未登録の場合は空状態を表示
+  if (!data.members || !data.members.length) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">👥</div><p>メンバーを登録してください</p></div>';
+    return;
+  }
+
+  // ステータスに応じた色クラスを返すヘルパー
+  const statusColor = status => {
+    if (status === '完了')  return 'color:var(--success);font-weight:600;';
+    if (status === '進行中') return 'color:var(--warning);font-weight:600;';
+    return 'color:var(--text-muted);font-weight:600;'; // 未実施
+  };
+
+  // ステータス選択ボックスの背景色を返すヘルパー
+  const statusBg = status => {
+    if (status === '完了')  return 'background:rgba(16,185,129,0.08);border-color:var(--success);';
+    if (status === '進行中') return 'background:rgba(245,158,11,0.08);border-color:var(--warning);';
+    return ''; // 未実施はデフォルトスタイル
+  };
+
+  // 各メンバーのセクションを生成
+  el.innerHTML = data.members.map(m => {
+    // このメンバーのアクションプラン一覧（作成日降順）
+    const plans = (data.actionPlans || [])
+      .filter(p => p.memberId === m.id)
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+    // プラン行の HTML を生成
+    const planRows = plans.length
+      ? plans.map(p => `
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
+          <div style="flex:1;font-size:14px;">${esc(p.text)}</div>
+          <select
+            style="font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);cursor:pointer;${statusBg(p.status)}"
+            onchange="setActionPlanStatus('${p.id}', this.value)">
+            <option value="未実施" ${p.status === '未実施' ? 'selected' : ''}>未実施</option>
+            <option value="進行中" ${p.status === '進行中' ? 'selected' : ''}>進行中</option>
+            <option value="完了"   ${p.status === '完了'   ? 'selected' : ''}>完了</option>
+          </select>
+          <span style="font-size:11px;min-width:36px;${statusColor(p.status)}">${esc(p.status)}</span>
+          <button class="btn btn-sm" style="color:var(--danger);border-color:var(--danger);padding:2px 8px;font-size:11px;" onclick="deleteActionPlan('${p.id}')">削除</button>
+        </div>`).join('')
+      : '<div style="color:var(--text-muted);font-size:13px;padding:8px 0;">アクションプランがありません</div>';
+
+    return `
+      <div style="padding:16px 0;border-bottom:2px solid var(--border);">
+        <!-- メンバー名ヘッダー -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <span class="member-dot" style="background:${m.color||'#4f46e5'};"></span>
+          <span style="font-weight:700;font-size:15px;">${esc(m.name)}</span>
+          <span style="font-size:12px;color:var(--text-muted);">${plans.length}件</span>
+        </div>
+        <!-- プラン一覧 -->
+        ${planRows}
+        <!-- 新規プラン追加フォーム -->
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <input
+            type="text"
+            id="new-action-plan-${m.id}"
+            placeholder="新しいアクションプランを入力..."
+            style="flex:1;font-size:13px;"
+            onkeydown="if(event.key==='Enter') addActionPlan('${m.id}')">
+          <button class="btn btn-primary btn-sm" onclick="addActionPlan('${m.id}')">追加</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+/**
+ * 指定メンバーに新しいアクションプランを追加する。
+ * @param {string} memberId - 追加対象のメンバーID
+ */
+function addActionPlan(memberId) {
+  const inp = document.getElementById('new-action-plan-' + memberId);
+  const text = inp ? inp.value.trim() : '';
+  if (!text) { alert('アクションプランの内容を入力してください'); return; }
+  if (!Array.isArray(data.actionPlans)) data.actionPlans = [];
+  const now = Date.now();
+  data.actionPlans.push({
+    id: 'ap-' + now + '-' + Math.random().toString(36).slice(2, 7),
+    memberId,
+    text,
+    status: '未実施',
+    createdAt: now,
+    updatedAt: now
+  });
+  if (inp) inp.value = ''; // 入力欄をリセット
+  saveData();
+  renderActionPlans();
+}
+
+/**
+ * アクションプランのステータスを更新する。
+ * @param {string} id - プランID
+ * @param {string} status - '未実施'|'進行中'|'完了'
+ */
+function setActionPlanStatus(id, status) {
+  const p = (data.actionPlans || []).find(x => x.id === id);
+  if (!p) return;
+  p.status    = status;
+  p.updatedAt = Date.now();
+  saveData();
+  renderActionPlans();
+}
+
+/**
+ * アクションプランを削除する（削除ID追跡で同期先にも反映）。
+ * @param {string} id - プランID
+ */
+function deleteActionPlan(id) {
+  if (!confirm('このアクションプランを削除しますか？')) return;
+  // 削除ID を追跡配列に記録（GAS同期時に他端末でも除外される）
+  if (!data._deleted_actionPlans) data._deleted_actionPlans = [];
+  if (!data._deleted_actionPlans.includes(id)) data._deleted_actionPlans.push(id);
+  data.actionPlans = (data.actionPlans || []).filter(x => x.id !== id);
+  saveData();
+  renderActionPlans();
+}
+
+// ==================== END ACTION PLANS ====================
 
 // ==================== DASHBOARD ====================
 let chartMemberBar, chartAchievement, chartMonthlyTrend;
@@ -4600,7 +4739,7 @@ const GAS_URL = (location.hostname === 'localhost' || location.hostname === '127
 // ==================== 共有データ同期（プロジェクト・動線・目標など） ====================
 
 // 共有対象のキー一覧
-const SHARED_KEYS = ['ptProjects', 'routes', 'products', 'members', 'goals', 'teamtasks', 'projects', 'knowledge'];
+const SHARED_KEYS = ['ptProjects', 'routes', 'products', 'members', 'goals', 'teamtasks', 'projects', 'knowledge', 'actionPlans'];
 
 // ==================== goals ディープマージ ヘルパー ====================
 
@@ -4649,6 +4788,25 @@ function mergeGoalsDeep(local, remote, remoteNewer) {
 
 // ==================== END goals ディープマージ ヘルパー ====================
 
+// ==================== アクションプラン マージ ヘルパー ====================
+
+// アクションプランを id 単位でマージ（同一idは updatedAt が新しい方を採用、削除idは除外）
+function mergeActionPlans(local, remote, deletedSet) {
+  local  = Array.isArray(local)  ? local  : [];
+  remote = Array.isArray(remote) ? remote : [];
+  const byId = {};
+  // remote を先に処理し、local で上書き（同一idは updatedAt が新しい方を採用）
+  [...remote, ...local].forEach(item => {
+    if (!item || !item.id) return;
+    if (deletedSet && deletedSet.has(item.id)) return;
+    const cur = byId[item.id];
+    if (!cur || (item.updatedAt || 0) >= (cur.updatedAt || 0)) byId[item.id] = item;
+  });
+  return Object.values(byId);
+}
+
+// ==================== END アクションプラン マージ ヘルパー ====================
+
 async function pushSharedDataToGAS() {
   const shared = {};
   SHARED_KEYS.forEach(k => { shared[k] = data[k] || []; });
@@ -4674,6 +4832,12 @@ async function pushSharedDataToGAS() {
         if (k === 'goals') {
           shared.goals = mergeGoalsDeep(data.goals, remoteRes.data.goals, false);
           data.goals = shared.goals;
+          return;
+        }
+        // actionPlans は配列だが updatedAt 基準の専用マージが必要なため、汎用配列処理より先に分岐する
+        if (k === 'actionPlans') {
+          shared.actionPlans = mergeActionPlans(data.actionPlans, remoteRes.data.actionPlans, deletedSets[k]);
+          data.actionPlans = shared.actionPlans;
           return;
         }
         // 配列以外のキーは安全にスキップ（非配列キーで .filter() を呼んで例外を出さないためのガード）
@@ -4736,6 +4900,11 @@ function pullSharedDataFromGAS() {
           const before = JSON.stringify(data.goals || {});
           data.goals = mergeGoalsDeep(data.goals, remote.goals, remoteTs > localTs);
           if (JSON.stringify(data.goals) !== before) changed = true;
+        } else if (k === 'actionPlans') {
+          // actionPlans は updatedAt 基準で id 単位にマージ（ステータス変更を全端末に反映するため専用マージを使う）
+          const before = JSON.stringify(data.actionPlans || []);
+          data.actionPlans = mergeActionPlans(data.actionPlans, remote.actionPlans, deletedSets[k]);
+          if (JSON.stringify(data.actionPlans) !== before) changed = true;
         } else if (Array.isArray(remote[k])) {
           const del = deletedSets[k];
           const localBefore = (data[k] || []).length;
@@ -4755,6 +4924,8 @@ function pullSharedDataFromGAS() {
       renderDashboard();
       if (document.getElementById('page-knowledge')?.classList.contains('active')) renderKnowledge();
       if (document.getElementById('page-members')?.classList.contains('active')) renderMemberList();
+      // 目標ページが表示中のとき、アクションプランも再描画する
+      if (document.getElementById('page-goals')?.classList.contains('active')) renderActionPlans();
       const el = document.getElementById('sync-status');
       if (el) el.textContent = '共有データ同期: ' + new Date().toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' });
     })
