@@ -3730,12 +3730,37 @@ function memberActionPlanHTML(m) {
     return ''; // 未実施はデフォルトスタイル
   };
 
-  // このメンバーのアクションプラン一覧（作成日降順）
-  const plans = (data.actionPlans || [])
-    .filter(p => p.memberId === m.id)
+  // このメンバーの全アクションプランを取得し、センターピンと通常プランに分離
+  const allPlans = (data.actionPlans || []).filter(p => p.memberId === m.id);
+  const centerPin = allPlans.find(p => p.isCenterPin);
+  // 通常プラン（センターピン除外）を作成日降順ソート
+  const plans = allPlans
+    .filter(p => !p.isCenterPin)
     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
-  // プラン行の HTML を生成（無い場合は空状態メッセージ）
+  // センターピン・ボックスの HTML（ゴールド枠で先頭に表示）
+  const centerPinBox = `
+    <div style="margin-bottom:14px;padding:12px 14px;border:2px solid #f59e0b;border-radius:10px;background:rgba(245,158,11,0.06);">
+      <div style="font-size:12px;font-weight:700;color:#b45309;margin-bottom:8px;">🎯 センターピン（最重要アクション）</div>
+      ${centerPin ? `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <div style="flex:1;font-size:14px;font-weight:600;">${esc(centerPin.text)}</div>
+        <select style="font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);cursor:pointer;${statusBg(centerPin.status)}" onchange="setActionPlanStatus('${centerPin.id}', this.value)">
+          <option value="未実施" ${centerPin.status === '未実施' ? 'selected' : ''}>未実施</option>
+          <option value="進行中" ${centerPin.status === '進行中' ? 'selected' : ''}>進行中</option>
+          <option value="完了"   ${centerPin.status === '完了'   ? 'selected' : ''}>完了</option>
+        </select>
+        <span style="font-size:11px;min-width:36px;${statusColor(centerPin.status)}">${esc(centerPin.status)}</span>
+        <button class="btn btn-sm" style="color:var(--danger);border-color:var(--danger);padding:2px 8px;font-size:11px;" onclick="deleteActionPlan('${centerPin.id}')">削除</button>
+      </div>` : ''}
+      <!-- センターピン設定・変更フォーム -->
+      <div style="display:flex;gap:8px;">
+        <input type="text" id="center-pin-${m.id}" placeholder="${centerPin ? 'センターピンを変更...' : '最重要アクションを設定...'}" style="flex:1;font-size:13px;" onkeydown="if(event.key==='Enter') setCenterPin('${m.id}')">
+        <button class="btn btn-sm" style="background:#f59e0b;color:#fff;border-color:#f59e0b;" onclick="setCenterPin('${m.id}')">${centerPin ? '変更' : '設定'}</button>
+      </div>
+    </div>`;
+
+  // 通常プラン行の HTML を生成（無い場合は空状態メッセージ）
   const planRows = plans.length
     ? plans.map(p => `
       <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
@@ -3752,9 +3777,10 @@ function memberActionPlanHTML(m) {
       </div>`).join('')
     : '<div style="color:var(--text-muted);font-size:13px;padding:8px 0;">アクションプランがありません</div>';
 
-  // メンバーKPIブロック内のサブセクションとして返す（メンバー名ヘッダーはKPI側で表示済みなので小見出しのみ）
+  // メンバーKPIブロック内のサブセクションとして返す（センターピンを先頭に配置）
   return `
     <div style="margin-top:12px;padding-top:12px;border-top:1px dashed var(--border);">
+      ${centerPinBox}
       <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px;">📋 アクションプラン (${plans.length}件)</div>
       ${planRows}
       <!-- 新規プラン追加フォーム -->
@@ -3788,6 +3814,37 @@ function addActionPlan(memberId) {
     createdAt: now,
     updatedAt: now
   });
+  if (inp) inp.value = ''; // 入力欄をリセット
+  saveData();
+  renderGoalsPage(); // KPI ループ内 inline 描画のため全体再描画
+}
+
+/**
+ * 指定メンバーのセンターピン（最重要アクション）を設定または更新する。
+ * isCenterPin:true を持つプランはメンバーごとに1件のみ存在する。
+ * 既存がある場合はテキスト更新（updatedAt 更新）、無い場合は新規追加。
+ * @param {string} memberId - 対象のメンバーID
+ */
+function setCenterPin(memberId) {
+  const inp = document.getElementById('center-pin-' + memberId);
+  const text = inp ? inp.value.trim() : '';
+  if (!text) { alert('センターピン（最重要アクション）の内容を入力してください'); return; }
+  if (!Array.isArray(data.actionPlans)) data.actionPlans = [];
+  const now = Date.now();
+  // 既存のセンターピンを検索（メンバーごとに1件のみ）
+  const existing = data.actionPlans.find(p => p.memberId === memberId && p.isCenterPin);
+  if (existing) {
+    // 既存センターピンのテキストを更新（ステータスは維持）
+    existing.text = text;
+    existing.updatedAt = now;
+  } else {
+    // 新規センターピンを追加（isCenterPin:true で通常プランと区別）
+    data.actionPlans.push({
+      id: 'ap-' + now + '-' + Math.random().toString(36).slice(2, 7),
+      memberId, text, status: '未実施', isCenterPin: true,
+      createdAt: now, updatedAt: now
+    });
+  }
   if (inp) inp.value = ''; // 入力欄をリセット
   saveData();
   renderGoalsPage(); // KPI ループ内 inline 描画のため全体再描画
