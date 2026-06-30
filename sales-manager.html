@@ -4602,6 +4602,53 @@ const GAS_URL = (location.hostname === 'localhost' || location.hostname === '127
 // 共有対象のキー一覧
 const SHARED_KEYS = ['ptProjects', 'routes', 'products', 'members', 'goals', 'teamtasks', 'projects', 'knowledge'];
 
+// ==================== goals ディープマージ ヘルパー ====================
+
+// フラットオブジェクト（teamGoal/memberGoals/teamKPI等の1階層）をマージする
+// primary を優先するが、primary が空(0/null/undefined)で secondary に値があれば secondary を残す
+function _mergeFlatGoals(secondary, primary) {
+  secondary = secondary || {}; primary = primary || {};
+  const out = { ...secondary };
+  Object.keys(primary).forEach(k => {
+    if (primary[k] || !out[k]) out[k] = primary[k];
+  });
+  return out;
+}
+
+// memberKPI / memberGoals のようなネスト（{ [memberId]: { ... } }）をマージする
+// どちらか片方にしかいないメンバーIDも union で残す
+function _mergeNestedGoals(secondary, primary) {
+  secondary = secondary || {}; primary = primary || {};
+  const out = {};
+  const ids = new Set([...Object.keys(secondary), ...Object.keys(primary)]);
+  ids.forEach(id => { out[id] = _mergeFlatGoals(secondary[id], primary[id]); });
+  return out;
+}
+
+// goals オブジェクト全体を月キー単位でディープマージする
+// remoteNewer=true のとき、競合フィールドは remote(=primary) 優先
+// どちらか片方にしか存在しない月・メンバーのキーは両者を union で残す
+function mergeGoalsDeep(local, remote, remoteNewer) {
+  local = local || {}; remote = remote || {};
+  const out = {};
+  const months = new Set([...Object.keys(local), ...Object.keys(remote)]);
+  months.forEach(mk => {
+    const L = local[mk] || {}, R = remote[mk] || {};
+    const primary   = remoteNewer ? R : L;
+    const secondary = remoteNewer ? L : R;
+    out[mk] = {
+      teamGoal:    (primary.teamGoal != null && primary.teamGoal !== 0) ? primary.teamGoal : (secondary.teamGoal || 0),
+      memberGoals: _mergeFlatGoals(secondary.memberGoals, primary.memberGoals),
+      teamKPI:     _mergeFlatGoals(secondary.teamKPI, primary.teamKPI),
+      memberKPI:   _mergeNestedGoals(secondary.memberKPI, primary.memberKPI),
+      simulator:   primary.simulator || secondary.simulator || undefined,
+    };
+  });
+  return out;
+}
+
+// ==================== END goals ディープマージ ヘルパー ====================
+
 async function pushSharedDataToGAS() {
   const shared = {};
   SHARED_KEYS.forEach(k => { shared[k] = data[k] || []; });
@@ -4623,6 +4670,14 @@ async function pushSharedDataToGAS() {
       });
 
       SHARED_KEYS.forEach(k => {
+        // goals は配列ではなくオブジェクト構造のため、ディープマージで処理する（push時はローカル優先）
+        if (k === 'goals') {
+          shared.goals = mergeGoalsDeep(data.goals, remoteRes.data.goals, false);
+          data.goals = shared.goals;
+          return;
+        }
+        // 配列以外のキーは安全にスキップ（非配列キーで .filter() を呼んで例外を出さないためのガード）
+        if (!Array.isArray(data[k])) return;
         const del = deletedSets[k];
         const local = (data[k] || []).filter(x => x.id && !del.has(x.id));
         const remote = remoteRes.data[k] || [];
@@ -4673,7 +4728,15 @@ function pullSharedDataFromGAS() {
 
       SHARED_KEYS.forEach(k => {
         if (remote[k] === undefined) return;
-        if (Array.isArray(remote[k])) {
+        // goals はオブジェクト構造のため、Array.isArray より先にディープマージで処理する
+        // （防御的判定: !Array.isArray で配列として誤評価されるケースも排除）
+        if (k === 'goals' && !Array.isArray(remote[k])) {
+          // goals はディープマージ（丸ごと上書きを避け、各自のKPIが消えないようにする）
+          // remoteNewer フラグを渡すことで、タイムスタンプが新しい側を優先しつつ両者を union する
+          const before = JSON.stringify(data.goals || {});
+          data.goals = mergeGoalsDeep(data.goals, remote.goals, remoteTs > localTs);
+          if (JSON.stringify(data.goals) !== before) changed = true;
+        } else if (Array.isArray(remote[k])) {
           const del = deletedSets[k];
           const localBefore = (data[k] || []).length;
           data[k] = (data[k] || []).filter(x => x.id && !del.has(x.id));
