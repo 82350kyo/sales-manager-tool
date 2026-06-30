@@ -993,6 +993,11 @@
         <div class="card-title">チーム全体目標</div>
         <div id="team-goal-section"></div>
       </div>
+      <!-- 目標逆算シミュレーターカード -->
+      <div class="card" style="margin-bottom:24px;">
+        <div class="card-title">🎯 目標逆算シミュレーター</div>
+        <div id="goal-simulator-section"></div>
+      </div>
       <div class="card" style="margin-bottom:24px;">
         <div class="card-title">チームKPI目標</div>
         <div id="team-kpi-section"></div>
@@ -3432,6 +3437,9 @@ function renderGoalsPage() {
       </div>`;
     }).join('');
   }
+
+  // シミュレーターを描画（renderGoalsPage の末尾で呼ぶ）
+  renderGoalSimulator();
 }
 
 function saveTeamGoal() {
@@ -3476,6 +3484,223 @@ function saveMemberKPI(memberId) {
   });
   saveData();
   renderGoalsPage();
+}
+
+// ==================== GOAL SIMULATOR ====================
+
+/**
+ * 目標逆算ソルバー
+ * 関係式: A = U × D、D = M × (R/100)
+ * v: { A:目標金額, U:成約単価, R:成約率%, D:契約数, M:面談数 } 各 number|null(空欄)
+ * 解けた項目を埋めて返す（6回ループで反復収束）
+ */
+function solveGoalSim(v) {
+  let { A, U, R, D, M } = v;
+  for (let i = 0; i < 6; i++) {
+    // A = U × D
+    if (A == null && U != null && D != null) A = U * D;
+    if (U == null && A != null && D != null && D !== 0) U = A / D;
+    if (D == null && A != null && U != null && U !== 0) D = A / U;
+    // D = M × (R/100)
+    if (D == null && M != null && R != null) D = M * (R / 100);
+    if (M == null && D != null && R != null && R !== 0) M = D / (R / 100);
+    if (R == null && D != null && M != null && M !== 0) R = (D / M) * 100;
+  }
+  // ゼロ除算・NaN・負数は無効にする
+  const clean = n => (n == null || isNaN(n) || !isFinite(n) || n < 0) ? null : n;
+  return { A: clean(A), U: clean(U), R: clean(R), D: clean(D), M: clean(M) };
+}
+
+/**
+ * シミュレーター入力欄の値を読み取るヘルパー（空欄→null、不正値→null）
+ */
+function _simReadVal(id) {
+  const el = document.getElementById(id);
+  if (!el) return null;
+  const v = el.value.trim();
+  if (v === '') return null;
+  const n = parseFloat(v);
+  return (isNaN(n) || n < 0) ? null : n;
+}
+
+/**
+ * 目標逆算シミュレーターを goal-simulator-section に描画する
+ * renderGoalsPage() の末尾から呼ばれる
+ */
+function renderGoalSimulator() {
+  const mk = getMonthKey(goalViewMonth);
+  const goal = getGoal(mk);
+  const sim = goal.simulator || {};
+
+  // 初期値: 保存済みシミュレーターデータを優先、目標金額は teamGoal をフォールバック
+  const initA = sim.amount != null ? sim.amount : (goal.teamGoal || '');
+  const initU = sim.tanka  != null ? sim.tanka  : '';
+  const initR = sim.rate   != null ? sim.rate   : '';
+  const initD = sim.deals  != null ? sim.deals  : '';
+  const initM = sim.mendan != null ? sim.mendan : '';
+
+  const el = document.getElementById('goal-simulator-section');
+  if (!el) return;
+
+  el.innerHTML = `
+    <div style="margin-bottom:14px;font-size:13px;color:var(--text-muted);">
+      入力した項目から、空欄の項目を自動で逆算します。2項目以上を入力してください。
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:16px;">
+      <div>
+        <label style="font-size:13px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px;">目標金額 (円)</label>
+        <input type="number" id="sim-amount" value="${initA}" placeholder="例: 1000000"
+          oninput="onSimulatorInput()" style="width:100%;">
+      </div>
+      <div>
+        <label style="font-size:13px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px;">成約単価 (円)</label>
+        <input type="number" id="sim-tanka" value="${initU}" placeholder="例: 100000"
+          oninput="onSimulatorInput()" style="width:100%;">
+      </div>
+      <div>
+        <label style="font-size:13px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px;">成約率 (%)</label>
+        <input type="number" id="sim-rate" value="${initR}" placeholder="例: 25" step="0.1"
+          oninput="onSimulatorInput()" style="width:100%;">
+      </div>
+      <div>
+        <label style="font-size:13px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px;">必要契約数 (件)</label>
+        <input type="number" id="sim-deals" value="${initD}" placeholder="例: 10"
+          oninput="onSimulatorInput()" style="width:100%;">
+      </div>
+      <div>
+        <label style="font-size:13px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px;">必要面談数 (件)</label>
+        <input type="number" id="sim-mendan" value="${initM}" placeholder="例: 40"
+          oninput="onSimulatorInput()" style="width:100%;">
+      </div>
+    </div>
+    <!-- 算出結果表示エリア -->
+    <div id="sim-result" style="background:var(--bg-secondary,#f4f6f8);border-radius:8px;border:1px solid var(--border);padding:14px;margin-bottom:16px;font-size:13px;min-height:56px;"></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="saveGoalSimulator()">保存</button>
+      <button class="btn btn-outline" onclick="applySimulatorToKPI()">成約率・単価・契約数・面談数をKPI目標に反映</button>
+    </div>
+  `;
+
+  // 描画直後に初期計算を実行して結果を表示する
+  onSimulatorInput();
+}
+
+/**
+ * シミュレーター入力欄の oninput ハンドラ
+ * ユーザーが入力した欄はそのままにして、空欄だった項目を算出して表示する
+ */
+function onSimulatorInput() {
+  const inputA = _simReadVal('sim-amount');
+  const inputU = _simReadVal('sim-tanka');
+  const inputR = _simReadVal('sim-rate');
+  const inputD = _simReadVal('sim-deals');
+  const inputM = _simReadVal('sim-mendan');
+
+  // ユーザーが入力済みかどうかを記録（trueの欄は上書き不可）
+  const userSet = { A: inputA != null, U: inputU != null, R: inputR != null, D: inputD != null, M: inputM != null };
+
+  // ソルバーで残りの値を計算
+  const solved = solveGoalSim({ A: inputA, U: inputU, R: inputR, D: inputD, M: inputM });
+
+  const resultEl = document.getElementById('sim-result');
+  if (!resultEl) return;
+
+  // 各項目のラベル定義
+  const LABELS = { A: '目標金額', U: '成約単価', R: '成約率', D: '必要契約数', M: '必要面談数' };
+
+  // 値を見やすい文字列にフォーマット
+  function fmtSimVal(key, val) {
+    if (val == null) return '-';
+    if (key === 'A') return fmt(Math.round(val));
+    if (key === 'U') return fmt(Math.round(val));
+    if (key === 'R') return val.toFixed(1) + '%';
+    if (key === 'D') return Math.ceil(val) + '件';
+    if (key === 'M') return Math.ceil(val) + '件';
+    return String(val);
+  }
+
+  // 入力値・算出値をまとめて表示（算出値はカラー＋「(算出)」ラベルで区別）
+  const parts = ['A', 'U', 'R', 'D', 'M'].map(k => {
+    const val    = solved[k];
+    const isCalc = !userSet[k]; // ユーザーが入力していない = 算出された値
+    const valStr = fmtSimVal(k, val);
+    const calcMark = isCalc && val != null
+      ? ' <span style="font-size:11px;font-weight:700;color:var(--primary,#1a73e8);">(算出)</span>'
+      : '';
+    const style = isCalc && val != null
+      ? 'color:var(--primary,#1a73e8);font-weight:700;'
+      : 'color:var(--text-primary,#333);font-weight:600;';
+    return `<span style="display:inline-block;margin:3px 18px 3px 0;white-space:nowrap;">
+      <span style="color:var(--text-muted);font-weight:400;">${LABELS[k]}:</span>
+      <span style="${style}">${valStr}${calcMark}</span>
+    </span>`;
+  });
+
+  resultEl.innerHTML = `
+    <div style="font-weight:600;font-size:12px;color:var(--text-muted);margin-bottom:8px;letter-spacing:0.5px;">算出結果</div>
+    <div>${parts.join('')}</div>
+  `;
+}
+
+/**
+ * シミュレーターの入力値を data.goals[mk].simulator に保存して同期する
+ */
+function saveGoalSimulator() {
+  const mk = getMonthKey(goalViewMonth);
+  if (!data.goals[mk]) data.goals[mk] = { teamGoal: 0, memberGoals: {}, teamKPI: {}, memberKPI: {} };
+
+  // 5項目をそれぞれ保存（空欄はnullとして保存）
+  data.goals[mk].simulator = {
+    amount: _simReadVal('sim-amount'),
+    tanka:  _simReadVal('sim-tanka'),
+    rate:   _simReadVal('sim-rate'),
+    deals:  _simReadVal('sim-deals'),
+    mendan: _simReadVal('sim-mendan'),
+  };
+
+  saveData();
+  renderGoalsPage();
+}
+
+/**
+ * シミュレーターで算出された値（または入力値）を teamKPI に反映して保存する
+ * 反映対象: seiyakuRate(成約率) / tanka(成約単価) / keiyaku(契約数) / mendan(面談数)
+ */
+function applySimulatorToKPI() {
+  // 誤操作防止: KPI 上書き前に確認ダイアログを表示
+  if (!confirm('チームKPI目標（成約率・成約単価・契約数・面談数）を上書きします。よろしいですか？')) return;
+
+  const mk = getMonthKey(goalViewMonth);
+
+  // 再描画で入力欄が消えないよう、現在の入力値を simulator に先保存する
+  if (!data.goals[mk]) data.goals[mk] = { teamGoal: 0, memberGoals: {}, teamKPI: {}, memberKPI: {} };
+  data.goals[mk].simulator = {
+    amount: _simReadVal('sim-amount'),
+    tanka:  _simReadVal('sim-tanka'),
+    rate:   _simReadVal('sim-rate'),
+    deals:  _simReadVal('sim-deals'),
+    mendan: _simReadVal('sim-mendan'),
+  };
+
+  // ソルバーで値を計算
+  const solved = solveGoalSim({
+    A: _simReadVal('sim-amount'),
+    U: _simReadVal('sim-tanka'),
+    R: _simReadVal('sim-rate'),
+    D: _simReadVal('sim-deals'),
+    M: _simReadVal('sim-mendan'),
+  });
+
+  if (!data.goals[mk].teamKPI) data.goals[mk].teamKPI = {};
+
+  // 有効な値のみ KPI 目標に上書き（null・NaN・負数は反映しない）
+  if (solved.R != null) data.goals[mk].teamKPI.seiyakuRate = parseFloat(solved.R.toFixed(1));
+  if (solved.U != null) data.goals[mk].teamKPI.tanka       = Math.round(solved.U);
+  if (solved.D != null) data.goals[mk].teamKPI.keiyaku     = Math.ceil(solved.D);
+  if (solved.M != null) data.goals[mk].teamKPI.mendan      = Math.ceil(solved.M);
+
+  saveData();
+  renderGoalsPage(); // KPI テーブルにも即反映される
 }
 
 // ==================== DASHBOARD ====================
