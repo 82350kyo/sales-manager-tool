@@ -1007,13 +1007,8 @@
         <div id="member-goal-section"></div>
       </div>
       <div class="card">
-        <div class="card-title">メンバー別KPI目標</div>
+        <div class="card-title">メンバー別KPI目標 ＆ アクションプラン</div>
         <div id="member-kpi-section"></div>
-      </div>
-      <!-- メンバー別アクションプランカード -->
-      <div class="card" style="margin-top:24px;">
-        <div class="card-title">📋 メンバー別アクションプラン</div>
-        <div id="member-action-plan-section"></div>
       </div>
     </div>
 
@@ -3440,14 +3435,14 @@ function renderGoalsPage() {
           }).join('')}
         </div>
         <button class="btn btn-outline btn-sm" onclick="saveMemberKPI('${m.id}')">保存</button>
+        ${memberActionPlanHTML(m)}
       </div>`;
     }).join('');
   }
 
   // シミュレーターを描画（renderGoalsPage の末尾で呼ぶ）
+  // アクションプランは KPI ループ内で inline 描画されるため個別呼び出し不要
   renderGoalSimulator();
-  // アクションプランを描画（renderGoalsPage の末尾で呼ぶ）
-  renderActionPlans();
 }
 
 function saveTeamGoal() {
@@ -3717,76 +3712,65 @@ function applySimulatorToKPI() {
  * メンバー別アクションプランを描画する。
  * renderGoalsPage() の末尾から呼ばれる。
  */
-function renderActionPlans() {
-  const el = document.getElementById('member-action-plan-section');
-  if (!el) return;
-
-  // メンバーが未登録の場合は空状態を表示
-  if (!data.members || !data.members.length) {
-    el.innerHTML = '<div class="empty-state"><div class="icon">👥</div><p>メンバーを登録してください</p></div>';
-    return;
-  }
-
-  // ステータスに応じた色クラスを返すヘルパー
+/**
+ * 1メンバー分のアクションプラン・サブブロックHTML文字列を返すヘルパー。
+ * KPIブロック内の保存ボタン直後に差し込んで使う。
+ * @param {Object} m - メンバーオブジェクト（id/name/color）
+ * @returns {string} HTML文字列
+ */
+function memberActionPlanHTML(m) {
+  // ステータスに応じた文字色スタイルを返すヘルパー
   const statusColor = status => {
     if (status === '完了')  return 'color:var(--success);font-weight:600;';
     if (status === '進行中') return 'color:var(--warning);font-weight:600;';
     return 'color:var(--text-muted);font-weight:600;'; // 未実施
   };
 
-  // ステータス選択ボックスの背景色を返すヘルパー
+  // ステータス選択ボックスの背景色スタイルを返すヘルパー
   const statusBg = status => {
     if (status === '完了')  return 'background:rgba(16,185,129,0.08);border-color:var(--success);';
     if (status === '進行中') return 'background:rgba(245,158,11,0.08);border-color:var(--warning);';
     return ''; // 未実施はデフォルトスタイル
   };
 
-  // 各メンバーのセクションを生成
-  el.innerHTML = data.members.map(m => {
-    // このメンバーのアクションプラン一覧（作成日降順）
-    const plans = (data.actionPlans || [])
-      .filter(p => p.memberId === m.id)
-      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  // このメンバーのアクションプラン一覧（作成日降順）
+  const plans = (data.actionPlans || [])
+    .filter(p => p.memberId === m.id)
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
-    // プラン行の HTML を生成
-    const planRows = plans.length
-      ? plans.map(p => `
-        <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
-          <div style="flex:1;font-size:14px;">${esc(p.text)}</div>
-          <select
-            style="font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);cursor:pointer;${statusBg(p.status)}"
-            onchange="setActionPlanStatus('${p.id}', this.value)">
-            <option value="未実施" ${p.status === '未実施' ? 'selected' : ''}>未実施</option>
-            <option value="進行中" ${p.status === '進行中' ? 'selected' : ''}>進行中</option>
-            <option value="完了"   ${p.status === '完了'   ? 'selected' : ''}>完了</option>
-          </select>
-          <span style="font-size:11px;min-width:36px;${statusColor(p.status)}">${esc(p.status)}</span>
-          <button class="btn btn-sm" style="color:var(--danger);border-color:var(--danger);padding:2px 8px;font-size:11px;" onclick="deleteActionPlan('${p.id}')">削除</button>
-        </div>`).join('')
-      : '<div style="color:var(--text-muted);font-size:13px;padding:8px 0;">アクションプランがありません</div>';
+  // プラン行の HTML を生成（無い場合は空状態メッセージ）
+  const planRows = plans.length
+    ? plans.map(p => `
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
+        <div style="flex:1;font-size:14px;">${esc(p.text)}</div>
+        <select
+          style="font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);cursor:pointer;${statusBg(p.status)}"
+          onchange="setActionPlanStatus('${p.id}', this.value)">
+          <option value="未実施" ${p.status === '未実施' ? 'selected' : ''}>未実施</option>
+          <option value="進行中" ${p.status === '進行中' ? 'selected' : ''}>進行中</option>
+          <option value="完了"   ${p.status === '完了'   ? 'selected' : ''}>完了</option>
+        </select>
+        <span style="font-size:11px;min-width:36px;${statusColor(p.status)}">${esc(p.status)}</span>
+        <button class="btn btn-sm" style="color:var(--danger);border-color:var(--danger);padding:2px 8px;font-size:11px;" onclick="deleteActionPlan('${p.id}')">削除</button>
+      </div>`).join('')
+    : '<div style="color:var(--text-muted);font-size:13px;padding:8px 0;">アクションプランがありません</div>';
 
-    return `
-      <div style="padding:16px 0;border-bottom:2px solid var(--border);">
-        <!-- メンバー名ヘッダー -->
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-          <span class="member-dot" style="background:${m.color||'#4f46e5'};"></span>
-          <span style="font-weight:700;font-size:15px;">${esc(m.name)}</span>
-          <span style="font-size:12px;color:var(--text-muted);">${plans.length}件</span>
-        </div>
-        <!-- プラン一覧 -->
-        ${planRows}
-        <!-- 新規プラン追加フォーム -->
-        <div style="display:flex;gap:8px;margin-top:10px;">
-          <input
-            type="text"
-            id="new-action-plan-${m.id}"
-            placeholder="新しいアクションプランを入力..."
-            style="flex:1;font-size:13px;"
-            onkeydown="if(event.key==='Enter') addActionPlan('${m.id}')">
-          <button class="btn btn-primary btn-sm" onclick="addActionPlan('${m.id}')">追加</button>
-        </div>
-      </div>`;
-  }).join('');
+  // メンバーKPIブロック内のサブセクションとして返す（メンバー名ヘッダーはKPI側で表示済みなので小見出しのみ）
+  return `
+    <div style="margin-top:12px;padding-top:12px;border-top:1px dashed var(--border);">
+      <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px;">📋 アクションプラン (${plans.length}件)</div>
+      ${planRows}
+      <!-- 新規プラン追加フォーム -->
+      <div style="display:flex;gap:8px;margin-top:10px;">
+        <input
+          type="text"
+          id="new-action-plan-${m.id}"
+          placeholder="新しいアクションプランを入力..."
+          style="flex:1;font-size:13px;"
+          onkeydown="if(event.key==='Enter') addActionPlan('${m.id}')">
+        <button class="btn btn-primary btn-sm" onclick="addActionPlan('${m.id}')">追加</button>
+      </div>
+    </div>`;
 }
 
 /**
@@ -3809,7 +3793,7 @@ function addActionPlan(memberId) {
   });
   if (inp) inp.value = ''; // 入力欄をリセット
   saveData();
-  renderActionPlans();
+  renderGoalsPage(); // KPI ループ内 inline 描画のため全体再描画
 }
 
 /**
@@ -3823,7 +3807,7 @@ function setActionPlanStatus(id, status) {
   p.status    = status;
   p.updatedAt = Date.now();
   saveData();
-  renderActionPlans();
+  renderGoalsPage(); // KPI ループ内 inline 描画のため全体再描画
 }
 
 /**
@@ -3837,7 +3821,7 @@ function deleteActionPlan(id) {
   if (!data._deleted_actionPlans.includes(id)) data._deleted_actionPlans.push(id);
   data.actionPlans = (data.actionPlans || []).filter(x => x.id !== id);
   saveData();
-  renderActionPlans();
+  renderGoalsPage(); // KPI ループ内 inline 描画のため全体再描画
 }
 
 // ==================== END ACTION PLANS ====================
@@ -4924,8 +4908,8 @@ function pullSharedDataFromGAS() {
       renderDashboard();
       if (document.getElementById('page-knowledge')?.classList.contains('active')) renderKnowledge();
       if (document.getElementById('page-members')?.classList.contains('active')) renderMemberList();
-      // 目標ページが表示中のとき、アクションプランも再描画する
-      if (document.getElementById('page-goals')?.classList.contains('active')) renderActionPlans();
+      // 目標ページが表示中のとき、KPI + アクションプランをまとめて再描画する
+      if (document.getElementById('page-goals')?.classList.contains('active')) renderGoalsPage();
       const el = document.getElementById('sync-status');
       if (el) el.textContent = '共有データ同期: ' + new Date().toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' });
     })
