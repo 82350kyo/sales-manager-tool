@@ -3417,9 +3417,8 @@ function renderGoalsPage() {
         { key: 'tanka',       label: '成約単価', actual: mTanka,        fmtA: v => v!=null?fmt(v):'-' },
       ];
       return `<div style="padding:16px 0;border-bottom:1px solid var(--border);">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
-          <span class="member-dot" style="background:${m.color};width:16px;height:16px;flex-shrink:0;"></span>
-          <span style="font-weight:600;">${esc(m.name)}</span>
+        <div style="margin-bottom:14px;">
+          <span style="display:inline-flex;align-items:center;background:${m.color};color:#fff;font-weight:700;font-size:14px;padding:5px 16px;border-radius:999px;box-shadow:0 1px 3px rgba(0,0,0,0.15);">${esc(m.name)}</span>
         </div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:12px;">
           ${mKpiDefs.map(kpi => {
