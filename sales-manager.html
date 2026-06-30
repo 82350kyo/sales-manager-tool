@@ -1002,10 +1002,6 @@
         <div class="card-title">チームKPI目標</div>
         <div id="team-kpi-section"></div>
       </div>
-      <div class="card" style="margin-bottom:24px;">
-        <div class="card-title">メンバー別目標</div>
-        <div id="member-goal-section"></div>
-      </div>
       <div class="card">
         <div class="card-title">メンバー別KPI目標 ＆ アクションプラン</div>
         <div id="member-kpi-section"></div>
@@ -3325,36 +3321,6 @@ function renderGoalsPage() {
     </div>` : ''}
   `;
 
-  // Member goals
-  const membersEl = document.getElementById('member-goal-section');
-  if (!data.members.length) {
-    membersEl.innerHTML = '<div class="empty-state"><div class="icon">👥</div><p>メンバーを登録してください</p></div>';
-  } else {
-  membersEl.innerHTML = data.members.map(m => {
-    const memberSales = paymentMonthSales.filter(s => s.memberId === m.id).reduce((a,s) => a+(s.payment||0), 0);
-    const mGoal = goal.memberGoals[m.id] || 0;
-    const ach = mGoal > 0 ? Math.min((memberSales / mGoal) * 100, 999) : 0;
-    return `<div style="padding:16px 0;border-bottom:1px solid var(--border);">
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-        <span class="member-dot" style="background:${m.color};width:16px;height:16px;flex-shrink:0;"></span>
-        <span style="font-weight:600;min-width:120px;">${esc(m.name)}</span>
-        <div style="flex:1;min-width:200px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <input type="number" id="goal-${m.id}" value="${mGoal||''}" placeholder="目標金額" style="width:160px;">
-          <button class="btn btn-outline btn-sm" onclick="saveMemberGoal('${m.id}')">保存</button>
-        </div>
-        <div style="font-size:13px;color:var(--text-muted);">実績: <strong>${fmt(memberSales)}</strong></div>
-      </div>
-      ${mGoal > 0 ? `
-      <div style="margin-top:10px;margin-left:28px;">
-        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
-          <span>${ach.toFixed(1)}%達成</span><span>${fmt(memberSales)} / ${fmt(mGoal)}</span>
-        </div>
-        <div class="progress-bar"><div class="progress-fill ${ach>=100?'good':ach>=70?'warn':'bad'}" style="width:${Math.min(ach,100)}%"></div></div>
-      </div>` : ''}
-    </div>`;
-  }).join('');
-  }
-
   const normalSalesGoal = monthSales.filter(s => s.rowType !== '追加決済');
   const tApo = normalSalesGoal.length;
   const tCancel = normalSalesGoal.filter(s => grGetResult(s) === 'キャンセル').length;
@@ -3409,6 +3375,9 @@ function renderGoalsPage() {
       const mSeiyakuRate = mMendan > 0 ? (mKeiyaku / mMendan * 100) : null;
       const mPayment = mPaymentSales.reduce((a,s) => a+(s.payment||0), 0);
       const mTanka = mKeiyaku > 0 ? Math.round(mPayment / mKeiyaku) : null;
+      // 目標金額（着金）の計算（goalAch は KPIループ内の ach と別変数）
+      const mGoal = (goal.memberGoals && goal.memberGoals[m.id]) || 0;
+      const goalAch = mGoal > 0 ? Math.min((mPayment / mGoal) * 100, 999) : 0;
       const mKpiDefs = [
         { key: 'apo',         label: 'アポ数',   actual: mApo,         fmtA: v => v+'件' },
         { key: 'mendan',      label: '面談数',   actual: mMendan,       fmtA: v => v+'件' },
@@ -3419,6 +3388,16 @@ function renderGoalsPage() {
       return `<div style="border:2px solid ${m.color};border-radius:14px;padding:18px 20px;margin-bottom:18px;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
         <div style="margin-bottom:14px;">
           <span style="display:inline-flex;align-items:center;background:${m.color};color:#fff;font-weight:700;font-size:14px;padding:5px 16px;border-radius:999px;box-shadow:0 1px 3px rgba(0,0,0,0.15);">${esc(m.name)}</span>
+        </div>
+        <!-- 目標金額（着金）ブロック：名前バッジ直後・KPIグリッド直前 -->
+        <div style="margin-bottom:16px;padding:12px 14px;background:#f8fafc;border-radius:10px;">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <span style="font-size:13px;font-weight:700;color:var(--text-muted);">目標金額（着金）</span>
+            <input type="number" id="goal-${m.id}" value="${mGoal||''}" placeholder="目標金額" style="width:180px;">
+            <span style="font-size:13px;color:var(--text-muted);">実績: <strong>${fmt(mPayment)}</strong></span>
+            ${mGoal > 0 ? `<span style="font-size:13px;font-weight:700;color:${goalAch>=100?'var(--success)':goalAch>=70?'var(--warning)':'var(--danger)'};">${goalAch.toFixed(1)}%達成</span>` : ''}
+          </div>
+          ${mGoal > 0 ? `<div style="margin-top:8px;"><div class="progress-bar"><div class="progress-fill ${goalAch>=100?'good':goalAch>=70?'warn':'bad'}" style="width:${Math.min(goalAch,100)}%"></div></div></div>` : ''}
         </div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:12px;">
           ${mKpiDefs.map(kpi => {
@@ -3433,7 +3412,7 @@ function renderGoalsPage() {
             </div>`;
           }).join('')}
         </div>
-        <button class="btn btn-outline btn-sm" onclick="saveMemberKPI('${m.id}')">保存</button>
+        <button class="btn btn-outline btn-sm" onclick="saveMemberCard('${m.id}')">保存</button>
         ${memberActionPlanHTML(m)}
       </div>`;
     }).join('');
@@ -3478,6 +3457,25 @@ function saveTeamKPI() {
 function saveMemberKPI(memberId) {
   const mk = getMonthKey(goalViewMonth);
   if (!data.goals[mk]) data.goals[mk] = { teamGoal: 0, memberGoals: {}, teamKPI: {}, memberKPI: {} };
+  if (!data.goals[mk].memberKPI) data.goals[mk].memberKPI = {};
+  if (!data.goals[mk].memberKPI[memberId]) data.goals[mk].memberKPI[memberId] = {};
+  ['apo', 'mendan', 'keiyaku', 'seiyakuRate', 'tanka'].forEach(f => {
+    const el = document.getElementById('mkpi-' + memberId + '-' + f);
+    data.goals[mk].memberKPI[memberId][f] = el ? (parseFloat(el.value) || 0) : 0;
+  });
+  saveData();
+  renderGoalsPage();
+}
+
+// 目標金額（着金）と KPI をまとめて保存する統合関数
+function saveMemberCard(memberId) {
+  const mk = getMonthKey(goalViewMonth);
+  if (!data.goals[mk]) data.goals[mk] = { teamGoal: 0, memberGoals: {}, teamKPI: {}, memberKPI: {} };
+  // 目標金額（着金）を保存
+  if (!data.goals[mk].memberGoals) data.goals[mk].memberGoals = {};
+  const gEl = document.getElementById('goal-' + memberId);
+  data.goals[mk].memberGoals[memberId] = gEl ? (parseFloat(gEl.value) || 0) : 0;
+  // KPI 目標を保存
   if (!data.goals[mk].memberKPI) data.goals[mk].memberKPI = {};
   if (!data.goals[mk].memberKPI[memberId]) data.goals[mk].memberKPI[memberId] = {};
   ['apo', 'mendan', 'keiyaku', 'seiyakuRate', 'tanka'].forEach(f => {
