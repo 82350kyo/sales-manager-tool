@@ -174,6 +174,12 @@ function doGet(e) {
       return respond({ ok: true, message: 'テスト送信しました' });
     }
 
+    // 週次ランキングテスト送信
+    if (payload && payload.type === 'testWeeklyRanking') {
+      sendWeeklyRanking();
+      return respond({ ok: true, message: '週次ランキングをテスト送信しました' });
+    }
+
     // 担当者名の一括変更（削除・修正時にスプシと同期）
     if (payload && payload.type === 'renameMember') {
       const result = renameMemberInSheet(payload.oldName, payload.newName);
