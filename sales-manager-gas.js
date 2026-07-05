@@ -547,7 +547,7 @@ function getAllRecordings() {
 }
 
 // =====================================================
-// 週次ランキング通知（毎週月曜8時 タイムトリガーで自動実行）
+// 週次ランキング通知（毎週木曜8時 タイムトリガーで自動実行）
 // =====================================================
 function sendWeeklyRanking() {
   const ss = SpreadsheetApp.openById('1BMptkze_WyYL6TRG5Jzugy8aYT-AL4F4O7gnmFPKXRw');
@@ -555,7 +555,7 @@ function sendWeeklyRanking() {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return;
 
-  // 直近7日間（月曜8時トリガー時 = 前週月曜〜昨日日曜）
+  // 直近7日間（木曜8時トリガー時 = 先週木曜〜今週水曜）
   const today = new Date();
   const lastMon = new Date(today); lastMon.setDate(today.getDate() - 7); lastMon.setHours(0,0,0,0);
   const lastSun = new Date(today); lastSun.setDate(today.getDate() - 1); lastSun.setHours(23,59,59,999);
@@ -642,11 +642,63 @@ function sendWeeklyRanking() {
   ].join('\n');
 
   const LINE_TOKEN = PropertiesService.getScriptProperties().getProperty('LINE_TOKEN');
-  UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
-    method: 'post',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + LINE_TOKEN },
-    payload: JSON.stringify({ to: LINE_GROUP_ID, messages: [{ type: 'text', text: msg }] })
-  });
+
+  // OpenAI DALL-E 3 で画像生成を試みる
+  const openaiKey = PropertiesService.getScriptProperties().getProperty('OPENAI_API_KEY');
+  let imageUrl = null;
+
+  if (openaiKey && entries.length > 0) {
+    const medals = ['🥇', '🥈', '🥉'];
+    const rankText = entries.map((e, i) =>
+      `${medals[i] || `${i+1}位`} ${e.name}：${fmt(e.chakkin)}（成約${e.keiyaku}件・成約率${e.rate}%）`
+    ).join('\n');
+
+    const prompt = `日本語の営業チーム週間売上ランキングカード画像を作成。
+
+タイトル：「週間売上ランキング ${startStr}〜${endStr}」
+
+ランキング：
+${rankText}
+
+デザイン：濃紺背景にゴールドアクセント、白テキスト、各メンバーの順位・名前・着金額・成約件数を明確に表示、プロフェッショナルな企業スタイル、1080×1080ピクセル正方形。`;
+
+    try {
+      const openaiRes = UrlFetchApp.fetch('https://api.openai.com/v1/images/generations', {
+        method: 'post',
+        headers: { 'Authorization': 'Bearer ' + openaiKey, 'Content-Type': 'application/json' },
+        payload: JSON.stringify({ model: 'dall-e-3', prompt: prompt, n: 1, size: '1024x1024', quality: 'hd', response_format: 'url' }),
+        muteHttpExceptions: true
+      });
+      const openaiData = JSON.parse(openaiRes.getContentText());
+      if (openaiData.data && openaiData.data[0] && openaiData.data[0].url) {
+        imageUrl = openaiData.data[0].url;
+      }
+    } catch (e) {
+      // 画像生成失敗 → テキストにフォールバック
+    }
+  }
+
+  if (imageUrl) {
+    // 画像をLINEに送信
+    UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
+      method: 'post',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + LINE_TOKEN },
+      payload: JSON.stringify({
+        to: LINE_GROUP_ID,
+        messages: [
+          { type: 'image', originalContentUrl: imageUrl, previewImageUrl: imageUrl },
+          { type: 'text', text: `🔗 詳細はツールで確認\nhttps://82350kyo.github.io/sales-manager-tool/sales-manager.html` }
+        ]
+      })
+    });
+  } else {
+    // テキストで送信（フォールバック）
+    UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
+      method: 'post',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + LINE_TOKEN },
+      payload: JSON.stringify({ to: LINE_GROUP_ID, messages: [{ type: 'text', text: msg }] })
+    });
+  }
 }
 
 // =====================================================
@@ -658,16 +710,40 @@ function setupWeeklyRankingTrigger() {
     if (t.getHandlerFunction() === 'sendWeeklyRanking') ScriptApp.deleteTrigger(t);
     if (t.getHandlerFunction() === 'sendWeeklyRankingImage') ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('sendWeeklyRankingImage')
+  ScriptApp.newTrigger('sendWeeklyRanking')
     .timeBased()
-    .onWeekDay(ScriptApp.WeekDay.MONDAY)
+    .onWeekDay(ScriptApp.WeekDay.THURSDAY)
     .atHour(8)
     .create();
 }
 
+// デバッグ用：スプレッドシートの日付データを確認する
+function debugRanking() {
+  const ss = SpreadsheetApp.openById('1BMptkze_WyYL6TRG5Jzugy8aYT-AL4F4O7gnmFPKXRw');
+  const sheet = ss.getSheetByName('売上報告');
+  const lastRow = sheet.getLastRow();
+  Logger.log('lastRow: ' + lastRow);
+
+  const today = new Date();
+  const lastMon = new Date(today); lastMon.setDate(today.getDate() - 7); lastMon.setHours(0,0,0,0);
+  const lastSun = new Date(today); lastSun.setDate(today.getDate() - 1); lastSun.setHours(23,59,59,999);
+  Logger.log('today: ' + today);
+  Logger.log('range: ' + lastMon + ' ~ ' + lastSun);
+
+  const rows = sheet.getRange(2, 1, Math.min(10, lastRow - 1), 5).getValues();
+  rows.forEach((row, i) => {
+    const rawDate = row[1];
+    const d = rawDate instanceof Date ? rawDate : new Date(rawDate);
+    Logger.log('row' + i + ' B=' + rawDate + ' parsed=' + d + ' inRange=' + (!isNaN(d) && d >= lastMon && d <= lastSun) + ' C=' + row[2]);
+  });
+
+  const openaiKey = PropertiesService.getScriptProperties().getProperty('OPENAI_API_KEY');
+  Logger.log('openaiKey set: ' + !!openaiKey);
+}
+
 // =====================================================
 // 週次ランキング通知（画像版・OpenAI DALL-E 3使用）
-// sendWeeklyRanking の上位互換。毎週月曜8時自動実行。
+// sendWeeklyRanking の上位互換。毎週木曜8時自動実行。
 // 事前準備: スクリプトプロパティに OPENAI_API_KEY を設定すること
 // =====================================================
 function sendWeeklyRankingImage() {
