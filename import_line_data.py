@@ -5,6 +5,7 @@ Bチーム売上報告_LINEインポート.xlsx → スプレッドシート 一
 """
 
 import json
+import os
 import urllib.request
 import urllib.error
 import sys
@@ -19,8 +20,23 @@ except ImportError:
 # =====================================================
 # 設定
 # =====================================================
+# 【修正F】このGAS_URLはツール本体(sales-manager.html)側のGAS_URLとデプロイIDが異なります。
+#   ツール本体（最新）: AKfycbx4rKSQgHJ_w_CxaOGepDE-V1iLUr_Wixnrkxl7H6fJ81lxHKWoz58CeUipJRn9fm9_
+#   このスクリプト     : AKfycbxEQIzgiwmRjUn2HubpVLwTaNKrsNSot5HTrsnbLoyBzJGA1h41Fgo9rZr5Ppk8yeP-
+#   古い/別のデプロイを指している可能性があるため、実際に一括インポートを実行する前に
+#   「このURLが現行の正しいデプロイと一致しているか」をユーザー自身で必ず確認してください。
+#   （このスクリプトが勝手にURLを書き換えることはしません）
 GAS_URL = 'https://script.google.com/macros/s/AKfycbxEQIzgiwmRjUn2HubpVLwTaNKrsNSot5HTrsnbLoyBzJGA1h41Fgo9rZr5Ppk8yeP-/exec'
 EXCEL_PATH = '/Users/kyo/Downloads/Bチーム売上報告_LINEインポート.xlsx'
+
+# 【修正F】bulkImportエンドポイントは専用トークン(IMPORT_TOKEN)で保護されるようになったため、
+# 環境変数 SALES_IMPORT_TOKEN からトークンを読み込む（ソースコードに直書きしない）。
+# 実行前に `export SALES_IMPORT_TOKEN='（GAS側に設定したものと同じ値）'` を行ってください。
+IMPORT_TOKEN = os.environ.get('SALES_IMPORT_TOKEN')
+if not IMPORT_TOKEN:
+    print("エラー: 環境変数 SALES_IMPORT_TOKEN を設定してください。")
+    print("例: export SALES_IMPORT_TOKEN='（GASのスクリプトプロパティ IMPORT_TOKEN と同じ値）'")
+    sys.exit(1)
 
 # =====================================================
 # Excelを読み込む
@@ -68,7 +84,8 @@ print(f"読み込み完了: {len(rows)}件")
 BATCH_SIZE = 50  # 1回あたり50件ずつ送信
 
 def post_to_gas(batch, batch_num, total_batches):
-    payload_dict = {'type': 'bulkImport', 'rows': batch}
+    # 【修正F】専用トークンを同送する（GAS側でIMPORT_TOKENと一致するかチェックされる）
+    payload_dict = {'type': 'bulkImport', 'rows': batch, 'importToken': IMPORT_TOKEN}
     payload_bytes = json.dumps(payload_dict, ensure_ascii=False).encode('utf-8')
 
     req = urllib.request.Request(

@@ -88,14 +88,90 @@ function sendLineMessage(text) {
 function doPost(e) {
   try {
     const payload = JSON.parse(e.postData.contents);
+
+    // 【修正F】外部スクリプト（import_line_data.py）からのLINE一括インポート。
+    // このエンドポイントはチーム利用パスワード(authHash)ではなく、専用トークン(importToken)で
+    // 保護する（import_line_data.pyはチームのパスワードを知らない外部のスクリプトのため）。
     if (payload && payload.type === 'bulkImport') {
+      if (!_requireImportToken(payload.importToken)) {
+        return respond({ ok: false, error: _importTokenErrorReason(payload.importToken) });
+      }
       const result = bulkImportToSheet(payload.rows);
       return respond(result);
     }
-    // 共有データ保存（プロジェクト・動線・目標など）
-    if (payload && payload.type === 'saveSharedData') {
-      const result = saveSharedData(payload.data);
+    // 【修正I】状態変更系・認証ハッシュを伴うエンドポイントはPOST(doPost)専用に統一した。
+    // doGet側には同名の分岐を残さず、GET経由で来た場合は明示的にunauthorized(post_required)を
+    // 返すようにしている（authHashがURL/履歴/GAS実行ログに残る経路を塞ぐため）。
+    if (payload && payload.type === 'saleReport') {
+      { const _ac = _checkAuthHash(payload.authHash); if (!_ac.ok) return respond(_ac); }
+      writeToSheet(payload);
+      sendLineNotification(payload);
+      return respond({ ok: true });
+    }
+
+    if (payload && payload.type === 'deleteSale') {
+      { const _ac = _checkAuthHash(payload.authHash); if (!_ac.ok) return respond(_ac); }
+      const result = deleteFromSheet(payload);
       return respond(result);
+    }
+
+    if (payload && payload.type === 'updateResult') {
+      { const _ac = _checkAuthHash(payload.authHash); if (!_ac.ok) return respond(_ac); }
+      const result = updateSheetRow(payload);
+      return respond(result);
+    }
+
+    if (payload && payload.type === 'updateSaleDetail') {
+      { const _ac = _checkAuthHash(payload.authHash); if (!_ac.ok) return respond(_ac); }
+      const result = updateSaleDetailRow(payload);
+      return respond(result);
+    }
+
+    // 担当者名の一括変更（削除・修正時にスプシと同期）
+    if (payload && payload.type === 'renameMember') {
+      { const _ac = _checkAuthHash(payload.authHash); if (!_ac.ok) return respond(_ac); }
+      const result = renameMemberInSheet(payload.oldName, payload.newName);
+      return respond(result);
+    }
+
+    // リマインドテスト送信（手動テスト用。定期トリガー本体のsendDailyReminder()自体は無関係）
+    if (payload && payload.type === 'testReminder') {
+      { const _ac = _checkAuthHash(payload.authHash); if (!_ac.ok) return respond(_ac); }
+      sendDailyReminder();
+      return respond({ ok: true, message: 'テスト送信しました' });
+    }
+
+    // 週次ランキングテスト送信（手動テスト用。定期トリガー本体のsendWeeklyRanking()自体は無関係）
+    if (payload && payload.type === 'testWeeklyRanking') {
+      { const _ac = _checkAuthHash(payload.authHash); if (!_ac.ok) return respond(_ac); }
+      sendWeeklyRanking();
+      return respond({ ok: true, message: '週次ランキングをテスト送信しました' });
+    }
+
+    // 【修正H/I】起動時・手動同期の売上データ全件取得。gviz直読み廃止に伴い一本化した窓口。
+    if (payload && payload.type === 'getAllRows') {
+      { const _ac = _checkAuthHash(payload.authHash); if (!_ac.ok) return respond(_ac); }
+      return respond(getAllRows());
+    }
+
+    // 共有データ保存（プロジェクト・動線・目標など）
+    // 【修正4】authHash(利用パスワードハッシュ)・adminHash(管理者パスワードハッシュ)を
+    // 受け取り、saveSharedData内で認証チェックを行う（未設定時は無視される＝ブートストラップ許可）
+    if (payload && payload.type === 'saveSharedData') {
+      const result = saveSharedData(payload.data, payload.authHash, payload.adminHash);
+      return respond(result);
+    }
+    // 【修正D】ハッシュをURL(GET)に残さないよう、getSharedData/verifyAuth/getAllRecordingsも
+    // POSTで受け付ける（レスポンスはdoGet経由と同一のためロジックは共通関数に委譲）
+    if (payload && payload.type === 'getSharedData') {
+      return respond(getSharedData(payload.authHash));
+    }
+    if (payload && payload.type === 'verifyAuth') {
+      return respond(verifyAuth(payload.role, payload.hash));
+    }
+    if (payload && payload.type === 'getAllRecordings') {
+      { const _ac = _checkAuthHash(payload.authHash); if (!_ac.ok) return respond(_ac); }
+      return respond(getAllRecordings());
     }
     return respond({ ok: false, error: 'unknown type' });
   } catch (err) {
@@ -147,62 +223,24 @@ function doGet(e) {
   try {
     const payload = (e && e.parameter && e.parameter.payload) ? JSON.parse(e.parameter.payload) : null;
 
-    if (payload && payload.type === 'saleReport') {
-      writeToSheet(payload);
-      sendLineNotification(payload);
-      return respond({ ok: true });
+    // 【修正I】状態変更系・認証ハッシュを伴うエンドポイントはPOST(doPost)専用に統一したため、
+    // doGet側の同名の重複分岐は廃止した。GET経由でこれらのtypeが指定された場合は
+    // 明示的に拒否する（authHashがURL/ブラウザ履歴/GAS実行ログに残る経路を完全に塞ぐため）。
+    const postOnlyTypes = [
+      'saleReport', 'deleteSale', 'updateResult', 'updateSaleDetail', 'renameMember',
+      'testReminder', 'testWeeklyRanking', 'getAllRows',
+      'getSharedData', 'saveSharedData', 'verifyAuth', 'getAllRecordings'
+    ];
+    if (payload && postOnlyTypes.indexOf(payload.type) !== -1) {
+      return respond({ ok: false, error: 'post_required' });
     }
 
-    if (payload && payload.type === 'deleteSale') {
-      const result = deleteFromSheet(payload);
-      return respond(result);
-    }
-
-    if (payload && payload.type === 'updateResult') {
-      const result = updateSheetRow(payload);
-      return respond(result);
-    }
-
-    if (payload && payload.type === 'updateSaleDetail') {
-      const result = updateSaleDetailRow(payload);
-      return respond(result);
-    }
-
-    // リマインドテスト送信
-    if (payload && payload.type === 'testReminder') {
-      sendDailyReminder();
-      return respond({ ok: true, message: 'テスト送信しました' });
-    }
-
-    // 週次ランキングテスト送信
-    if (payload && payload.type === 'testWeeklyRanking') {
-      sendWeeklyRanking();
-      return respond({ ok: true, message: '週次ランキングをテスト送信しました' });
-    }
-
-    // 担当者名の一括変更（削除・修正時にスプシと同期）
-    if (payload && payload.type === 'renameMember') {
-      const result = renameMemberInSheet(payload.oldName, payload.newName);
-      return respond(result);
-    }
-
-    // 共有データ取得（プロジェクト・動線・目標など）
-    if (payload && payload.type === 'getSharedData') {
-      return respond(getSharedData());
-    }
-
-    // 共有データ保存
-    if (payload && payload.type === 'saveSharedData') {
-      return respond(saveSharedData(payload.data));
-    }
-
-    // 録画URL一括取得
-    if (payload && payload.type === 'getAllRecordings') {
-      return respond(getAllRecordings());
-    }
-
-    // payloadなし → 全行返す（同期用）
-    return respond(getAllRows());
+    // 【修正L2】payloadなし（旧形式）のフォールバックは廃止した。
+    // 以前はここで ?authHash=xxx というクエリパラメータ付きのGETだけで売上データ全件
+    // (getAllRows)を返してしまい、authHashがURL・ブラウザ履歴・GAS実行ログに残る経路に
+    // なっていた（クライアント側はこの経路を既に使用していないことを確認済み）。
+    // 売上データをGETで返す経路を完全に無くすため、doGetは常にpost_requiredを返す。
+    return respond({ ok: false, error: 'post_required' });
 
   } catch (err) {
     return respond({ ok: false, error: err.toString() });
@@ -502,26 +540,245 @@ function renameMemberInSheet(oldName, newName) {
 // =====================================================
 // 共有データの読み書き（プロジェクト・動線・目標など）
 // シート「ツール共有データ」のA1にJSON保存
+// 【修正4】2段階パスワード認証のGAS側チェックを追加。
+// ・authConfigのハッシュ値はクライアントへ絶対に返さない（hasAuth真偽値のみ通知）
+// ・authConfigが設定済み(hasAuth:true)の状態では、getSharedData/saveSharedDataとも
+//   authHash（利用パスワードのハッシュ）が保存済みusePasswordHashと一致しないと拒否する
+// ・authConfig自体を書き換えるにはadminHash（管理者パスワードのハッシュ）の一致が必須
+// ・authConfigがまだ一度も設定されていない場合（ブートストラップ）は無認証で許可する
 // =====================================================
-function getSharedData() {
+
+// 保存済みの生のauthConfig（ハッシュを含む）を取得する内部専用ヘルパー
+// ※この関数の戻り値を絶対にそのままクライアントへ返さないこと（ハッシュ漏えい防止）
+function _getRawSharedData() {
+  const ss = SpreadsheetApp.openById('1BMptkze_WyYL6TRG5Jzugy8aYT-AL4F4O7gnmFPKXRw');
+  let sheet = ss.getSheetByName('ツール共有データ');
+  if (!sheet) return { sheet: null, parsed: null };
+  const val = sheet.getRange('A1').getValue();
+  if (!val) return { sheet: sheet, parsed: null };
   try {
-    const ss = SpreadsheetApp.openById('1BMptkze_WyYL6TRG5Jzugy8aYT-AL4F4O7gnmFPKXRw');
-    let sheet = ss.getSheetByName('ツール共有データ');
-    if (!sheet) return { ok: true, data: null };
-    const val = sheet.getRange('A1').getValue();
-    if (!val) return { ok: true, data: null };
-    return { ok: true, data: JSON.parse(val) };
+    return { sheet: sheet, parsed: JSON.parse(val) };
+  } catch (e) {
+    return { sheet: sheet, parsed: null };
+  }
+}
+
+// クライアントに返してよい安全な形（ハッシュ値を除去した形）に変換する
+function _sanitizeAuthConfig(auth) {
+  if (!auth || !auth.usePasswordHash) return { hasAuth: false };
+  return { hasAuth: true, updatedAt: auth.updatedAt || 0 };
+}
+
+// 【修正C→J→L1】role別・固定エポック時間窓によるサーバー側レート制限（総当たり対策）。
+// GASではIP単位の制御が困難なため、CacheServiceを使ったグローバル(全体共有)な時間窓でロックする。
+// 【修正J】以前はrole共通の1本のキー・スライディングTTL方式だったため、外部から
+// 「TTLの間隔より少し短い周期」で失敗を送り続けるだけでロックを無限に延長でき、
+// チーム全員を恒久的にログイン不能にできてしまう可用性DoSの懸念があった。
+// これを解消するため、(1) role(use/admin)別にキーを分離し、(2) 固定エポック時間窓方式
+// （現在時刻を窓の長さで割った「窓番号」をキーに含める）に変更した。窓番号が変わると
+// カウンタは必ず新規キーになりリセットされるため、失敗を送り続けても恒久ロックはできない。
+// 【修正L1】このカウンタはverifyAuth専用ではなく、_checkAuthHash（getAllRows/getSharedData/
+// saveSharedData/saleReport等の全データ系エンドポイントの認証ガード）とも共有する共通ヘルパーに
+// した。verifyAuthを経由しない直接呼び出しでオフラインPBKDF2総当たりされる迂回経路を塞ぐため。
+const AUTH_RATE_LIMIT_MAX_FAILS   = 10;   // この時間窓内でこの回数失敗したらロックする
+const AUTH_RATE_LIMIT_WINDOW_SEC  = 300;  // 固定時間窓の長さ: 5分
+
+// role別・固定エポック時間窓のキャッシュキーを生成する
+function _authRateLimitKey(role) {
+  const windowIndex = Math.floor(Date.now() / (AUTH_RATE_LIMIT_WINDOW_SEC * 1000));
+  return 'auth_fail_' + (role === 'admin' ? 'admin' : 'use') + '_' + windowIndex;
+}
+
+// 現在この時間窓でロック中かどうかを返す（実際のハッシュ照合を行う前に必ず呼ぶこと）
+function _isAuthRateLimited(role) {
+  const cache = CacheService.getScriptCache();
+  const failCount = Number(cache.get(_authRateLimitKey(role)) || '0');
+  return failCount >= AUTH_RATE_LIMIT_MAX_FAILS;
+}
+
+// 認証結果(ok)に応じて失敗カウンタを記録/リセットする共通ヘルパー。
+// 【重要】成功時(ok=true)は必ずカウンタをリセットする。正規ユーザーの通常操作
+// （多数の正しいauthHashでのgetAllRows/saveSharedData等）でロックされないようにするため。
+function _recordAuthResult(role, ok) {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = _authRateLimitKey(role);
+  if (ok) {
+    cache.remove(cacheKey); // 成功したらこの時間窓の失敗カウンタをリセット
+    return;
+  }
+  const failCount = Number(cache.get(cacheKey) || '0');
+  // 固定時間窓方式: TTLは常に「現在の窓が終わるまでの残り秒数」にする（窓を延長しない）。
+  // これにより、失敗を送り続けてもロックが次の窓の境界を超えて延びることはない。
+  const windowMs = AUTH_RATE_LIMIT_WINDOW_SEC * 1000;
+  const remainSec = Math.max(1, Math.ceil((windowMs - (Date.now() % windowMs)) / 1000));
+  cache.put(cacheKey, String(failCount + 1), remainSec);
+}
+
+// 利用/管理者パスワードのハッシュをサーバー側で照合する（ハッシュ本体は一切返さない）
+// role: 'use' | 'admin'、hash: クライアントが計算した候補ハッシュ
+function verifyAuth(role, hash) {
+  try {
+    if (_isAuthRateLimited(role)) {
+      return { ok: false, error: 'locked' };
+    }
+
+    const { parsed } = _getRawSharedData();
+    const auth = parsed && parsed.authConfig;
+    if (!auth || !auth.usePasswordHash) return { ok: false, error: 'not_configured' };
+    const target = role === 'admin' ? auth.adminPasswordHash : auth.usePasswordHash;
+    const matched = !!(target && hash && target === hash);
+
+    _recordAuthResult(role, matched);
+    return { ok: matched };
   } catch (e) {
     return { ok: false, error: e.toString() };
   }
 }
 
-function saveSharedData(d) {
+// 【修正B→L1】共通認証ガード。authConfig未設定(ブートストラップ)時のみ免除。
+// 設定済みの場合はauthHashが保存済みusePasswordHashと一致しないとng（error種別付き）を返す。
+// 【修正L1】verifyAuthと共通のレート制限(role='use')を適用する。これにより、正規のログイン
+// 画面(verifyAuth)を経由せず、候補ハッシュを直接この関数のガード対象エンドポイントへ
+// 投げ続けるオフライン総当たりを防ぐ（ロック中は実際の比較すら行わずlockedを返す）。
+// 【重要】定期トリガー由来の自動実行（sendDailyReminder/sendWeeklyRankingの本体関数）は
+// HTTP経由ではなく直接呼び出されるためこのガードの対象外。doGet/doPostの各ハンドラ冒頭で
+// HTTP経由の呼び出しにだけ適用すること（自動通知を壊さないため）。
+function _checkAuthHash(authHash) {
+  const { parsed } = _getRawSharedData();
+  const auth = parsed && parsed.authConfig;
+  const hasAuth = !!(auth && auth.usePasswordHash);
+  if (!hasAuth) return { ok: true }; // ブートストラップ: 誰も設定していないので無認証で許可
+
+  if (_isAuthRateLimited('use')) {
+    return { ok: false, error: 'locked' };
+  }
+  const matched = !!(authHash && authHash === auth.usePasswordHash);
+  _recordAuthResult('use', matched);
+  return matched ? { ok: true } : { ok: false, error: 'unauthorized' };
+}
+
+// 真偽値だけでよい既存の呼び出し箇所向けの後方互換ラッパー
+function _requireAuth(authHash) {
+  return _checkAuthHash(authHash).ok;
+}
+
+// 【修正F】bulkImport専用のトークン認証。チーム利用パスワード(usePasswordHash)とは別に、
+// スクリプトプロパティ IMPORT_TOKEN に保存した固定トークンとの一致だけを見る。
+// import_line_data.py 等、チームのパスワードを知らない外部スクリプトからの一括投入を
+// 想定しているため、authConfig(利用パスワード)の設定有無には一切依存しない。
+// 【重要】IMPORT_TOKENが未設定の場合は安全側に倒し、常に拒否する（無防備な公開を防ぐ）。
+function _requireImportToken(importToken) {
+  const correctToken = PropertiesService.getScriptProperties().getProperty('IMPORT_TOKEN');
+  if (!correctToken) return false; // 未設定 → 誤って無防備に開かないよう常に拒否
+  return !!(importToken && importToken === correctToken);
+}
+
+// _requireImportToken が false だった理由を、クライアント（呼び出し元スクリプト）が
+// 判別できるようエラー種別を返す（トークン未設定なのか、単に不一致なのかを区別する）
+function _importTokenErrorReason(importToken) {
+  const correctToken = PropertiesService.getScriptProperties().getProperty('IMPORT_TOKEN');
+  if (!correctToken) return 'import_token_not_configured';
+  return 'unauthorized';
+}
+
+function getSharedData(authHash) {
+  try {
+    const { parsed } = _getRawSharedData();
+    if (!parsed) return { ok: true, data: null, hasAuth: false };
+
+    const auth = parsed.authConfig;
+    const hasAuth = !!(auth && auth.usePasswordHash);
+
+    // ブートストラップ: まだ誰も認証設定をしていない → 無認証で許可
+    if (!hasAuth) {
+      return { ok: true, data: parsed, hasAuth: false };
+    }
+
+    // 【修正L1】verifyAuthを経由しない直接呼び出しでの総当たりを防ぐため、レート制限を適用する。
+    // ロック中は実際の比較すら行わずlockedを返す。
+    if (_isAuthRateLimited('use')) {
+      return { ok: false, error: 'locked', hasAuth: true };
+    }
+
+    // 認証必須モード: authHashが保存済みusePasswordHashと一致しない限りデータを返さない
+    const authOk = !!(authHash && authHash === auth.usePasswordHash);
+    _recordAuthResult('use', authOk); // 成功時はリセット、失敗時のみカウントする
+    if (!authOk) {
+      return { ok: false, error: 'unauthorized', hasAuth: true };
+    }
+
+    // 一致 → データを返すが、authConfigのハッシュ値だけは必ず除去する
+    const safe = Object.assign({}, parsed);
+    safe.authConfig = _sanitizeAuthConfig(auth);
+    return { ok: true, data: safe, hasAuth: true };
+  } catch (e) {
+    return { ok: false, error: e.toString() };
+  }
+}
+
+function saveSharedData(d, authHash, adminHash) {
   try {
     const ss = SpreadsheetApp.openById('1BMptkze_WyYL6TRG5Jzugy8aYT-AL4F4O7gnmFPKXRw');
     let sheet = ss.getSheetByName('ツール共有データ');
     if (!sheet) sheet = ss.insertSheet('ツール共有データ');
-    sheet.getRange('A1').setValue(JSON.stringify(d));
+
+    const { parsed: existing } = _getRawSharedData();
+    const existingAuth = existing && existing.authConfig;
+    const hasAuth = !!(existingAuth && existingAuth.usePasswordHash);
+
+    if (hasAuth) {
+      // 【修正A】トップレベルの書き込みゲート：authHashが利用パスワードハッシュと一致 "または"
+      // adminHashが管理者パスワードハッシュと一致すれば許可する。
+      // （利用パスワード変更の直後は、新しいauthHashがまだサーバー保存済みの値と一致しないため、
+      //   このOR条件が無いと管理者操作であっても保存が永久に拒否されてしまう問題があった）
+      // 【修正L1】use/adminそれぞれ独立にレート制限する。ロック中の役割は比較すら行わない。
+      const authAttempted  = !!authHash;
+      const adminAttempted = !!adminHash;
+      const useLocked   = authAttempted  && _isAuthRateLimited('use');
+      const adminLocked = adminAttempted && _isAuthRateLimited('admin');
+
+      const authOk  = authAttempted  && !useLocked   && authHash  === existingAuth.usePasswordHash;
+      const adminOk = adminAttempted && !adminLocked && !!existingAuth.adminPasswordHash && adminHash === existingAuth.adminPasswordHash;
+      const overallOk = authOk || adminOk;
+
+      // 記録は「試行された役割」ごとに行う。全体として成功した場合は、たとえ一方が
+      // 不一致でも失敗として記録しない（利用パスワード変更直後の正規の管理者操作等で、
+      // 一時的なauthHash不一致がuseロールの失敗として不必要に積み上がるのを防ぐため）。
+      if (authAttempted  && !useLocked)   _recordAuthResult('use',   overallOk || authOk);
+      if (adminAttempted && !adminLocked) _recordAuthResult('admin', overallOk || adminOk);
+
+      if (!overallOk) {
+        if (useLocked || adminLocked) return { ok: false, error: 'locked' };
+        return { ok: false, error: 'unauthorized' };
+      }
+    }
+
+    // 送られてきたデータに含まれるauthConfigをどう扱うか判定する
+    // 【重要】既存の売上データ等(SHARED_KEYS由来のフィールド)の保存は、authConfigの
+    // 可否判定に関わらず常に継続する。authConfigの更新可否だけを個別に判定すること。
+    const incomingAuth = d && d.authConfig;
+    let finalAuth = existingAuth || null;
+
+    if (incomingAuth) {
+      if (!hasAuth) {
+        // ブートストラップ: まだ誰も設定していない → 無条件で初回登録を許可
+        finalAuth = incomingAuth;
+      } else if (JSON.stringify(incomingAuth) === JSON.stringify(existingAuth)) {
+        // 内容が変わっていない通常の定期pushはadminHash不要でそのまま維持
+        finalAuth = existingAuth;
+      } else if (adminHash && existingAuth.adminPasswordHash && adminHash === existingAuth.adminPasswordHash) {
+        // 管理者パスワードのハッシュが一致した場合のみ、authConfigの更新を許可する
+        finalAuth = incomingAuth;
+      } else {
+        // 管理者確認が取れない場合はauthConfigの更新だけを拒否し、既存値を維持する
+        // （他の通常データの保存は継続させ、売上データ等が巻き込まれて失われないようにする）
+        finalAuth = existingAuth;
+      }
+    }
+
+    const toSave = Object.assign({}, d);
+    toSave.authConfig = finalAuth;
+    sheet.getRange('A1').setValue(JSON.stringify(toSave));
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e.toString() };

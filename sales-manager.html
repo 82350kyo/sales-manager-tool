@@ -467,6 +467,28 @@
       color: var(--text-muted);
       font-size: 14px;
     }
+
+    /* ==================== ログインゲート（2段階パスワード認証） ==================== */
+    /* 認証前はこのオーバーレイでツール全体を覆い、操作不可にする */
+    #auth-gate-overlay {
+      position: fixed; inset: 0; z-index: 99999;
+      background: linear-gradient(135deg, #eef2ff 0%, #f8fafc 100%);
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+    }
+    .auth-card {
+      background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-lg);
+      padding: 36px 32px; width: 100%; max-width: 380px;
+    }
+    .auth-card-icon { font-size: 32px; text-align: center; margin-bottom: 8px; }
+    .auth-card-title { font-size: 18px; font-weight: 700; text-align: center; color: var(--text); margin-bottom: 4px; }
+    .auth-card-desc { font-size: 13px; color: var(--text-muted); text-align: center; margin-bottom: 22px; }
+    .auth-card .form-group { margin-bottom: 14px; }
+    .auth-card label { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+    .auth-card input { width: 100%; }
+    .auth-card .btn { width: 100%; justify-content: center; margin-top: 6px; }
+    .auth-card-error { color: var(--danger); font-size: 12.5px; text-align: center; margin-top: 10px; min-height: 16px; }
+    .auth-card-hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
   </style>
 </head>
 <body>
@@ -484,6 +506,63 @@
   100% { transform: translateX(600%); }
 }
 </style>
+
+<!-- ==================== ログインゲート（2段階パスワード認証） ====================
+     認証が完了するまでこのオーバーレイでツール本体を覆い操作できないようにする。
+     JS側 (renderAuthGate関数) が初回セットアップ/通常ログインのどちらを表示するか判定する。 -->
+<div id="auth-gate-overlay" style="display:none;">
+  <!-- (C) 判定中画面: ローカルに設定が無い場合、リモートに既存設定が無いか確認する間だけ一瞬表示 -->
+  <div class="auth-card" id="auth-checking-panel" style="display:none;text-align:center;">
+    <div class="auth-card-icon">🔐</div>
+    <div class="auth-card-title">確認中...</div>
+    <div class="auth-card-desc" style="margin-bottom:0;">設定状況を確認しています</div>
+  </div>
+  <!-- (D) 接続エラー画面: リモート確認がタイムアウト/失敗したときに表示。
+       【重要】ここで絶対に初回セットアップへフォールスルーしない（新端末の誤セットアップで
+       チーム共有パスワードが上書きされ全員ロックアウトされる事故を防ぐための安全弁）。 -->
+  <div class="auth-card" id="auth-connfail-panel" style="display:none;text-align:center;">
+    <div class="auth-card-icon">⚠️</div>
+    <div class="auth-card-title">サーバーに接続できませんでした</div>
+    <div class="auth-card-desc">通信環境を確認して再読み込みしてください</div>
+    <button class="btn btn-primary" onclick="location.reload()">再読み込み</button>
+  </div>
+  <!-- (A) 初回セットアップ画面: authConfigが未登録のときだけ表示 -->
+  <div class="auth-card" id="auth-setup-panel" style="display:none;">
+    <div class="auth-card-icon">🔐</div>
+    <div class="auth-card-title">初回セットアップ</div>
+    <div class="auth-card-desc">売上管理ツールのパスワードを設定してください</div>
+    <div class="form-group">
+      <label>利用パスワード（チーム全員が使用）</label>
+      <input type="password" id="auth-setup-use-pw" placeholder="利用パスワードを入力">
+    </div>
+    <hr class="auth-card-hr">
+    <div class="form-group">
+      <label>管理者パスワード（設定変更に必要）</label>
+      <input type="password" id="auth-setup-admin-pw" placeholder="管理者パスワードを入力">
+    </div>
+    <div class="form-group">
+      <label>管理者パスワード（確認のため再入力）</label>
+      <input type="password" id="auth-setup-admin-pw2" placeholder="もう一度入力">
+    </div>
+    <button class="btn btn-primary" onclick="submitAuthSetup()">登録して開始する</button>
+    <div class="auth-card-error" id="auth-setup-error"></div>
+  </div>
+
+  <!-- (B) 通常ログイン画面: authConfig登録済みのとき表示 -->
+  <div class="auth-card" id="auth-login-panel" style="display:none;">
+    <div class="auth-card-icon">🔒</div>
+    <div class="auth-card-title">売上管理ツール</div>
+    <div class="auth-card-desc">利用パスワードを入力してください</div>
+    <div class="form-group">
+      <label>利用パスワード</label>
+      <input type="password" id="auth-login-pw" placeholder="パスワードを入力" onkeydown="if(event.key==='Enter')submitAuthLogin()">
+    </div>
+    <button class="btn btn-primary" id="auth-login-submit-btn" onclick="submitAuthLogin()">ロック解除</button>
+    <div class="auth-card-error" id="auth-login-error"></div>
+  </div>
+</div>
+<!-- ==================== END ログインゲート ==================== -->
+
 <div class="app">
   <!-- Sidebar -->
   <aside class="sidebar">
@@ -1130,6 +1209,11 @@
         <div class="page-desc">アプリの設定を変更します</div>
       </div>
       <div class="card" style="margin-bottom:24px;">
+        <div class="card-title">🔑 アクセス管理（パスワード）</div>
+        <p style="font-size:14px;color:var(--text-muted);margin-bottom:16px;">利用パスワード・管理者パスワードの変更ができます（管理者パスワードでの本人確認が必要です）。</p>
+        <button class="btn btn-outline" onclick="openAuthAdminVerifyModal()">パスワードを変更する</button>
+      </div>
+      <div class="card" style="margin-bottom:24px;">
         <div class="card-title">チームビジョン・スローガン</div>
         <p style="font-size:14px;color:var(--text-muted);margin-bottom:16px;">ダッシュボードの上部に表示されます。</p>
         <div class="form-group" style="margin-bottom:12px;">
@@ -1453,6 +1537,54 @@
     </div>
   </div>
 </div>
+
+<!-- ==================== 管理者パスワード設定・変更モーダル ==================== -->
+<!-- (A) 管理者確認モーダル: 設定変更画面を開く前に必ず管理者パスワードを確認する -->
+<div class="modal-overlay" id="auth-admin-verify-modal">
+  <div class="modal">
+    <div class="modal-title">🔒 管理者確認</div>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">パスワード設定を変更するには管理者パスワードを入力してください。</p>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>管理者パスワード</label>
+      <input type="password" id="auth-admin-verify-pw" placeholder="管理者パスワードを入力" onkeydown="if(event.key==='Enter')submitAuthAdminVerify()">
+    </div>
+    <div id="auth-admin-verify-error" style="color:var(--danger);font-size:12.5px;margin-bottom:8px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeAuthAdminVerifyModal()">キャンセル</button>
+      <button class="btn btn-primary" id="auth-admin-verify-submit-btn" onclick="submitAuthAdminVerify()">確認</button>
+    </div>
+  </div>
+</div>
+
+<!-- (B) パスワード変更モーダル: 管理者確認が済んでから表示する -->
+<div class="modal-overlay" id="auth-admin-change-modal">
+  <div class="modal">
+    <div class="modal-title">🔑 パスワードを変更</div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>新しい利用パスワード（変更する場合のみ入力）</label>
+      <input type="password" id="auth-change-use-pw" placeholder="空欄なら変更しません">
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>新しい利用パスワード（確認のため再入力）</label>
+      <input type="password" id="auth-change-use-pw2" placeholder="もう一度入力">
+    </div>
+    <hr class="auth-card-hr">
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>新しい管理者パスワード（変更する場合のみ入力）</label>
+      <input type="password" id="auth-change-admin-pw" placeholder="空欄なら変更しません">
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>新しい管理者パスワード（確認のため再入力）</label>
+      <input type="password" id="auth-change-admin-pw2" placeholder="もう一度入力">
+    </div>
+    <div id="auth-change-error" style="color:var(--danger);font-size:12.5px;margin-bottom:8px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeAuthAdminChangeModal()">キャンセル</button>
+      <button class="btn btn-primary" onclick="submitAuthAdminChange()">保存する</button>
+    </div>
+  </div>
+</div>
+<!-- ==================== END 管理者パスワード設定・変更モーダル ==================== -->
 
 <!-- ① プロジェクトタスク: プロジェクト追加・編集モーダル -->
 <div class="modal-overlay" id="pt-project-modal">
@@ -1787,6 +1919,458 @@
 </div>
 
 <script>
+// ==================== 2段階パスワード認証（管理者ログイン） ====================
+// 【重要】認証設定(authConfig)は SHARED_KEYS の汎用配列マージには絶対に含めない。
+// SHARED_KEYSのループはid付き配列が前提のため、id無しのオブジェクトを載せると
+// 同期処理で全消去される事故が過去にあった。push/pull双方で専用フィールドとして個別に扱うこと。
+
+const AUTH_SALT = 'sales-manager-tool-fixed-salt-v1'; // 固定ソルト（全端末共通・パスワードを平文で保存しないため）
+const AUTH_LOCAL_KEY = 'sales-manager-authconfig';    // authConfigのlocalStorageキャッシュキー
+const AUTH_SESSION_KEY = 'sales-manager-authed';      // 認証済みフラグ（sessionStorage＝タブ/ブラウザを閉じたら忘れる）
+
+// 修正2: 管理者確認済みフラグ（短命）。submitAuthAdminVerify()成功時のみtrueになり、
+// パスワード変更モーダルを開き直す/閉じるたびに必ずfalseへリセットする。
+// DevToolsコンソールから直接 submitAuthAdminChange() を呼んでも、このフラグと
+// 検証済みハッシュの再照合が無ければ変更処理が通らないようにするための防御。
+let _adminVerified = false;
+let _adminVerifiedHash = null;
+
+// 修正4: authConfig自体を書き換えるsaveSharedData呼び出しの直前だけセットする一時変数。
+// GAS側で「管理者パスワードが正しいか」を再照合するためのパラメータとして一度だけ使い、
+// 送信後は必ずnullに戻す（通常の売上データ等の定期pushに紛れ込まないようにするため）。
+let _pendingAdminHash = null;
+
+// 修正3: 連続失敗によるクールダウン管理（総当たり対策）
+const AUTH_MAX_FAILS = 3;        // この回数失敗したらクールダウンに入る
+const AUTH_COOLDOWN_SEC = 10;    // クールダウン秒数
+let _loginFailCount = 0;
+let _adminVerifyFailCount = 0;
+
+// 指定ボタンを一定秒数だけ無効化し、カウントダウンをエラー表示欄に出す
+function applyAuthCooldown(btnId, errElId, seconds) {
+  const btn = document.getElementById(btnId);
+  const errEl = document.getElementById(errElId);
+  if (!btn) return;
+  btn.disabled = true;
+  let remain = seconds;
+  const tick = () => {
+    if (errEl) errEl.textContent = `試行回数が多すぎます。${remain}秒後に再試行してください`;
+    remain--;
+    if (remain < 0) {
+      clearInterval(timerId);
+      btn.disabled = false;
+      if (errEl) errEl.textContent = '';
+    }
+  };
+  tick();
+  const timerId = setInterval(tick, 1000);
+}
+
+// authConfig = { usePasswordHash, adminPasswordHash, updatedAt }
+// ・usePasswordHash  : チーム全員が入力する「利用パスワード」のPBKDF2ハッシュ
+// ・adminPasswordHash: 設定変更に必要な「管理者パスワード」のPBKDF2ハッシュ
+// ・updatedAt        : 最終更新時刻（GAS同期時のクロバー防止に使う）
+// 【修正4】GAS側は認証必須化に伴い、このハッシュ値自体をレスポンスに含めなくなった。
+// そのためローカルのauthConfigは「自分の端末で確認できた最新のハッシュ」をキャッシュし続ける
+// 役割を持つ（オフライン時のフォールバック照合・GASへの認可パラメータ送信に使う）。
+let authConfig = null;
+
+// 修正3: PBKDF2ハッシュ化（固定ソルト＋15万イテレーション）。SHA-256一回がけより
+// 総当たり耐性を大幅に高める。Web Crypto APIのみで実装し外部ライブラリは不要。
+// この機能はまだ誰もパスワードを設定していない新規実装のため、旧ハッシュ方式との
+// 後方互換・マイグレーションは考慮しない（PBKDF2方式に統一する）。
+async function hashPassword(plain) {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', enc.encode(plain), { name: 'PBKDF2' }, false, ['deriveBits']
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: enc.encode(AUTH_SALT), iterations: 150000, hash: 'SHA-256' },
+    keyMaterial,
+    256 // 256bit(32byte)を出力
+  );
+  return Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// 修正4: GAS側(verifyAuth)で「正しい」と確認できたハッシュをローカルキャッシュへ反映する。
+// サーバーからハッシュを受け取るのではなく、クライアントが自分で計算し
+// サーバーに"正解"と確認してもらった値をそのまま保存するだけなので、秘密の漏えいにはならない。
+// これによりオフライン時のフォールバック照合や、以後のGAS同期時のauthHash送信に使えるようにする。
+function _cacheVerifiedHash(role, hash) {
+  const cfg = { ...(authConfig || {}) };
+  if (role === 'admin') cfg.adminPasswordHash = hash; else cfg.usePasswordHash = hash;
+  authConfig = cfg;
+  if (typeof data !== 'undefined') data.authConfig = cfg;
+  try { localStorage.setItem(AUTH_LOCAL_KEY, JSON.stringify(cfg)); } catch (e) {}
+}
+
+// ローカルキャッシュ（専用キー）とメインデータ(data.authConfig)のうち、更新日時が新しい方を採用する
+// ※ data はこの後で定義されるが、この関数は loadData() 完了後に呼ばれるため参照時には利用可能
+function loadAuthConfigCache() {
+  let cached = null;
+  try {
+    const raw = localStorage.getItem(AUTH_LOCAL_KEY);
+    if (raw) cached = JSON.parse(raw);
+  } catch (e) { cached = null; }
+  const fromData = (typeof data !== 'undefined' && data.authConfig) ? data.authConfig : null;
+  if (fromData && cached) {
+    authConfig = (fromData.updatedAt || 0) >= (cached.updatedAt || 0) ? fromData : cached;
+  } else {
+    authConfig = fromData || cached || null;
+  }
+  if (typeof data !== 'undefined') data.authConfig = authConfig; // メインデータ側にも反映しておく
+}
+
+// authConfigを新しい内容で確定する（専用キャッシュ＋メインデータの両方に反映）
+// 呼び出し元: 初回セットアップ／管理者によるパスワード変更
+// 修正4: adminHashForAuth は「これから行うauthConfig更新」をGAS側に認可してもらうための
+// パラメータ（＝直前に確認済みの現行管理者パスワードのハッシュ）。初回セットアップ時は
+// GAS側がまだ未設定(hasAuth:false)なので不要（省略可）。
+//
+// 修正A: 利用パスワードを変更すると、変更した瞬間にローカルのauthConfig.usePasswordHashが
+// 新しい値に書き換わる。しかしGASにはまだ「変更前のusePasswordHash」しか保存されていないため、
+// 直後のpushで新ハッシュをauthHashとして送っても本来はサーバー側で不一致になってしまう
+// （GAS側のゲート緩和＝authHash一致 or adminHash一致 のOR条件で救済されるが、念のため
+// 変更前のハッシュを明示してリモートとのマージ用GETにも使う）。
+// また、保存が本当に成功したかをレスポンスを読んで確認し、失敗時は変更前の状態へ
+// ロールバックする（楽観的更新のまま失敗すると、その端末が永久に同期エラーになるため）。
+// 戻り値: 保存に成功したかどうか(true/false)
+async function applyAuthConfig(cfg, adminHashForAuth) {
+  const previousAuthConfig = authConfig; // ロールバック用に変更前の状態を保持
+  const previousReadHash = (authConfig && authConfig.usePasswordHash) || '';
+
+  // 楽観的にローカルへ反映（GAS側の保存が失敗した場合は後段でロールバックする）
+  authConfig = cfg;
+  try { localStorage.setItem(AUTH_LOCAL_KEY, JSON.stringify(cfg)); } catch (e) {}
+  data.authConfig = cfg;
+
+  // 修正K: ここで saveData() を呼ぶと、2秒後デバウンスの pushSharedDataToGAS()（無引数）が
+  // 別途スケジュールされてしまい、直後に行う readResult:true 付きの明示pushと
+  // _pendingAdminHash（一時変数）を取り合って競合する恐れがあった。
+  // そのためここでは localStorage への保存だけを行い、保留中のデバウンスpushがあれば
+  // 明示的にキャンセルして、GASへの反映は下記の明示push一本に一本化する。
+  localStorage.setItem('sales-manager-data', JSON.stringify(data));
+  clearTimeout(saveData._timer);
+
+  _pendingAdminHash = adminHashForAuth || null;
+  // 修正A: 結果を確認できるモードでpushし、GASが本当に{ok:true}を返したかどうかを見る
+  const success = await pushSharedDataToGAS({ readResult: true, authHashForRead: previousReadHash });
+
+  if (!success) {
+    // 保存に失敗した場合は変更前の状態へロールバックする（同期の永久失敗を防ぐ）
+    authConfig = previousAuthConfig;
+    data.authConfig = previousAuthConfig;
+    try {
+      if (previousAuthConfig) localStorage.setItem(AUTH_LOCAL_KEY, JSON.stringify(previousAuthConfig));
+      else localStorage.removeItem(AUTH_LOCAL_KEY);
+    } catch (e) {}
+    localStorage.setItem('sales-manager-data', JSON.stringify(data));
+  }
+  return success;
+}
+
+// このブラウザタブのセッション内で認証済みかどうか（sessionStorageなので閉じると忘れる）
+function isSessionAuthed() {
+  return sessionStorage.getItem(AUTH_SESSION_KEY) === '1';
+}
+function markSessionAuthed() {
+  sessionStorage.setItem(AUTH_SESSION_KEY, '1');
+}
+
+// ==================== ログインゲート表示・認証処理 ====================
+
+// ページ読み込み時に呼び出し、認証状況に応じてオーバーレイを出し分ける
+// (1) このタブで既に認証済み(sessionStorage) → 何もしない
+// (2) ローカルにauthConfigがあれば即ログイン画面を表示
+// (3) ローカルに無ければ、リモート(GAS)に既に設定済みでないか一度だけ確認してから
+//     「初回セットアップ」か「ログイン」かを決定する（新しい端末が誤って新規セットアップし、
+//     チーム共有パスワードを上書きしてしまう事故を防ぐための安全策）
+async function renderAuthGate() {
+  // 修正G【Critical】: loadAuthConfigCache()は「このタブが既に認証済みか」の判定より
+  // 必ず先に、無条件で呼ぶこと。isSessionAuthed()の早期returnより後ろにあると、
+  // セッション認証済みでのページ再読み込み時にグローバルauthConfigが復元されないまま
+  // startAuthenticatedInit()が走ってしまい、authHashが空文字になって全GAS通信が
+  // _requireAuth に弾かれる（同期が気付かれずサイレント停止する）事故が起きるため。
+  loadAuthConfigCache();
+  if (isSessionAuthed()) return;
+  const overlay = document.getElementById('auth-gate-overlay');
+  overlay.style.display = 'flex';
+
+  if (authConfig && authConfig.usePasswordHash) {
+    showAuthPanel('login');
+    return;
+  }
+
+  // ローカルに設定が無い場合のみ、リモートに既存設定が無いか確認する
+  showAuthPanel('checking');
+  try {
+    // 修正4: GASはauthHash無し(未認証)の呼び出しに対しても、ハッシュ値を含まない
+    // hasAuth(true/false)フラグだけは返してくれる。setup/loginの判定にはこれだけを使う。
+    // 修正D: ハッシュをURL(GET ?payload=)に残さないよう、POST(text/plain body)で取得する。
+    // 修正1: タイムアウトを4秒→9秒に延長（回線が遅い環境で誤って接続エラー扱いにならないように）
+    const res = await gasPostJSON({ type: 'getSharedData', authHash: '' }, 9000);
+
+    if (!res || typeof res.hasAuth !== 'boolean') {
+      // 修正1: サーバーから想定外の応答(hasAuthが返らない等)のときも絶対に「初回セットアップ」へ進まない。
+      // ここで setup にフォールスルーすると、新端末の誤操作でチーム共有パスワードが
+      // 上書きされ全員がログイン不能になる事故につながるため、必ず接続エラー画面で止める。
+      showAuthPanel('connfail');
+      return;
+    }
+
+    if (res.hasAuth) {
+      // 修正4: リモートに既に認証設定がある。ハッシュはサーバーから受け取れないため、
+      // ここではログイン画面を出すだけに留め、実際のパスワード照合はGASのverifyAuthに委ねる。
+      showAuthPanel('login');
+      return;
+    }
+
+    // 修正1・4: 「初回セットアップ」画面を出してよいのは、リモート取得に成功し、
+    // かつ hasAuth === false（authConfigが本当に未設定）だと確認できた場合のみ。
+    showAuthPanel('setup');
+  } catch (e) {
+    // 修正1: タイムアウト・通信エラー時は絶対に'setup'へ自動フォールスルーしない。
+    // 再読み込みを促す接続エラー画面を表示し、ユーザーが誤って新規パスワードを
+    // 作成してしまわないようにする（新端末誤セットアップによる全員ロックアウト対策）。
+    showAuthPanel('connfail');
+  }
+}
+
+// setup / login / checking / connfail のいずれのパネルを表示するか切り替える
+function showAuthPanel(kind) {
+  document.getElementById('auth-checking-panel').style.display = kind === 'checking' ? 'block' : 'none';
+  document.getElementById('auth-connfail-panel').style.display = kind === 'connfail' ? 'block' : 'none';
+  document.getElementById('auth-setup-panel').style.display = kind === 'setup' ? 'block' : 'none';
+  document.getElementById('auth-login-panel').style.display = kind === 'login' ? 'block' : 'none';
+}
+
+// ゲートを閉じる（認証成功時）
+function closeAuthGate() {
+  document.getElementById('auth-gate-overlay').style.display = 'none';
+}
+
+// 初回セットアップ：利用パスワード・管理者パスワードを登録する
+async function submitAuthSetup() {
+  const errEl = document.getElementById('auth-setup-error');
+  errEl.textContent = '';
+  const usePw = document.getElementById('auth-setup-use-pw').value;
+  const adminPw = document.getElementById('auth-setup-admin-pw').value;
+  const adminPw2 = document.getElementById('auth-setup-admin-pw2').value;
+  if (!usePw || !adminPw || !adminPw2) { errEl.textContent = 'すべての項目を入力してください'; return; }
+  if (adminPw !== adminPw2) { errEl.textContent = '管理者パスワードが一致しません'; return; }
+  const cfg = {
+    usePasswordHash: await hashPassword(usePw),
+    adminPasswordHash: await hashPassword(adminPw),
+    updatedAt: Date.now()
+  };
+  errEl.textContent = '登録中...';
+  // 修正A: GASへの保存が本当に成功したかを確認してから完了扱いにする
+  const success = await applyAuthConfig(cfg);
+  if (!success) {
+    // 修正A-3: 他端末が同時に初回セットアップを完了していた場合等はここで失敗しうる。
+    // 永久ロックアウトを避けるため、再読み込みを促すだけに留める（勝手にsetup画面を継続しない）。
+    errEl.textContent = '登録に失敗しました（他の端末が先に設定した可能性があります）。再読み込みしてください。';
+    return;
+  }
+  errEl.textContent = '';
+  markSessionAuthed();
+  closeAuthGate();
+  // 修正B/E: ログインを通過してから初めてデータ取得・描画を行う
+  startAuthenticatedInit();
+}
+
+// 修正D: 認証ハッシュ等を含むリクエストは、URL(GET ?payload=)に残さず結果を読み取れる
+// POST(text/plain body)で送る共通ヘルパー。no-corsを使わないため、GAS側respond()の
+// JSONレスポンスをそのまま読み取れる（既存のGET系読み取り呼び出しと同じCORS前提）。
+function gasPostJSON(payloadObj, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs || 8000);
+  return fetch(GAS_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify(payloadObj),
+    signal: controller.signal
+  }).then(r => r.json()).finally(() => clearTimeout(timer));
+}
+
+// 通常ログイン：利用パスワードを検証してロック解除する
+// 修正4: GASのverifyAuth（サーバー側パスワード照合）を呼び出す共通ヘルパー。
+// サーバーからハッシュ本体を受け取ることは無く、{ok:true/false}の判定結果だけを受け取る。
+// 修正D: GET(?payload=)ではなくPOSTで送信し、ハッシュがURL/履歴/実行ログに残らないようにする。
+// 修正C: サーバー側レート制限で{ok:false,error:'locked'}が返る場合があるため、errorも返す。
+// 戻り値: { serverChecked: サーバーに実際に照合してもらえたか, ok: 照合結果, error: サーバー側エラー種別 }
+async function _verifyAuthOnServer(role, hash) {
+  try {
+    const res = await gasPostJSON({ type: 'verifyAuth', role: role, hash: hash });
+    if (res && typeof res.ok === 'boolean') return { serverChecked: true, ok: res.ok, error: res.error || null };
+  } catch (e) { /* オフライン等でサーバー照合できない場合は呼び出し元でローカルフォールバックする */ }
+  return { serverChecked: false, ok: false, error: null };
+}
+
+// 修正3: 3回連続失敗でログインボタンを一時的にクールダウン（総当たり対策）
+// 修正4: 主にGAS側(verifyAuth)でパスワードを照合する。オフライン等でサーバー照合できない
+// ときだけ、ローカルキャッシュのハッシュと比較するフォールバックを使う（可用性優先）。
+async function submitAuthLogin() {
+  const errEl = document.getElementById('auth-login-error');
+  errEl.textContent = '';
+  const pwInput = document.getElementById('auth-login-pw');
+  const pw = pwInput.value;
+  if (!pw) { errEl.textContent = 'パスワードを入力してください'; return; }
+  const h = await hashPassword(pw);
+
+  const verifyResult = await _verifyAuthOnServer('use', h);
+
+  // 修正C: サーバー側レート制限でロックされている場合は専用メッセージを表示して終了する
+  if (verifyResult.serverChecked && verifyResult.error === 'locked') {
+    errEl.textContent = '試行回数が多すぎます。しばらく待ってから再試行してください';
+    return;
+  }
+
+  const matched = verifyResult.serverChecked
+    ? verifyResult.ok
+    : !!(authConfig && authConfig.usePasswordHash && h === authConfig.usePasswordHash);
+
+  if (matched) {
+    _loginFailCount = 0;
+    _cacheVerifiedHash('use', h); // 正しいと確認できたハッシュをローカルにも反映（以後のGAS同期用）
+    markSessionAuthed();
+    closeAuthGate();
+    // 修正B/E: ログインを通過してから初めてデータ取得・描画を行う（未認証時のDOM/データ露出防止）
+    startAuthenticatedInit();
+  } else {
+    pwInput.value = '';
+    _loginFailCount++;
+    if (_loginFailCount >= AUTH_MAX_FAILS) {
+      applyAuthCooldown('auth-login-submit-btn', 'auth-login-error', AUTH_COOLDOWN_SEC);
+      _loginFailCount = 0;
+    } else {
+      errEl.textContent = 'パスワードが正しくありません';
+    }
+  }
+}
+// ==================== END ログインゲート表示・認証処理 ====================
+
+// ==================== 管理者専用パスワード設定・変更 ====================
+// 設定ページの「パスワードを変更する」ボタンから起動。まず管理者パスワードを確認し、
+// 一致した場合のみ実際の変更フォームを開く（ロックアウト防止のため必須の確認ステップ）。
+
+// (A) 管理者確認モーダルを開く
+// 修正2: モーダルを開き直すたびに、前回の検証結果を必ずリセットする（使い回し防止）
+function openAuthAdminVerifyModal() {
+  document.getElementById('auth-admin-verify-pw').value = '';
+  document.getElementById('auth-admin-verify-error').textContent = '';
+  _adminVerified = false;
+  _adminVerifiedHash = null;
+  document.getElementById('auth-admin-verify-modal').classList.add('open');
+}
+function closeAuthAdminVerifyModal() {
+  document.getElementById('auth-admin-verify-modal').classList.remove('open');
+}
+
+// 管理者パスワードを検証し、正しければ変更モーダルへ進む
+// 修正3: 3回連続失敗で確認ボタンを一時的にクールダウン
+// 修正4: 主にGAS側(verifyAuth)で照合し、オフライン時のみローカルキャッシュへフォールバックする
+async function submitAuthAdminVerify() {
+  const errEl = document.getElementById('auth-admin-verify-error');
+  errEl.textContent = '';
+  const pw = document.getElementById('auth-admin-verify-pw').value;
+  if (!pw) { errEl.textContent = '管理者パスワードを入力してください'; return; }
+  const h = await hashPassword(pw);
+
+  const verifyResult = await _verifyAuthOnServer('admin', h);
+
+  // 修正C: サーバー側レート制限でロックされている場合は専用メッセージを表示して終了する
+  if (verifyResult.serverChecked && verifyResult.error === 'locked') {
+    errEl.textContent = '試行回数が多すぎます。しばらく待ってから再試行してください';
+    return;
+  }
+
+  const matched = verifyResult.serverChecked
+    ? verifyResult.ok
+    : !!(authConfig && authConfig.adminPasswordHash && h === authConfig.adminPasswordHash);
+
+  if (!matched) {
+    _adminVerifyFailCount++;
+    if (_adminVerifyFailCount >= AUTH_MAX_FAILS) {
+      applyAuthCooldown('auth-admin-verify-submit-btn', 'auth-admin-verify-error', AUTH_COOLDOWN_SEC);
+      _adminVerifyFailCount = 0;
+    } else {
+      errEl.textContent = '管理者パスワードが正しくありません';
+    }
+    return;
+  }
+  _adminVerifyFailCount = 0;
+  _cacheVerifiedHash('admin', h); // サーバーで確認できたハッシュをローカルにも反映
+  // 修正2: 検証成功の証跡として短命フラグと検証済みハッシュを保持する
+  // （submitAuthAdminChange側でこのフラグとハッシュの両方を再チェックする）
+  _adminVerified = true;
+  _adminVerifiedHash = h;
+  closeAuthAdminVerifyModal();
+  openAuthAdminChangeModal();
+}
+
+// (B) パスワード変更モーダルを開く
+function openAuthAdminChangeModal() {
+  ['auth-change-use-pw','auth-change-use-pw2','auth-change-admin-pw','auth-change-admin-pw2'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('auth-change-error').textContent = '';
+  document.getElementById('auth-admin-change-modal').classList.add('open');
+}
+// 修正2: 変更モーダルを閉じたら（保存済み・キャンセル問わず）検証フラグを必ず消費してリセットする
+function closeAuthAdminChangeModal() {
+  document.getElementById('auth-admin-change-modal').classList.remove('open');
+  _adminVerified = false;
+  _adminVerifiedHash = null;
+}
+
+// パスワード変更を確定する（利用/管理者パスワードのどちらか、または両方を更新可能。空欄の項目は変更しない）
+// 修正2: 冒頭で「直前にsubmitAuthAdminVerify()が成功しているか」を必ず再チェックする。
+// これにより、DevToolsコンソールからこの関数を直接呼び出しても、管理者パスワードを
+// 知らない限りパスワード変更が通らないようにする。
+async function submitAuthAdminChange() {
+  const errEl = document.getElementById('auth-change-error');
+  errEl.textContent = '';
+
+  // 管理者確認フラグ＋検証済みハッシュの再照合（必須ガード）
+  if (!_adminVerified || !authConfig || !_adminVerifiedHash || _adminVerifiedHash !== authConfig.adminPasswordHash) {
+    errEl.textContent = '管理者確認が必要です。もう一度パスワード変更を開き直してください。';
+    return;
+  }
+
+  const usePw    = document.getElementById('auth-change-use-pw').value;
+  const usePw2   = document.getElementById('auth-change-use-pw2').value;
+  const adminPw  = document.getElementById('auth-change-admin-pw').value;
+  const adminPw2 = document.getElementById('auth-change-admin-pw2').value;
+
+  if (!usePw && !adminPw) { errEl.textContent = '変更する項目を入力してください'; return; }
+  if (usePw && usePw !== usePw2) { errEl.textContent = '利用パスワード（確認）が一致しません'; return; }
+  if (adminPw && adminPw !== adminPw2) { errEl.textContent = '管理者パスワード（確認）が一致しません'; return; }
+
+  const cfg = { ...authConfig };
+  if (usePw)   cfg.usePasswordHash   = await hashPassword(usePw);
+  if (adminPw) cfg.adminPasswordHash = await hashPassword(adminPw);
+  cfg.updatedAt = Date.now();
+
+  // 修正4: GAS側でこの更新を認可してもらうため、直前に確認済みの管理者ハッシュを
+  // closeAuthAdminChangeModal()でリセットされる前に保持しておき、applyAuthConfigへ渡す
+  const verifiedAdminHash = _adminVerifiedHash;
+  errEl.textContent = '保存中...';
+  // 修正A: GASへの保存が本当に成功したことを確認してから完了扱いにする。
+  // 失敗時はローカルのauthConfigを変更前へロールバックし（applyAuthConfig内で実施済み）、
+  // モーダルは閉じずに再試行できるようにする（_adminVerifiedは維持されたまま）。
+  const success = await applyAuthConfig(cfg, verifiedAdminHash);
+  if (!success) {
+    errEl.textContent = '保存に失敗しました。通信環境を確認してもう一度お試しください。';
+    return;
+  }
+
+  closeAuthAdminChangeModal(); // ここで_adminVerifiedはfalseにリセットされる
+  showAlert('sync-alert', 'success', 'パスワード設定を更新しました');
+}
+// ==================== END 管理者専用パスワード設定・変更 ====================
+// ==================== END 2段階パスワード認証（設定・データ部）====================
+
 // ==================== DATA ====================
 const COLORS = ['#4f46e5','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#84cc16','#f97316','#6366f1'];
 
@@ -1801,7 +2385,8 @@ let data = {
   dailyReports: [],
   products: [],      // 商品マスター
   routes: [],        // 動線マスター
-  actionPlans: []    // メンバー別アクションプラン
+  actionPlans: [],   // メンバー別アクションプラン
+  authConfig: null   // 2段階パスワード認証設定（SHARED_KEYSの汎用マージには含めない専用フィールド）
 };
 
 // 初期化完了フラグ（falseの間はGASへのプッシュを禁止）
@@ -2094,8 +2679,8 @@ function addMember() {
 function deleteMember(id) {
   const m = data.members.find(m => m.id === id);
   confirmDelete(`${m.name} を削除しますか？\nスプレッドシート上のこの担当者名は「アンノーン」に変更されます。`, () => {
-    const payload = JSON.stringify({ type: 'renameMember', oldName: m.name, newName: 'アンノーン' });
-    fetch(GAS_URL + '?payload=' + encodeURIComponent(payload)).catch(() => {});
+    // 修正B: 認証必須化に伴いauthHashを同送する。修正I: URLに残らないPOSTで送信する。
+    gasPostJSON({ type: 'renameMember', oldName: m.name, newName: 'アンノーン', authHash: (authConfig && authConfig.usePasswordHash) || '' }).catch(() => {});
     data.members = data.members.filter(mem => mem.id !== id);
     // 削除済みIDをリストに追加（GAS同期時にリモートから復活させないため）
     if (!data._deleted_members) data._deleted_members = [];
@@ -2130,8 +2715,8 @@ function saveMemberEdit() {
   if (!m) return;
   // 名前が変わった場合はスプシも更新
   if (m.name !== newName) {
-    const payload = JSON.stringify({ type: 'renameMember', oldName: m.name, newName });
-    fetch(GAS_URL + '?payload=' + encodeURIComponent(payload)).catch(() => {});
+    // 修正B: 認証必須化に伴いauthHashを同送する。修正I: URLに残らないPOSTで送信する。
+    gasPostJSON({ type: 'renameMember', oldName: m.name, newName, authHash: (authConfig && authConfig.usePasswordHash) || '' }).catch(() => {});
   }
   m.name = newName;
   m.role = newRole;
@@ -2503,11 +3088,12 @@ function addSale() {
     note,
     recording,
     additionalAmount,
-    customerInfo
+    customerInfo,
+    authHash: (authConfig && authConfig.usePasswordHash) || '' // 修正B: 認証必須化に伴い同送
   };
-  
-  fetch(GAS_URL + '?payload=' + encodeURIComponent(JSON.stringify(payload)))
-    .then(r => r.json())
+
+  // 修正I: authHashをURL(GET)に残さないよう、gasPostJSON()でPOST送信する
+  gasPostJSON(payload)
     .then(res => {
       console.log('GAS Response:', res);
       if (res.ok === false) {
@@ -2554,9 +3140,9 @@ function deleteSale(id) {
     renderSalesList();
     // GASへ削除通知
     if (sale) {
-      const payload = { type: 'deleteSale', id: sale.id, date: sale.date, lineName: sale.note, category: sale.category||'', memberName: sale.memberId };
-      fetch(GAS_URL + '?payload=' + encodeURIComponent(JSON.stringify(payload)))
-        .then(r => r.json())
+      // 修正B: 認証必須化に伴いauthHashを同送する。修正I: URLに残らないPOSTで送信する。
+      const payload = { type: 'deleteSale', id: sale.id, date: sale.date, lineName: sale.note, category: sale.category||'', memberName: sale.memberId, authHash: (authConfig && authConfig.usePasswordHash) || '' };
+      gasPostJSON(payload)
         .then(res => {
           if (res.status === 'ok' || res.success === true) {
             alert('✅ スプシからも削除されました: ' + res.deleted + '行目');
@@ -3117,11 +3703,12 @@ function saveSaleDetail() {
     barrier,
     approachMonths,
     nextApproachDate,
-    customerMemo: firstNote
+    customerMemo: firstNote,
+    authHash: (authConfig && authConfig.usePasswordHash) || '' // 修正B: 認証必須化に伴い同送
   };
 
-  fetch(GAS_URL + '?payload=' + encodeURIComponent(JSON.stringify(gasPayload)))
-    .then(r => r.json())
+  // 修正I: authHashをURL(GET)に残さないよう、gasPostJSON()でPOST送信する
+  gasPostJSON(gasPayload)
     .then(res => {
       if (res.status === 'ok') {
         showAlert('sales-alert', 'success', `✅ ${lineName || ''}さんの情報を更新しました`);
@@ -3233,13 +3820,14 @@ function saveResultChange() {
           const oldS2Result = s2.result;
           updateFields(s2, newResult, s2.product, s2.amount, Math.abs(s2.payment), s2.paymentDate);
           const m = data.members.find(mem => mem.id === s2.memberId);
-          const gasPayload = { 
-            type: 'updateResult', id: s2.id, lineName: s2.note, date: s2.date, 
-            category: s2.category||'', oldResult: oldS2Result, newResult: newResult, 
-            newProduct: s2.product||'', newAmount: s2.amount||0, newPayment: s2.payment, 
-            newPaymentDate: s2.paymentDate, memberName: m?.name?.split('(')[0]||'' 
+          const gasPayload = {
+            type: 'updateResult', id: s2.id, lineName: s2.note, date: s2.date,
+            category: s2.category||'', oldResult: oldS2Result, newResult: newResult,
+            newProduct: s2.product||'', newAmount: s2.amount||0, newPayment: s2.payment,
+            newPaymentDate: s2.paymentDate, memberName: m?.name?.split('(')[0]||'',
+            authHash: (authConfig && authConfig.usePasswordHash) || '' // 修正B: 認証必須化に伴い同送
           };
-          fetch(GAS_URL + '?payload=' + encodeURIComponent(JSON.stringify(gasPayload)));
+          gasPostJSON(gasPayload).catch(() => {}); // 修正I: URLに残らないPOSTで送信する
         });
       }
     }
@@ -3262,12 +3850,13 @@ function saveResultChange() {
       newProduct: s.product || '', 
       newAmount: s.amount || 0, 
       newPayment: s.payment, 
-      newPaymentDate: s.paymentDate, 
-      memberName: member ? member.name.split('(')[0] : '' 
+      newPaymentDate: s.paymentDate,
+      memberName: member ? member.name.split('(')[0] : '',
+      authHash: (authConfig && authConfig.usePasswordHash) || '' // 修正B: 認証必須化に伴い同送
     };
 
-    fetch(GAS_URL + '?payload=' + encodeURIComponent(JSON.stringify(gasPayload)))
-      .then(r => r.json())
+    // 修正I: authHashをURL(GET)に残さないよう、gasPostJSON()でPOST送信する
+    gasPostJSON(gasPayload)
       .then(result => {
         if (result.status === 'ok') {
           showAlert('sales-alert', 'success', `✅ 更新成功：${s.note}様の情報をスプシに反映しました`);
@@ -4816,7 +5405,7 @@ function openGCal(title, date, details) {
 // ==================== SHEET SYNC ====================
 const GAS_URL = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
   ? '/gas'
-  : 'https://script.google.com/macros/s/AKfycbxKVdHr0050OSh4Vkx8y8LPdKCVeJbauBtr7wUI_rzSHVevzHbjSg1oEGh73wQf3ayt/exec';
+  : 'https://script.google.com/macros/s/AKfycbx4rKSQgHJ_w_CxaOGepDE-V1iLUr_Wixnrkxl7H6fJ81lxHKWoz58CeUipJRn9fm9_/exec';
 
 // ==================== 共有データ同期（プロジェクト・動線・目標など） ====================
 
@@ -4889,12 +5478,29 @@ function mergeActionPlans(local, remote, deletedSet) {
 
 // ==================== END アクションプラン マージ ヘルパー ====================
 
-async function pushSharedDataToGAS() {
+// 修正A: opts.readResult=true のときは実際にGASの保存結果を確認できるPOSTで送信し、
+// 成功/失敗(true/false)を呼び出し元へ返す（主にパスワード変更・初回セットアップで使用）。
+// opts.authHashForRead は、マージ用のgetSharedData取得に使うauthHashを明示的に上書きしたい
+// 場合に使う（利用パスワード変更の直後は、まだサーバー側に新ハッシュが保存されていないため、
+// 変更前の有効なハッシュを使ってリモートのマージ取得ができるようにするための引数）。
+// 通常の定期push（saveDataの2秒後デバウンス呼び出し等）はopts省略で従来通りno-cors送信のまま。
+async function pushSharedDataToGAS(opts) {
+  opts = opts || {};
   const shared = {};
   SHARED_KEYS.forEach(k => { shared[k] = data[k] || []; });
 
+  // 修正4: GAS側で認証必須化したため、ローカルにキャッシュ済みの利用パスワードハッシュを
+  // authHashとして同送する（サーバー側が保存済みハッシュと照合し、一致した場合のみ読み書きを許可する）
+  const authHashForRead = (opts.authHashForRead !== undefined)
+    ? opts.authHashForRead
+    : ((authConfig && authConfig.usePasswordHash) || '');
+
   try {
-    const remoteRes = await fetch(GAS_URL + '?payload=' + encodeURIComponent(JSON.stringify({ type: 'getSharedData' }))).then(r => r.json());
+    // 修正D: ハッシュをURL(GET)に残さないよう、POST(text/plain body)で取得する
+    const remoteRes = await gasPostJSON({ type: 'getSharedData', authHash: authHashForRead });
+    // 修正4: unauthorized(認証エラー)のときは絶対にローカルデータを書き換えない。
+    // remoteRes.ok が false のままマージ処理全体をスキップすることで、既存の
+    // 「認証エラー時にローカルの売上データ等が消えない」安全側ガードをそのまま維持する。
     if (remoteRes.ok && remoteRes.data) {
       // 各キーごとの削除済みIDをリモートとunionマージ
       const deletedSets = {};
@@ -4932,28 +5538,70 @@ async function pushSharedDataToGAS() {
         shared[k] = merged;
         data[k] = merged;
       });
+
+      // ==== authConfig（2段階パスワード認証設定）====
+      // 【重要】SHARED_KEYSの汎用配列マージには絶対に載せない（idの無いオブジェクトのため）。
+      // 修正4: GAS側はハッシュ値を含めずhasAuth/updatedAtのみを返すため、ここではハッシュを
+      // 上書きせず updatedAt のメタ情報だけ反映する（ローカルの実ハッシュを消さないため）。
+      const remoteAuth = remoteRes.data.authConfig;
+      if (remoteAuth && remoteAuth.updatedAt && (!data.authConfig || remoteAuth.updatedAt > (data.authConfig.updatedAt || 0))) {
+        // ハッシュはサーバーから来ないため、既存のローカルハッシュ情報を保持したままupdatedAt等だけ更新する
+        data.authConfig = { ...(data.authConfig || {}), ...remoteAuth };
+        authConfig = data.authConfig;
+        try { localStorage.setItem(AUTH_LOCAL_KEY, JSON.stringify(data.authConfig)); } catch (e) {}
+      }
     }
   } catch (e) {}
+
+  // authConfigは専用フィールドとしてshared payloadに含める（配列マージ対象外）
+  shared.authConfig = data.authConfig || null;
 
   const ts = Date.now();
   shared._updatedAt = ts;
   data._sharedUpdatedAt = ts;
   localStorage.setItem('sales-manager-data', JSON.stringify(data));
+
+  // 修正A: 書き込み時のauthHashは常に「今の(最新の)ローカルハッシュ」を使う。
+  // サーバー側は修正Aのゲート緩和により、authHashが不一致でもadminHashが正しければ許可する。
+  const authHashForWrite = (authConfig && authConfig.usePasswordHash) || '';
+  // 修正4: authConfig自体を書き換える保存（初回セットアップ／管理者によるパスワード変更）のときだけ
+  // adminHashが設定されている。GAS側で管理者パスワードの再照合に使われる一時パラメータ。
+  const adminHashParam = _pendingAdminHash || '';
+  _pendingAdminHash = null; // 使い切ったら必ずリセット（次回以降の通常pushに紛れ込ませない）
+
+  const body = { type: 'saveSharedData', data: shared, authHash: authHashForWrite, adminHash: adminHashParam };
+
+  if (opts.readResult) {
+    // 修正A: パスワード変更等、結果を確実に確認したい場合はno-corsを使わずレスポンスを読み取る
+    try {
+      const res = await gasPostJSON(body, 10000);
+      return !!(res && res.ok === true);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // 通常の定期push：従来通りno-corsのfire-and-forget（結果を待たず送信のみ行う）
   fetch(GAS_URL, {
     method: 'POST',
     mode: 'no-cors',
     headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify({ type: 'saveSharedData', data: shared })
+    body: JSON.stringify(body)
   }).catch(() => {});
+  return true; // fire-and-forgetの場合は送信できたことをもって成功扱いとする（従来の挙動を維持）
 }
 
 function pullSharedDataFromGAS() {
-  const payload = JSON.stringify({ type: 'getSharedData' });
-  return fetch(GAS_URL + '?payload=' + encodeURIComponent(payload))
-    .then(r => r.json())
+  // 修正4: GAS側で認証必須化したため、ローカルにキャッシュ済みの利用パスワードハッシュを
+  // authHashとして同送する（未認証や不一致の場合はサーバー側が {ok:false} を返す）
+  const authHashParam = (authConfig && authConfig.usePasswordHash) || '';
+  // 修正D: ハッシュをURL(GET ?payload=)に残さないよう、POST(text/plain body)で取得する
+  return gasPostJSON({ type: 'getSharedData', authHash: authHashParam })
     .then(res => {
       // 取得完了（成功・失敗問わず）→ 以降のsaveDataはGASプッシュOK
       _sharedDataReady = true;
+      // 修正4: unauthorized等でres.ok===falseのときはここで即returnするため、
+      // 以降のローカルデータ書き換え処理は一切実行されない（売上データ等が消えることはない）
       if (!res.ok || !res.data) return;
       const remote = res.data;
       const localTs  = data._sharedUpdatedAt || 0;
@@ -5000,6 +5648,18 @@ function pullSharedDataFromGAS() {
           data[k] = remote[k]; changed = true;
         }
       });
+
+      // ==== authConfig（2段階パスワード認証設定）====
+      // 【重要】SHARED_KEYSの汎用配列マージには含めない（idの無いオブジェクトのため）。
+      // 修正4: GAS側はハッシュ値を含めずhasAuth/updatedAtのみを返すため、ローカルの実ハッシュは
+      // 上書きせず保持したまま、updatedAt等のメタ情報だけ新しい方を反映する。
+      if (remote.authConfig && remote.authConfig.updatedAt && (!data.authConfig || remote.authConfig.updatedAt > (data.authConfig.updatedAt || 0))) {
+        data.authConfig = { ...(data.authConfig || {}), ...remote.authConfig };
+        authConfig = data.authConfig;
+        try { localStorage.setItem(AUTH_LOCAL_KEY, JSON.stringify(data.authConfig)); } catch (e) {}
+        changed = true;
+      }
+
       if (remoteTs > localTs) { data._sharedUpdatedAt = remoteTs; changed = true; }
       if (!changed) return;
       localStorage.setItem('sales-manager-data', JSON.stringify(data));
@@ -5020,9 +5680,9 @@ function pullSharedDataFromGAS() {
 function syncRecordingsFromGAS() {
   const status = document.getElementById('sync-status');
   status.textContent = '録画URL同期中...';
-  const payload = JSON.stringify({ type: 'getAllRecordings' });
-  fetch(GAS_URL + '?payload=' + encodeURIComponent(payload))
-    .then(r => r.json())
+  // 修正B: 認証必須化に伴いauthHashを同送。修正D: ハッシュをURLに残さずPOSTで送信する。
+  const authHashParam = (authConfig && authConfig.usePasswordHash) || '';
+  gasPostJSON({ type: 'getAllRecordings', authHash: authHashParam })
     .then(res => {
       if (!res.ok || !res.data) { showAlert('sync-alert', 'error', '録画URL取得に失敗しました'); return; }
       let updated = 0;
@@ -5052,32 +5712,25 @@ function syncFromSheet() {
   const status = document.getElementById('sync-status');
   status.textContent = '同期中...';
 
-  // GASを経由せずスプレッドシートから直接取得（gviz API）
-  const GVIZ_URL = 'https://docs.google.com/spreadsheets/d/1BMptkze_WyYL6TRG5Jzugy8aYT-AL4F4O7gnmFPKXRw/gviz/tq?tqx=out:json&gid=65933176';
-  // gviz の Date(year,month0indexed,day) → YYYY-MM-DD に変換
-  const parseGvizDate = v => {
-    if (!v || typeof v !== 'string') return '';
-    const m = v.match(/^Date\((\d+),(\d+),(\d+)/);
-    if (!m) return String(v);
-    return `${m[1]}-${String(Number(m[2])+1).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
-  };
+  // 修正H【重要】: 以前はGASを経由せずスプレッドシートのgviz公開APIを直接fetchしていたが、
+  // これは今回追加した認証機構(_requireAuth)を完全に迂回できる無認証の抜け道だったため廃止。
+  // 認証必須化された getAllRows 経由の取得に一本化する。
+  // 修正I: authHashをURL(GET)に残さないよう、gasPostJSON()でPOST送信する。
+  const authHashParam = (authConfig && authConfig.usePasswordHash) || '';
 
-  fetch(GVIZ_URL)
-    .then(r => r.text())
-    .then(text => {
-      const json = JSON.parse(text.slice(text.indexOf('(')+1, text.lastIndexOf(')')));
-      const { cols, rows: gRows } = json.table;
-      // 列ラベルをキーにしたオブジェクト配列に変換
-      const rows = gRows.map((r, idx) => {
-        const obj = { _rowIdx: idx };
-        cols.forEach((col, i) => {
-          if (!col.label) return;
-          const cell = r.c[i];
-          const v = cell ? cell.v : null;
-          obj[col.label] = (col.type === 'date' || col.type === 'datetime') ? parseGvizDate(v) : (v === null || v === undefined ? '' : v);
-        });
-        return obj;
-      });
+  gasPostJSON({ type: 'getAllRows', authHash: authHashParam })
+    .then(rawRows => {
+      // 修正H: unauthorized応答などで配列以外が返ってきた場合は、データを書き換えず
+      // エラー表示に留める（既存のローカル売上データを守るための防御）
+      if (!Array.isArray(rawRows)) {
+        status.textContent = '❌ 同期失敗：認証エラーの可能性があります';
+        showAlert('sync-alert', 'error', '同期に失敗しました（認証エラーの可能性があります）');
+        return;
+      }
+      // getAllRowsは既にヘッダー名をキーにしたオブジェクト配列を返すため、
+      // gviz時代の col.label マッピングは不要。_rowIdx（ID列が無い行のフォールバックID生成用）
+      // だけ、gviz時代と同じ意味になるようインデックスとして付与する。
+      const rows = rawRows.map((r, idx) => ({ ...r, _rowIdx: idx }));
 
       // スプシ由来データを全削除して再構築
       data.sales = data.sales.filter(s => s.source !== 'sheet');
@@ -6011,14 +6664,34 @@ document.getElementById('delete-confirm-btn').addEventListener('click', () => {
 
 // ==================== INIT ====================
 loadData();
+// ログインゲート表示（認証前はオーバーレイでツール操作を不可にする）
+renderAuthGate();
 document.getElementById('member-color').value = COLORS[data.members.length % COLORS.length];
 currentViewMonth = new Date();
 goalViewMonth = new Date();
 
-// 起動時に自動同期
-fetch(GAS_URL)
-  .then(r => r.json())
+// 修正B: ログイン前にダッシュボード等へデータを描画してしまうと、オーバーレイをDevTools等で
+// 消しただけで閲覧できてしまうため、実際の初期化（売上データ取得・共有データ同期・定期sync開始）
+// は認証が確認できてから実行する（startAuthenticatedInit()はsubmitAuthLogin/submitAuthSetup
+// 成功時、またはこのタブが既にセッション認証済みのときにだけ呼び出される）。
+if (isSessionAuthed()) {
+  // このタブで既に認証済み（同一セッション内の再読み込み等）→ そのまま初期化してよい
+  startAuthenticatedInit();
+} else {
+  // 未認証：ローディング表示だけ消してログインゲートの入力に専念させる
+  document.getElementById('loading-overlay').style.display = 'none';
+}
+
+// 修正B: 認証確認後にだけ実行する初期化本体（売上データ取得・共有データ同期・定期syncの開始）
+function startAuthenticatedInit() {
+  // 起動時に自動同期（売上データ本体）。修正BでauthHash付きのtype:'getAllRows'に変更。
+  // 修正I: authHashをURL(GET)に残さないよう、gasPostJSON()でPOST送信する。
+  const authHashParam = (authConfig && authConfig.usePasswordHash) || '';
+  gasPostJSON({ type: 'getAllRows', authHash: authHashParam })
   .then(rows => {
+    // 修正B: unauthorized応答等でrowsが配列でない場合は何もせずダッシュボードだけ再描画する
+    // （売上データを不用意に書き換えず、既存ローカルデータを守るための防御）
+    if (!Array.isArray(rows)) { renderDashboard(); return; }
     data.sales = data.sales.filter(s => s.source !== 'sheet');
     let addedSales = 0, addedMembers = 0;
     const stripRd = n => n.replace(/[（(][^）)]*[）)]/g, '').trim();
@@ -6110,16 +6783,19 @@ fetch(GAS_URL)
     renderDashboard();
   });
 
-renderDashboard();
-document.getElementById('loading-overlay').style.display = 'none';
+  renderDashboard();
+  document.getElementById('loading-overlay').style.display = 'none';
 
-// 5分ごとに自動同期（売上 + 共有データ）
-setInterval(() => { syncFromSheet(); pullSharedDataFromGAS(); }, 5 * 60 * 1000);
-// 1分ごとに共有データだけ高頻度で同期
-setInterval(() => pullSharedDataFromGAS(), 60 * 1000);
-// ページ読み込み時に即時同期
-syncFromSheet();
-pullSharedDataFromGAS();
+  // 5分ごとに自動同期（売上 + 共有データ）
+  setInterval(() => { syncFromSheet(); pullSharedDataFromGAS(); }, 5 * 60 * 1000);
+  // 1分ごとに共有データだけ高頻度で同期
+  setInterval(() => pullSharedDataFromGAS(), 60 * 1000);
+  // ページ読み込み時に即時同期（修正E: ログイン直後もここを通るため、ロック解除直後に
+  // 最新の共有データ・売上データが反映される）
+  syncFromSheet();
+  pullSharedDataFromGAS();
+}
+// ==================== END startAuthenticatedInit ====================
 
 // ==================== 項目設定ページ ====================
 
