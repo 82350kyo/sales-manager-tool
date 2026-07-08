@@ -569,6 +569,59 @@ function _sanitizeAuthConfig(auth) {
   return { hasAuth: true, updatedAt: auth.updatedAt || 0 };
 }
 
+// =====================================================
+// 【修正M】authConfig（2段階パスワード認証設定）の保存先をA1(共有データJSON)から
+// スクリプトプロパティ 'AUTH_CONFIG' へ切り離す。
+// -----------------------------------------------------
+// 背景: 旧デプロイ/旧バージョンのクライアントタブが開いたままだと、60秒ごとの定期同期
+// (saveSharedData)がA1セルを丸ごと上書きしてしまう。旧コードはauthConfigという概念自体を
+// 知らないため、A1上書きのたびにパスワード設定が消えてしまう実害が本番で確認された。
+// ScriptPropertiesはスプレッドシートのセル値(A1)とは完全に独立した保存領域であり、
+// 同じApps ScriptプロジェクトであればA1を上書きするどのデプロイ/バージョンの実行からも
+// 影響を受けない。そのためauthConfigの真の保存場所をここに移す。
+// 【厳守】既存の売上データ・SHARED_KEYS(A1)の保存/同期ロジックには一切手を入れない。
+// authConfigの参照元だけをA1からScriptPropertiesへ切り替える。
+// =====================================================
+
+// authConfigをScriptPropertiesから読み込む（無ければnull）。
+// 【マイグレーション】ScriptPropertiesに無く、かつA1のJSONに旧形式のauthConfigが
+// 残っている場合だけ、初回に一度ScriptPropertiesへ自動移行する（安全のため実装。
+// 通常の本番運用ではA1に残っていないはずなので基本はno-op）。
+function _readAuthConfig() {
+  const props = PropertiesService.getScriptProperties();
+  const raw = props.getProperty('AUTH_CONFIG');
+  if (raw) {
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // ScriptPropertiesに無い場合のみ、A1の旧形式authConfigを一度だけ移行する
+  try {
+    const { parsed } = _getRawSharedData();
+    const legacyAuth = parsed && parsed.authConfig;
+    if (legacyAuth && legacyAuth.usePasswordHash) {
+      _writeAuthConfig(legacyAuth);
+      return legacyAuth;
+    }
+  } catch (e) {
+    // マイグレーション自体の失敗は致命的ではないため無視してnullを返す
+  }
+  return null;
+}
+
+// authConfigをScriptPropertiesへ書き込む。objがnull/undefinedならプロパティ自体を削除する。
+function _writeAuthConfig(obj) {
+  const props = PropertiesService.getScriptProperties();
+  if (obj) {
+    props.setProperty('AUTH_CONFIG', JSON.stringify(obj));
+  } else {
+    props.deleteProperty('AUTH_CONFIG');
+  }
+}
+
 // 【修正C→J→L1】role別・固定エポック時間窓によるサーバー側レート制限（総当たり対策）。
 // GASではIP単位の制御が困難なため、CacheServiceを使ったグローバル(全体共有)な時間窓でロックする。
 // 【修正J】以前はrole共通の1本のキー・スライディングTTL方式だったため、外部から
@@ -622,8 +675,8 @@ function verifyAuth(role, hash) {
       return { ok: false, error: 'locked' };
     }
 
-    const { parsed } = _getRawSharedData();
-    const auth = parsed && parsed.authConfig;
+    // 【修正M】authConfigはA1ではなくScriptProperties(_readAuthConfig)から取得する
+    const auth = _readAuthConfig();
     if (!auth || !auth.usePasswordHash) return { ok: false, error: 'not_configured' };
     const target = role === 'admin' ? auth.adminPasswordHash : auth.usePasswordHash;
     const matched = !!(target && hash && target === hash);
@@ -635,17 +688,17 @@ function verifyAuth(role, hash) {
   }
 }
 
-// 【修正B→L1】共通認証ガード。authConfig未設定(ブートストラップ)時のみ免除。
+// 【修正B→L1→M】共通認証ガード。authConfig未設定(ブートストラップ)時のみ免除。
 // 設定済みの場合はauthHashが保存済みusePasswordHashと一致しないとng（error種別付き）を返す。
 // 【修正L1】verifyAuthと共通のレート制限(role='use')を適用する。これにより、正規のログイン
 // 画面(verifyAuth)を経由せず、候補ハッシュを直接この関数のガード対象エンドポイントへ
 // 投げ続けるオフライン総当たりを防ぐ（ロック中は実際の比較すら行わずlockedを返す）。
+// 【修正M】authConfigはA1ではなくScriptProperties(_readAuthConfig)から取得する。
 // 【重要】定期トリガー由来の自動実行（sendDailyReminder/sendWeeklyRankingの本体関数）は
 // HTTP経由ではなく直接呼び出されるためこのガードの対象外。doGet/doPostの各ハンドラ冒頭で
 // HTTP経由の呼び出しにだけ適用すること（自動通知を壊さないため）。
 function _checkAuthHash(authHash) {
-  const { parsed } = _getRawSharedData();
-  const auth = parsed && parsed.authConfig;
+  const auth = _readAuthConfig();
   const hasAuth = !!(auth && auth.usePasswordHash);
   if (!hasAuth) return { ok: true }; // ブートストラップ: 誰も設定していないので無認証で許可
 
@@ -686,12 +739,17 @@ function getSharedData(authHash) {
     const { parsed } = _getRawSharedData();
     if (!parsed) return { ok: true, data: null, hasAuth: false };
 
-    const auth = parsed.authConfig;
+    // 【修正M】authConfigはA1ではなくScriptProperties(_readAuthConfig)から取得する
+    const auth = _readAuthConfig();
     const hasAuth = !!(auth && auth.usePasswordHash);
 
     // ブートストラップ: まだ誰も認証設定をしていない → 無認証で許可
     if (!hasAuth) {
-      return { ok: true, data: parsed, hasAuth: false };
+      // 【修正M】旧タブ等の影響でA1のJSONに古いauthConfigが紛れ込んでいる可能性があるため、
+      // レスポンスからは必ず除去してから返す（ハッシュが漏れる/混乱する経路を断つため）
+      const safeBoot = Object.assign({}, parsed);
+      delete safeBoot.authConfig;
+      return { ok: true, data: safeBoot, hasAuth: false };
     }
 
     // 【修正L1】verifyAuthを経由しない直接呼び出しでの総当たりを防ぐため、レート制限を適用する。
@@ -707,7 +765,8 @@ function getSharedData(authHash) {
       return { ok: false, error: 'unauthorized', hasAuth: true };
     }
 
-    // 一致 → データを返すが、authConfigのハッシュ値だけは必ず除去する
+    // 一致 → データを返すが、authConfigはScriptProperties由来のサニタイズ済み情報に差し替える
+    // （A1のJSONに万一authConfigが混ざっていても、ここで必ず上書き・除去される）
     const safe = Object.assign({}, parsed);
     safe.authConfig = _sanitizeAuthConfig(auth);
     return { ok: true, data: safe, hasAuth: true };
@@ -722,8 +781,10 @@ function saveSharedData(d, authHash, adminHash) {
     let sheet = ss.getSheetByName('ツール共有データ');
     if (!sheet) sheet = ss.insertSheet('ツール共有データ');
 
-    const { parsed: existing } = _getRawSharedData();
-    const existingAuth = existing && existing.authConfig;
+    // 【修正M】existingAuthはA1ではなくScriptProperties(_readAuthConfig)から取得する。
+    // これにより、旧デプロイ/旧タブがA1を丸ごと上書きしても、認可判定の基準となる
+    // 「本当のauthConfig」はScriptProperties側にあるため影響を受けない。
+    const existingAuth = _readAuthConfig();
     const hasAuth = !!(existingAuth && existingAuth.usePasswordHash);
 
     if (hasAuth) {
@@ -776,8 +837,17 @@ function saveSharedData(d, authHash, adminHash) {
       }
     }
 
+    // 【修正M】authConfigが実際に変わった場合だけScriptPropertiesへ永続化する
+    // （ブートストラップでの初回登録、または管理者確認済みの変更のときのみ変化する）
+    if (JSON.stringify(finalAuth) !== JSON.stringify(existingAuth)) {
+      _writeAuthConfig(finalAuth);
+    }
+
+    // 【修正M・最重要】A1(共有データJSON)にはauthConfigを一切含めない。
+    // 旧デプロイ/旧タブがこのA1セルを丸ごと上書きしても、authConfigの実体は
+    // ScriptProperties側にあるため無傷のまま保たれる。
     const toSave = Object.assign({}, d);
-    toSave.authConfig = finalAuth;
+    delete toSave.authConfig;
     sheet.getRange('A1').setValue(JSON.stringify(toSave));
     return { ok: true };
   } catch (e) {
@@ -1139,4 +1209,84 @@ ${rankText}
     }),
     muteHttpExceptions: true
   });
+}
+
+// =====================================================
+// 【管理者ユーティリティ】authConfig（2段階パスワード認証設定）だけをリセットする
+// -----------------------------------------------------
+// 使い方: Apps Scriptエディタの関数選択プルダウンで resetAuthConfig を選び、
+// 「実行(Run)」ボタンを押すだけでよい。doGet/doPostからは一切呼び出さず、外部にも
+// 公開していない（Webアプリ経由では実行できない）ため、再デプロイは不要。
+//
+// 【重要・破壊防止】この関数は authConfig（ScriptPropertiesの'AUTH_CONFIG'、および
+// 念のためA1に紛れ込んでいる場合はそのauthConfigキー）だけを削除する。
+// 売上データ・プロジェクト・動線・商品・目標・メンバー等、他の共有データキーには
+// 一切触れない。A1のJSONパースに失敗した場合はA1側の書き換えだけをスキップする。
+//
+// 【実行後の注意】他のメンバーがツールを開いたままだと、そのタブの定期同期(push)で
+// 古いauthConfigがまた書き戻されてしまう可能性がある。実行前には他のメンバーに
+// ツールのタブを閉じてもらい、実行後はできるだけ早く自分自身が「初回セットアップ」
+// 画面からパスワードを再設定すること。
+//
+// 【修正O】authConfigの正式な保存場所は、その後のバージョンでA1(共有データJSON)から
+// スクリプトプロパティ 'AUTH_CONFIG'（PropertiesService.getScriptProperties()）へ
+// 移行済み。以前のこの関数はA1のauthConfigキーしか消していなかったため実質効かなく
+// なっていた問題を修正し、ScriptProperties側の'AUTH_CONFIG'を確実に削除するように
+// した（A1側の掃除も安全のため引き続き行う）。
+// =====================================================
+function resetAuthConfig() {
+  const SPREADSHEET_ID = '1BMptkze_WyYL6TRG5Jzugy8aYT-AL4F4O7gnmFPKXRw';
+  const SHEET_NAME_SHARED = 'ツール共有データ';
+
+  try {
+    // ---- (1) 本来の保存場所であるScriptPropertiesの'AUTH_CONFIG'を削除する ----
+    const props = PropertiesService.getScriptProperties();
+    const hadScriptProp = props.getProperty('AUTH_CONFIG') !== null;
+    if (hadScriptProp) {
+      props.deleteProperty('AUTH_CONFIG');
+    }
+
+    // ---- (2) 念のため、A1(共有データJSON)に旧形式のauthConfigが残っていれば掃除する ----
+    let hadA1AuthConfig = false;
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(SHEET_NAME_SHARED);
+    if (!sheet) {
+      Logger.log('シート「' + SHEET_NAME_SHARED + '」が見つからないため、A1側の確認はスキップしました。');
+    } else {
+      const raw = sheet.getRange('A1').getValue();
+      if (!raw) {
+        Logger.log('A1セルは空です（A1側にauthConfigは残っていません）。');
+      } else {
+        let parsed = null;
+        try {
+          parsed = JSON.parse(raw);
+        } catch (e) {
+          // JSONパースに失敗した場合はA1側の書き換えだけをスキップする（破壊防止）
+          Logger.log('エラー: A1セルのJSONパースに失敗したため、A1側は書き換えずスキップしました。詳細: ' + e.toString());
+        }
+        if (parsed) {
+          hadA1AuthConfig = Object.prototype.hasOwnProperty.call(parsed, 'authConfig');
+          if (hadA1AuthConfig) {
+            // authConfigキーだけを削除する（他のキー＝共有データは一切変更しない）
+            delete parsed.authConfig;
+            sheet.getRange('A1').setValue(JSON.stringify(parsed));
+          } else {
+            Logger.log('A1側にauthConfigキーはありませんでした（既にクリーンです）。');
+          }
+        }
+      }
+    }
+
+    // ---- (3) 実行結果をログ出力 ----
+    if (!hadScriptProp && !hadA1AuthConfig) {
+      Logger.log('authConfigはScriptProperties・A1のどちらにも存在しませんでした（既に未設定です）。');
+      return;
+    }
+    Logger.log('✅ authConfig(ScriptProperties)を削除しました。');
+    Logger.log('削除前にScriptPropertiesの AUTH_CONFIG は存在していました: ' + hadScriptProp);
+    Logger.log('削除前にA1側にもauthConfigキーが存在していました: ' + hadA1AuthConfig);
+    Logger.log('次にツールを開くと「初回セットアップ」画面が表示されます。');
+  } catch (e) {
+    Logger.log('予期しないエラーが発生しました。詳細: ' + e.toString());
+  }
 }

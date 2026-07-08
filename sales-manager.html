@@ -2103,37 +2103,55 @@ async function renderAuthGate() {
 
   // ローカルに設定が無い場合のみ、リモートに既存設定が無いか確認する
   showAuthPanel('checking');
-  try {
-    // 修正4: GASはauthHash無し(未認証)の呼び出しに対しても、ハッシュ値を含まない
-    // hasAuth(true/false)フラグだけは返してくれる。setup/loginの判定にはこれだけを使う。
-    // 修正D: ハッシュをURL(GET ?payload=)に残さないよう、POST(text/plain body)で取得する。
-    // 修正1: タイムアウトを4秒→9秒に延長（回線が遅い環境で誤って接続エラー扱いにならないように）
-    const res = await gasPostJSON({ type: 'getSharedData', authHash: '' }, 9000);
 
-    if (!res || typeof res.hasAuth !== 'boolean') {
-      // 修正1: サーバーから想定外の応答(hasAuthが返らない等)のときも絶対に「初回セットアップ」へ進まない。
-      // ここで setup にフォールスルーすると、新端末の誤操作でチーム共有パスワードが
-      // 上書きされ全員がログイン不能になる事故につながるため、必ず接続エラー画面で止める。
-      showAuthPanel('connfail');
-      return;
+  // 修正N: GAS応答が遅く9秒タイムアウトでconnfailが多発していたため、
+  // (1) タイムアウトを9秒→20秒に延長し、(2) 失敗/タイムアウト時は最大2回まで
+  // 自動リトライ（2秒あけて）してから、それでもダメなら接続エラー画面を出すようにした。
+  // 【安全設計は維持】リトライを尽くしても失敗した場合に'setup'へ自動フォールスルーしない
+  // 方針（修正1）は変更していない。
+  const GATE_CHECK_TIMEOUT_MS     = 20000;
+  const GATE_CHECK_MAX_RETRIES    = 2;
+  const GATE_CHECK_RETRY_DELAY_MS = 2000;
+  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+  let res = null;
+  let lastError = null;
+  for (let attempt = 0; attempt <= GATE_CHECK_MAX_RETRIES; attempt++) {
+    try {
+      // 修正4: GASはauthHash無し(未認証)の呼び出しに対しても、ハッシュ値を含まない
+      // hasAuth(true/false)フラグだけは返してくれる。setup/loginの判定にはこれだけを使う。
+      // 修正D: ハッシュをURL(GET ?payload=)に残さないよう、POST(text/plain body)で取得する。
+      res = await gasPostJSON({ type: 'getSharedData', authHash: '' }, GATE_CHECK_TIMEOUT_MS);
+      lastError = null;
+      break; // 成功したらリトライループを抜ける
+    } catch (e) {
+      lastError = e;
+      res = null;
+      if (attempt < GATE_CHECK_MAX_RETRIES) {
+        await sleep(GATE_CHECK_RETRY_DELAY_MS); // 次のリトライまで少し待つ
+      }
     }
-
-    if (res.hasAuth) {
-      // 修正4: リモートに既に認証設定がある。ハッシュはサーバーから受け取れないため、
-      // ここではログイン画面を出すだけに留め、実際のパスワード照合はGASのverifyAuthに委ねる。
-      showAuthPanel('login');
-      return;
-    }
-
-    // 修正1・4: 「初回セットアップ」画面を出してよいのは、リモート取得に成功し、
-    // かつ hasAuth === false（authConfigが本当に未設定）だと確認できた場合のみ。
-    showAuthPanel('setup');
-  } catch (e) {
-    // 修正1: タイムアウト・通信エラー時は絶対に'setup'へ自動フォールスルーしない。
-    // 再読み込みを促す接続エラー画面を表示し、ユーザーが誤って新規パスワードを
-    // 作成してしまわないようにする（新端末誤セットアップによる全員ロックアウト対策）。
-    showAuthPanel('connfail');
   }
+
+  if (lastError || !res || typeof res.hasAuth !== 'boolean') {
+    // 修正1・N: 最大2回リトライしても正常な応答が得られなかった場合、絶対に
+    // 「初回セットアップ」へ自動フォールスルーしない。ここで setup に進むと、
+    // 新端末の誤操作でチーム共有パスワードが上書きされ全員がログイン不能になる
+    // 事故につながるため、必ず接続エラー画面で止める。
+    showAuthPanel('connfail');
+    return;
+  }
+
+  if (res.hasAuth) {
+    // 修正4: リモートに既に認証設定がある。ハッシュはサーバーから受け取れないため、
+    // ここではログイン画面を出すだけに留め、実際のパスワード照合はGASのverifyAuthに委ねる。
+    showAuthPanel('login');
+    return;
+  }
+
+  // 修正1・4: 「初回セットアップ」画面を出してよいのは、リモート取得に成功し、
+  // かつ hasAuth === false（authConfigが本当に未設定）だと確認できた場合のみ。
+  showAuthPanel('setup');
 }
 
 // setup / login / checking / connfail のいずれのパネルを表示するか切り替える
