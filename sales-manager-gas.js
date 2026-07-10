@@ -248,6 +248,39 @@ function doGet(e) {
 }
 
 // =====================================================
+// 【2回目・3回目着金】スプレッドシートのV〜Y列に見出しを用意する（冪等）
+// -----------------------------------------------------
+// V列(22列目)=2回目着金 / W列(23列目)=2回目着金日 / X列(24列目)=3回目着金 / Y列(25列目)=3回目着金日
+// 既にヘッダーが入っている場合は何もしない。Apps Scriptエディタでこの関数を
+// 1回だけ手動実行し、ヘッダー行（1行目）にV1〜Y1の見出しを用意する運用とする。
+// getAllRowsはヘッダー名でキー化して全列を返すため、この見出しさえあれば
+// コード側の追加変更なしで新列のデータが同期されるようになる。
+// =====================================================
+function ensureExtraPaymentColumns() {
+  const ss = SpreadsheetApp.openById('1BMptkze_WyYL6TRG5Jzugy8aYT-AL4F4O7gnmFPKXRw');
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) throw new Error(SHEET_NAME + ' シートが見つかりません');
+
+  const headers = [
+    { col: 22, label: '2回目着金' },   // V列
+    { col: 23, label: '2回目着金日' }, // W列
+    { col: 24, label: '3回目着金' },   // X列
+    { col: 25, label: '3回目着金日' }, // Y列
+  ];
+
+  headers.forEach(h => {
+    const cell = sheet.getRange(1, h.col);
+    const current = String(cell.getValue() || '').trim();
+    if (!current) {
+      cell.setValue(h.label);
+      Logger.log(h.label + ' の見出しを設定しました（列' + h.col + '）');
+    } else {
+      Logger.log(h.label + ' は既に設定済みです（列' + h.col + '＝「' + current + '」）。変更しません。');
+    }
+  });
+}
+
+// =====================================================
 // 売上報告タブに1行書き込む
 // =====================================================
 function writeToSheet(d) {
@@ -278,6 +311,10 @@ function writeToSheet(d) {
     ci.nextApproachDate || '',                 // 次回アプローチ予定日
     ci.customerMemo || ci.secondNote || '',    // 備考／所感
     Number(d.additionalAmount) || 0,           // 追加決済額
+    Number(d.payment2) || 0,                   // V: 2回目着金（新規作成時は通常未入力）
+    d.paymentDate2 || '',                      // W: 2回目着金日
+    Number(d.payment3) || 0,                   // X: 3回目着金
+    d.paymentDate3 || '',                      // Y: 3回目着金日
   ];
   // 末尾に追加してからタイムスタンプ降順でソート（最新が常に一番上）
   sheet.appendRow(row);
@@ -482,10 +519,15 @@ function updateSaleDetailRow(payload) {
   sheet.getRange(targetRow, 6).setValue(payload.result || '');        // F列: 結果
   sheet.getRange(targetRow, 7).setValue(payload.product || '');       // G列: 商品
   sheet.getRange(targetRow, 8).setValue(Number(payload.amount) || 0); // H列: 売上金額
-  sheet.getRange(targetRow, 9).setValue(Number(payload.payment) || 0);// I列: 着金
+  // 【修正E・QA指摘対応】着金額が0/未入力に戻された場合は、対応する着金日セルも空にして
+  // 「金額はゼロなのに古い着金日が残る」という不整合を防ぐ
+  const paymentNum = Number(payload.payment) || 0;
+  sheet.getRange(targetRow, 9).setValue(paymentNum);// I列: 着金
   // J列(10): 属性は変更しない
   sheet.getRange(targetRow, 11).setValue(payload.recording || '');    // K列: 録画URL
-  if (payload.paymentDate) {
+  if (paymentNum === 0) {
+    sheet.getRange(targetRow, 12).setValue('');                       // L列: 着金日（金額0ならクリア）
+  } else if (payload.paymentDate) {
     sheet.getRange(targetRow, 12).setValue(payload.paymentDate);      // L列: 着金日
   }
   // M列(13): IDは変更しない
@@ -496,6 +538,24 @@ function updateSaleDetailRow(payload) {
   sheet.getRange(targetRow, 18).setValue(payload.approachMonths || '');   // R列: アプローチ目安
   sheet.getRange(targetRow, 19).setValue(payload.nextApproachDate || ''); // S列: 次回アプローチ予定日
   sheet.getRange(targetRow, 20).setValue(payload.customerMemo || '');     // T列: 備考/所感
+  // U列(21): 追加決済額は既存のupdateSaleDetailの仕様上ここでは変更しない
+
+  // 【2回目・3回目着金】V〜Y列（22〜25列目）。列見出しはensureExtraPaymentColumns()で用意済み前提。
+  // 【修正E・QA指摘対応】1回目と同様、金額が0/未入力に戻された場合は着金日セルもクリアする
+  const payment2Num = Number(payload.payment2) || 0;
+  sheet.getRange(targetRow, 22).setValue(payment2Num); // V列: 2回目着金
+  if (payment2Num === 0) {
+    sheet.getRange(targetRow, 23).setValue('');          // W列: 2回目着金日（金額0ならクリア）
+  } else if (payload.paymentDate2) {
+    sheet.getRange(targetRow, 23).setValue(payload.paymentDate2); // W列: 2回目着金日
+  }
+  const payment3Num = Number(payload.payment3) || 0;
+  sheet.getRange(targetRow, 24).setValue(payment3Num); // X列: 3回目着金
+  if (payment3Num === 0) {
+    sheet.getRange(targetRow, 25).setValue('');          // Y列: 3回目着金日（金額0ならクリア）
+  } else if (payload.paymentDate3) {
+    sheet.getRange(targetRow, 25).setValue(payload.paymentDate3); // Y列: 3回目着金日
+  }
 
   return { status: 'ok', updated: targetRow };
 }
@@ -895,7 +955,8 @@ function sendWeeklyRanking() {
   const startStr = Utilities.formatDate(lastMon, 'Asia/Tokyo', 'M/d');
   const endStr   = Utilities.formatDate(lastSun, 'Asia/Tokyo', 'M/d');
 
-  const rows = sheet.getRange(2, 1, lastRow - 1, 21).getValues();
+  // 【2回目・3回目着金】V〜Y列(22〜25列目)も読めるよう21列→25列に拡張
+  const rows = sheet.getRange(2, 1, lastRow - 1, 25).getValues();
 
   // 業種判定（D列の導線文字列からAI・物販を識別）
   function getBusType(cat) {
@@ -919,7 +980,11 @@ function sendWeeklyRanking() {
     const cat     = String(row[3] || ''); // D列 導線
     const result  = String(row[5] || ''); // F列 結果
     const amount  = Number(String(row[7] || '0').replace(/[^0-9]/g, '')) || 0; // H列 売上金額
-    const payment = Number(String(row[8] || '0').replace(/[^0-9]/g, '')) || 0; // I列 着金
+    // 【最終着金額=1〜3回目の合計】I列(1回目)+V列(2回目)+X列(3回目)
+    const payment1 = Number(String(row[8]  || '0').replace(/[^0-9]/g, '')) || 0; // I列 着金(1回目)
+    const payment2 = Number(String(row[21] || '0').replace(/[^0-9]/g, '')) || 0; // V列 着金(2回目)
+    const payment3 = Number(String(row[23] || '0').replace(/[^0-9]/g, '')) || 0; // X列 着金(3回目)
+    const payment  = payment1 + payment2 + payment3;
     const bus     = getBusType(cat);
     if (!name) return;
 
@@ -1091,7 +1156,8 @@ function sendWeeklyRankingImage() {
   const startStr = Utilities.formatDate(lastMon, 'Asia/Tokyo', 'M/d');
   const endStr   = Utilities.formatDate(lastSun, 'Asia/Tokyo', 'M/d');
 
-  const rows = sheet.getRange(2, 1, lastRow - 1, 21).getValues();
+  // 【2回目・3回目着金】V〜Y列(22〜25列目)も読めるよう21列→25列に拡張
+  const rows = sheet.getRange(2, 1, lastRow - 1, 25).getValues();
 
   function getBusType(cat) {
     const c = String(cat || '');
@@ -1111,7 +1177,11 @@ function sendWeeklyRankingImage() {
     const cat     = String(row[3] || '');
     const result  = String(row[5] || '');
     const amount  = Number(String(row[7] || '0').replace(/[^0-9]/g, '')) || 0;
-    const payment = Number(String(row[8] || '0').replace(/[^0-9]/g, '')) || 0;
+    // 【最終着金額=1〜3回目の合計】I列(1回目)+V列(2回目)+X列(3回目)
+    const payment1 = Number(String(row[8]  || '0').replace(/[^0-9]/g, '')) || 0;
+    const payment2 = Number(String(row[21] || '0').replace(/[^0-9]/g, '')) || 0;
+    const payment3 = Number(String(row[23] || '0').replace(/[^0-9]/g, '')) || 0;
+    const payment  = payment1 + payment2 + payment3;
     const bus     = getBusType(cat);
     if (!name) return;
     const keys = ['all'];

@@ -1761,13 +1761,43 @@
       <!-- 着金 -->
       <div style="display:flex;flex-direction:column;gap:5px;">
         <label style="font-size:11px;font-weight:700;color:var(--text-muted);">着金 (円)</label>
-        <input type="number" id="sd-payment" placeholder="0" min="0" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;">
+        <input type="number" id="sd-payment" placeholder="0" min="0" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;" oninput="updateSaleDetailPaymentTotal()">
       </div>
 
       <!-- 着金日 -->
       <div style="display:flex;flex-direction:column;gap:5px;">
         <label style="font-size:11px;font-weight:700;color:var(--text-muted);">着金日</label>
-        <input type="date" id="sd-payment-date" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;">
+        <input type="date" id="sd-payment-date" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;" oninput="updateSaleDetailPaymentTotal()">
+      </div>
+
+      <!-- 2回目着金（分割入金用。1回目で完結する場合は空欄でOK） -->
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">2回目着金 (円)</label>
+        <input type="number" id="sd-payment-2" placeholder="0" min="0" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;" oninput="updateSaleDetailPaymentTotal()">
+      </div>
+
+      <!-- 2回目着金日 -->
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">2回目着金日</label>
+        <input type="date" id="sd-payment-date-2" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;" oninput="updateSaleDetailPaymentTotal()">
+      </div>
+
+      <!-- 3回目着金 -->
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">3回目着金 (円)</label>
+        <input type="number" id="sd-payment-3" placeholder="0" min="0" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;" oninput="updateSaleDetailPaymentTotal()">
+      </div>
+
+      <!-- 3回目着金日 -->
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">3回目着金日</label>
+        <input type="date" id="sd-payment-date-3" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;" oninput="updateSaleDetailPaymentTotal()">
+      </div>
+
+      <!-- 最終着金額（合計・自動計算・読み取り専用） -->
+      <div style="display:flex;flex-direction:column;gap:5px;grid-column:1 / -1;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">最終着金額（1〜3回目の合計・自動計算）</label>
+        <input type="text" id="sd-payment-total" readonly style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;background:var(--surface2);font-weight:800;color:var(--primary);">
       </div>
 
       <!-- 録画URL -->
@@ -2663,6 +2693,46 @@ function getMonthKey(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 }
 
+// =====================================================
+// 【最終着金額対応】1レコード(1回の面談・商談)につき最大3回の着金イベントを扱うためのヘルパー群。
+// 「最終着金額 = 1回目 + 2回目 + 3回目の合計」という考え方をダッシュボード等の集計で使うため、
+// レコード単位ではなく「着金イベント単位」で集計できるようにする。
+// 既存データ（2回目・3回目が未入力）は従来と完全に同じ挙動になる（後方互換）。
+// =====================================================
+
+// レコードsの着金イベントを配列で返す。要素は {amount, date}（dateはYYYY-MM-DD文字列）。
+// イベント1は既存の後方互換ロジック（paymentDateが無ければ面談日dateで代用）を維持する。
+function paymentEventsOf(s) {
+  const events = [];
+  const d1 = s.paymentDate || s.date;
+  if (d1) events.push({ amount: s.payment || 0, date: d1 });
+  if (s.payment2 && s.paymentDate2) events.push({ amount: s.payment2, date: s.paymentDate2 });
+  if (s.payment3 && s.paymentDate3) events.push({ amount: s.payment3, date: s.paymentDate3 });
+  return events;
+}
+
+// レコードsのうち、月キーmk（"YYYY-MM"）に着金したイベントの合計金額を返す
+function paymentInMonth(s, mk) {
+  if (!mk) return 0;
+  return paymentEventsOf(s)
+    .filter(e => e.date && String(e.date).startsWith(mk))
+    .reduce((a, e) => a + e.amount, 0);
+}
+
+// レコードsのうち、月キーmkに着金し、かつそのレコードの面談日(s.date)がmkでない
+// （＝先月以前に面談して今月着金した「流れこみ」）イベントの合計金額を返す
+function flowInPaymentInMonth(s, mk) {
+  if (!mk) return 0;
+  return paymentEventsOf(s)
+    .filter(e => e.date && String(e.date).startsWith(mk) && (!s.date || !String(s.date).startsWith(mk)))
+    .reduce((a, e) => a + e.amount, 0);
+}
+
+// レコードsの全期間の最終着金額（1〜3回目の合計、クーリングオフ等の負数もそのまま含む）
+function paymentAllTime(s) {
+  return (s.payment || 0) + (s.payment2 || 0) + (s.payment3 || 0);
+}
+
 function formatMonth(d) {
   return `${d.getFullYear()}年${d.getMonth()+1}月`;
 }
@@ -3333,7 +3403,8 @@ function renderSalesList() {
     if (!groups[key]) groups[key] = { sales: [], latestDate: '', totalPayment: 0 };
     groups[key].sales.push(s);
     if (!groups[key].latestDate || s.date > groups[key].latestDate) groups[key].latestDate = s.date;
-    groups[key].totalPayment += (s.payment || 0);
+    // 【最終着金額】顧客カードの合計着金は「1〜3回目の合計・全期間」で表示する
+    groups[key].totalPayment += paymentAllTime(s);
   });
 
   const sortedKeys = Object.keys(groups).sort((a, b) => groups[b].latestDate.localeCompare(groups[a].latestDate));
@@ -3406,7 +3477,9 @@ function renderSalesList() {
 
     const timelineRows = sortedSales.map(s => {
       const hasAmount  = (s.amount  || 0) > 0;
-      const hasPayment = Math.abs(s.payment || 0) > 0;
+      // 【修正6・QA指摘対応・最終着金額】バッジも1〜3回目の合計(全期間)で表示し、詳細モーダルと数字が食い違わないようにする
+      const sPaymentTotal = paymentAllTime(s);
+      const hasPayment = Math.abs(sPaymentTotal) > 0;
       const sReminder  = s.customerInfo?.nextApproachDate || '';
       return `
         <div id="sale-row-${s.id}"
@@ -3417,7 +3490,7 @@ function renderSalesList() {
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1;min-width:0;">
             <span style="font-size:12px;color:var(--text-muted);white-space:nowrap;min-width:82px;">${esc(s.date)}</span>
             <span style="font-size:13px;font-weight:700;color:${hasAmount?'#065f46':'var(--text-muted)'};white-space:nowrap;">${hasAmount?'💰 ':''}${fmt(s.amount||0)}</span>
-            <span style="font-size:12px;color:${hasPayment?'#1d4ed8':'var(--text-muted)'};white-space:nowrap;">${hasPayment?'✅ 着金: '+fmt(Math.abs(s.payment)):'着金: -'}</span>
+            <span style="font-size:12px;color:${hasPayment?'#1d4ed8':'var(--text-muted)'};white-space:nowrap;">${hasPayment?'✅ 着金: '+fmt(Math.abs(sPaymentTotal)):'着金: -'}</span>
             <div id="result-cell-${s.id}" style="display:flex;align-items:center;gap:6px;">${resultBadge(s.result)}</div>
             ${sReminder ? `<span title="次回: ${esc(sReminder)}" style="font-size:13px;">🔔</span>` : ''}
           </div>
@@ -3536,6 +3609,18 @@ function closeSaleEditModal() {
 
 // ==================== 売上詳細モーダル（全フィールド表示・編集） ====================
 
+// 【最終着金額】1回目・2回目・3回目の着金額inputから合計を計算し、
+// 読み取り専用フィールド(sd-payment-total)に即時反映する。
+// 各着金額inputのoninputから呼ばれる（モーダルを開いた直後にも初期表示のため呼ぶ）。
+function updateSaleDetailPaymentTotal() {
+  const p1 = Number(document.getElementById('sd-payment').value) || 0;
+  const p2 = Number(document.getElementById('sd-payment-2').value) || 0;
+  const p3 = Number(document.getElementById('sd-payment-3').value) || 0;
+  const total = p1 + p2 + p3;
+  const totalEl = document.getElementById('sd-payment-total');
+  if (totalEl) totalEl.value = `¥${total.toLocaleString()}`;
+}
+
 // 詳細モーダルを開く：指定IDの売上データを全フィールドに反映する
 function openSaleDetailModal(id, event) {
   if (event) { event.preventDefault(); event.stopPropagation(); }
@@ -3551,6 +3636,14 @@ function openSaleDetailModal(id, event) {
   document.getElementById('sd-amount').value = s.amount || 0;
   document.getElementById('sd-payment').value = Math.abs(s.payment || 0);
   document.getElementById('sd-payment-date').value = s.paymentDate || '';
+  // 2回目・3回目着金の反映（未入力の場合は0円・空欄）
+  // 【修正D・QA指摘対応】1回目表示(Math.abs)と体裁を揃えるため、2回目/3回目もMath.absで表示する
+  // （クーリングオフ等で内部的に負数保持していても、入力欄には正の金額として見せる。保存時のロジックは既存通り）
+  document.getElementById('sd-payment-2').value = Math.abs(s.payment2 || 0);
+  document.getElementById('sd-payment-date-2').value = s.paymentDate2 || '';
+  document.getElementById('sd-payment-3').value = Math.abs(s.payment3 || 0);
+  document.getElementById('sd-payment-date-3').value = s.paymentDate3 || '';
+  updateSaleDetailPaymentTotal(); // 最終着金額（合計）を初期表示
   document.getElementById('sd-recording').value = s.recording || '';
   updateRecordingLink();
 
@@ -3660,9 +3753,29 @@ function saveSaleDetail() {
   const product     = document.getElementById('sd-product').value;
   const amount      = parseInt(document.getElementById('sd-amount').value) || 0;
   const paymentRaw  = parseInt(document.getElementById('sd-payment').value) || 0;
-  // クーリングオフ・キャンセルは負数で保持
-  const payment     = (result === 'クーリングオフ' || result === 'キャンセル') ? -Math.abs(paymentRaw) : Math.abs(paymentRaw);
+  // 【修正3・QA指摘対応】クーリングオフ・キャンセルは1〜3回目すべて負数化し、全額返金として相殺する
+  const isRefundResult = (result === 'クーリングオフ' || result === 'キャンセル');
+  const payment     = isRefundResult ? -Math.abs(paymentRaw) : Math.abs(paymentRaw);
   const paymentDate = document.getElementById('sd-payment-date').value;
+  const payment2Raw  = Number(document.getElementById('sd-payment-2').value) || 0;
+  const paymentDate2 = document.getElementById('sd-payment-date-2').value;
+  const payment3Raw  = Number(document.getElementById('sd-payment-3').value) || 0;
+  const paymentDate3 = document.getElementById('sd-payment-date-3').value;
+
+  // 【修正4・QA指摘対応】着金額が入力されているのに着金日が空だと、月次集計(paymentInMonth)に
+  // 乗らず全期間合計(paymentAllTime)とダッシュボード月次表示が食い違ってしまうため、
+  // 「金額あり・日付なし」を保存前に弾く（何も更新せず処理を中断する）
+  if (payment2Raw !== 0 && !paymentDate2) {
+    alert('2回目着金日を入力してください');
+    return;
+  }
+  if (payment3Raw !== 0 && !paymentDate3) {
+    alert('3回目着金日を入力してください');
+    return;
+  }
+
+  const payment2 = isRefundResult ? -Math.abs(payment2Raw) : Math.abs(payment2Raw);
+  const payment3 = isRefundResult ? -Math.abs(payment3Raw) : Math.abs(payment3Raw);
   const recording   = document.getElementById('sd-recording').value.trim();
 
   // 顧客情報
@@ -3685,6 +3798,10 @@ function saveSaleDetail() {
   s.amount      = amount;
   s.payment     = payment;
   s.paymentDate = paymentDate;
+  s.payment2      = payment2;
+  s.paymentDate2  = paymentDate2;
+  s.payment3      = payment3;
+  s.paymentDate3  = paymentDate3;
   s.recording   = recording;
   if (!s.customerInfo) s.customerInfo = {};
   s.customerInfo.upsell          = upsell;
@@ -3714,6 +3831,10 @@ function saveSaleDetail() {
     amount,
     payment,
     paymentDate,
+    payment2,
+    paymentDate2,
+    payment3,
+    paymentDate3,
     recording,
     upsell,
     rejection,
@@ -3817,8 +3938,13 @@ function saveResultChange() {
       if (prod !== undefined) sale.product = prod;
       if (amt !== undefined) sale.amount = amt;
       const rawVal = pay !== undefined ? pay : (sale.payment || 0);
-      sale.payment = (res === 'クーリングオフ' || res === 'キャンセル') ? -Math.abs(rawVal) : Math.abs(rawVal);
+      // 【修正3・QA指摘対応】クーリングオフ・キャンセルは1回目だけでなく2回目・3回目着金も
+      // 同様に負数化し、全額（1〜3回目）が返金として相殺されるようにする
+      const isRefund = (res === 'クーリングオフ' || res === 'キャンセル');
+      sale.payment = isRefund ? -Math.abs(rawVal) : Math.abs(rawVal);
       sale.paymentDate = payDate || (sale.payment ? sale.date : '');
+      if (sale.payment2) sale.payment2 = isRefund ? -Math.abs(sale.payment2) : Math.abs(sale.payment2);
+      if (sale.payment3) sale.payment3 = isRefund ? -Math.abs(sale.payment3) : Math.abs(sale.payment3);
       if (res === '追加決済') sale.rowType = '追加決済';
       else delete sale.rowType;
       sale.source = 'local';
@@ -3903,12 +4029,12 @@ function renderGoalsPage() {
   const goal = getGoal(mk);
 
   const monthSales = data.sales.filter(s => s.date && s.date.startsWith(mk));
-  const paymentMonthSales = data.sales.filter(s => {
-    const pDate = s.paymentDate || s.date;
-    return pDate && pDate.startsWith(mk);
-  });
-  
-  const teamTotal = paymentMonthSales.reduce((a,s) => a+(s.payment||0), 0);
+  // 【Low・QA指摘対応】旧paymentMonthSales(paymentDate||dateが当月のレコード集合)は、
+  // teamTotal/tPayment/mPaymentが全てdata.sales全体からのpaymentInMonth集計に置き換わり
+  // 未使用になっていたため削除した（動作は変更なし）
+
+  // 【最終着金額】チーム目標の実績はレコード単位ではなく着金イベント単位(1〜3回目)で当月分を合計する
+  const teamTotal = data.sales.reduce((a,s) => a + paymentInMonth(s, mk), 0);
   const grGetResult = s => s.result || (s.category||'').split(' ').pop();
 
   // Team goal
@@ -3937,7 +4063,7 @@ function renderGoalsPage() {
   const tMendan = tApo - tCancel;
   const tKeiyaku = normalSalesGoal.filter(s => grGetResult(s).startsWith('成約')).length;
   const tSeiyakuRate = tMendan > 0 ? (tKeiyaku / tMendan * 100) : null;
-  const tPayment = paymentMonthSales.reduce((a,s) => a+(s.payment||0), 0);
+  const tPayment = teamTotal; // 同じ「当月の着金イベント合計」を成約単価の分子にも使う
   const tTanka = tKeiyaku > 0 ? Math.round(tPayment / tKeiyaku) : null;
   const teamKPI = goal.teamKPI || {};
   const kpiDefs = [
@@ -3976,14 +4102,14 @@ function renderGoalsPage() {
     memberKpiEl.innerHTML = data.members.map(m => {
       const mKPI = memberKPIAll[m.id] || {};
       const mSales = monthSales.filter(s => s.memberId === m.id);
-      const mPaymentSales = paymentMonthSales.filter(s => s.memberId === m.id);
       const mNormal = mSales.filter(s => s.rowType !== '追加決済');
       const mApo = mNormal.length;
       const mCancel = mNormal.filter(s => grGetResult(s) === 'キャンセル').length;
       const mMendan = mApo - mCancel;
       const mKeiyaku = mNormal.filter(s => grGetResult(s).startsWith('成約')).length;
       const mSeiyakuRate = mMendan > 0 ? (mKeiyaku / mMendan * 100) : null;
-      const mPayment = mPaymentSales.reduce((a,s) => a+(s.payment||0), 0);
+      // 【最終着金額】メンバーの当月実績も着金イベント単位(1〜3回目)で合計する
+      const mPayment = data.sales.filter(s => s.memberId === m.id).reduce((a,s) => a + paymentInMonth(s, mk), 0);
       const mTanka = mKeiyaku > 0 ? Math.round(mPayment / mKeiyaku) : null;
       // 目標金額（着金）の計算（goalAch は KPIループ内の ach と別変数）
       const mGoal = (goal.memberGoals && goal.memberGoals[m.id]) || 0;
@@ -4549,15 +4675,15 @@ function renderDashboard() {
     return pDate && pDate.startsWith(mk);
   });
   
-  // 追加: 先月以前に「面談」して、今月「着金」した流れ込み分
-  const flowInSales = paymentMonthSales.filter(s => {
-    const pDate = s.paymentDate || s.date;
-    return pDate.startsWith(mk) && (!s.date || !s.date.startsWith(mk));
-  });
+  // 【Low・QA指摘対応】旧flowInSales(paymentMonthSalesをさらに絞ったレコード集合)は、
+  // flowInPaymentがdata.sales全体からのflowInPaymentInMonth集計に置き換わり未使用になって
+  // いたため削除した（動作は変更なし）
 
   const total = paymentMonthSales.filter(s => s.rowType !== '追加決済').reduce((a,s) => a+s.amount, 0);
-  const totalPayment = paymentMonthSales.reduce((a,s) => a+(s.payment||0), 0);
-  const flowInPayment = flowInSales.reduce((a,s) => a+(s.payment||0), 0);
+  // 【最終着金額】今月の総着金・過去からの流れこみは、レコード単位ではなく
+  // 着金イベント単位(1〜3回目)で当月分を集計する（分割着金に対応するため全salesを走査）
+  const totalPayment = data.sales.reduce((a,s) => a + paymentInMonth(s, mk), 0);
+  const flowInPayment = data.sales.reduce((a,s) => a + flowInPaymentInMonth(s, mk), 0);
   const thisMonthMendanPayment = totalPayment - flowInPayment;
 
   const goal = getGoal(mk);
@@ -4598,10 +4724,8 @@ function renderDashboard() {
   // Previous month
   const prevMonth = new Date(currentViewMonth.getFullYear(), currentViewMonth.getMonth()-1, 1);
   const prevMk = getMonthKey(prevMonth);
-  const prevTotalPayment = data.sales.filter(s => {
-    const pDate = s.paymentDate || s.date;
-    return pDate && pDate.startsWith(prevMk);
-  }).reduce((a,s) => a+(s.payment||0), 0);
+  // 【最終着金額】前月比較の前月総着金も、着金イベント単位(1〜3回目)で集計する
+  const prevTotalPayment = data.sales.reduce((a,s) => a + paymentInMonth(s, prevMk), 0);
   const change = prevTotalPayment > 0 ? ((totalPayment - prevTotalPayment) / prevTotalPayment * 100) : null;
 
   // Activity metrics
@@ -4613,10 +4737,16 @@ function renderDashboard() {
   const keiyakuCnt = normalSales.filter(s => getResult(s).startsWith('成約')).length;
   const chakuzaRate = apoCnt > 0 ? (mendanCnt / apoCnt * 100) : null;
   const seiyakuRate = mendanCnt > 0 ? (keiyakuCnt / mendanCnt * 100) : null;
-  const seiyakuTanka = keiyakuCnt > 0 ? Math.round(paymentMonthSales.filter(s => getResult(s).startsWith('成約')).reduce((a,s)=>a+(s.payment||0),0) / keiyakuCnt) : null;
+  // 【最終着金額】成約単価(着金)の分子も、当月に成約扱いのレコードの着金イベント合計(1〜3回目)を使う
+  const seiyakuTanka = keiyakuCnt > 0 ? Math.round(data.sales.filter(s => getResult(s).startsWith('成約')).reduce((a,s)=>a+paymentInMonth(s, mk),0) / keiyakuCnt) : null;
   const coolingOffSales = paymentMonthSales.filter(s => getResult(s) === 'クーリングオフ');
   const coolingOffCnt = coolingOffSales.length;
-  const coolingOffAmount = coolingOffSales.reduce((a,s) => a + Math.abs(s.payment||0), 0);
+  // 【修正C・QA指摘対応】返金額(クーリングオフ)は1回目だけでなく2回目/3回目の返金分も含める。
+  // クーリングオフ扱いの全レコード(月に関わらず)から、当月分の着金イベント合計(通常は負値)の
+  // 絶対値を合算する（totalPayment等と同じpaymentInMonthベースで整合を取る）
+  const coolingOffAmount = data.sales
+    .filter(s => getResult(s) === 'クーリングオフ')
+    .reduce((a,s) => a + Math.abs(paymentInMonth(s, mk)), 0);
 
   // Stats
   document.getElementById('dashboard-stats').innerHTML = `
@@ -4692,10 +4822,11 @@ function renderDashboard() {
   `;
 
   // Member bar chart
+  // 【最終着金額】メンバー別の実績も着金イベント単位(1〜3回目)で当月分を合計する
   const memberData = data.members.map(m => ({
     name: m.name,
     color: m.color,
-    total: paymentMonthSales.filter(s => s.memberId === m.id).reduce((a,s) => a+(s.payment||0), 0),
+    total: data.sales.filter(s => s.memberId === m.id).reduce((a,s) => a + paymentInMonth(s, mk), 0),
     goal: (goal.memberGoals?.[m.id] || 0)
   }));
 
@@ -4729,11 +4860,9 @@ function renderDashboard() {
   });
 
   // Monthly trend
+  // 【最終着金額】月次着金トレンドも着金イベント単位(1〜3回目)で各月分を合計する
   const months = getLast12Months();
-  const trendData = months.map(m => data.sales.filter(s => {
-    const pDate = s.paymentDate || s.date;
-    return pDate && pDate.startsWith(m.key);
-  }).reduce((a,s) => a+(s.payment||0), 0));
+  const trendData = months.map(m => data.sales.reduce((a,s) => a + paymentInMonth(s, m.key), 0));
   if (chartMonthlyTrend) chartMonthlyTrend.destroy();
   const ctx3 = document.getElementById('chart-monthly-trend').getContext('2d');
   chartMonthlyTrend = new Chart(ctx3, {
@@ -4749,6 +4878,9 @@ function renderDashboard() {
   const catEl = document.getElementById('dashboard-category-table');
   const tabSales = currentBusinessTab === '合計' ? normalSales : normalSales.filter(s => s.business === currentBusinessTab);
   const tabPaymentAll = currentBusinessTab === '合計' ? paymentMonthSales : paymentMonthSales.filter(s => s.business === currentBusinessTab);
+  // 【最終着金額】導線別の着金合計は、月に関わらずカテゴリ/業種で絞った全レコードから
+  // 着金イベント単位(1〜3回目)で当月分を集計する（分割着金に対応するため）
+  const tabPaymentScopeAll = currentBusinessTab === '合計' ? data.sales : data.sales.filter(s => s.business === currentBusinessTab);
   const normCatStr = c => c.trim().replace(/　/g, ' ').replace(/（/g, '(').replace(/）/g, ')').replace(/\s*\(/g, '(');
   const detectBiz = (s) => {
     if (s.business) return s.business;
@@ -4782,8 +4914,9 @@ function renderDashboard() {
     <tbody>${allCats.map(cat => {
       const cSalesAll = cat === '合計' ? tabPaymentAll : tabPaymentAll.filter(s => normCatTop(s) === cat);
       const cSales = cat === '合計' ? tabSales : tabSales.filter(s => normCatTop(s) === cat);
+      const cPaymentScope = cat === '合計' ? tabPaymentScopeAll : tabPaymentScopeAll.filter(s => normCatTop(s) === cat);
       const cAmount = cSales.reduce((a,s) => a+s.amount, 0);
-      const cPayment = cSalesAll.reduce((a,s) => a+(s.payment||0), 0);
+      const cPayment = cPaymentScope.reduce((a,s) => a + paymentInMonth(s, mk), 0);
       const cApoSales = cSales.filter(s => getResult(s) !== '成約（2回目）');
       const cApo = cApoSales.length;
       const cCancel = cApoSales.filter(s => getResult(s) === 'キャンセル').length;
@@ -4822,13 +4955,17 @@ function renderDashboard() {
   }
   const memberFilteredSales = currentMemberTab === '合計' ? monthSales : monthSales.filter(s => s.business === currentMemberTab);
   const memberPaymentFilteredSales = currentMemberTab === '合計' ? paymentMonthSales : paymentMonthSales.filter(s => s.business === currentMemberTab);
+  // 【最終着金額】メンバー別の着金合計は、月に関わらず業種で絞った全レコードから
+  // 着金イベント単位(1〜3回目)で当月分を集計する（分割着金に対応するため）
+  const memberPaymentScopeAll = currentMemberTab === '合計' ? data.sales : data.sales.filter(s => s.business === currentMemberTab);
   const memberRows = [...data.members].sort((a, b) => {
-    const aTotal = memberPaymentFilteredSales.filter(s => s.memberId === a.id).reduce((sum,s) => sum+(s.payment||0), 0);
-    const bTotal = memberPaymentFilteredSales.filter(s => s.memberId === b.id).reduce((sum,s) => sum+(s.payment||0), 0);
+    const aTotal = memberPaymentScopeAll.filter(s => s.memberId === a.id).reduce((sum,s) => sum + paymentInMonth(s, mk), 0);
+    const bTotal = memberPaymentScopeAll.filter(s => s.memberId === b.id).reduce((sum,s) => sum + paymentInMonth(s, mk), 0);
     return bTotal - aTotal;
   }).map(m => {
     const mSales = memberFilteredSales.filter(s => s.memberId === m.id);
     const mPaymentSales = memberPaymentFilteredSales.filter(s => s.memberId === m.id);
+    const mPaymentScope = memberPaymentScopeAll.filter(s => s.memberId === m.id);
     const mNormal = mSales.filter(s => s.rowType !== '追加決済');
     const mApoSales = mNormal.filter(s => getResult(s) !== '成約（2回目）');
     const mApo = mApoSales.length;
@@ -4836,7 +4973,7 @@ function renderDashboard() {
     const mMendan = mApo - mCancel;
     const mKeiyaku = mNormal.filter(s => getResult(s).startsWith('成約')).length;
     const mSeiyakuRate = mMendan > 0 ? (mKeiyaku / mMendan * 100) : null;
-    const mTotal = mPaymentSales.reduce((a,s) => a+(s.payment||0), 0);
+    const mTotal = mPaymentScope.reduce((a,s) => a + paymentInMonth(s, mk), 0);
     const mGoal = goal.memberGoals?.[m.id] || 0;
     const mAch = mGoal > 0 ? mTotal / mGoal * 100 : null;
     const mkpi = goal.memberKPI?.[m.id] || {};
@@ -4860,7 +4997,7 @@ function renderDashboard() {
     const mCats = [...new Set(mNormal.map(s => normCat(s)))].sort();
     const detailRows = mCats.map(cat => {
       const cSales = mNormal.filter(s => normCat(s) === cat);
-      const cPayment = mPaymentSales.filter(s => normCat(s) === cat).reduce((a,s) => a+(s.payment||0), 0);
+      const cPayment = mPaymentScope.filter(s => normCat(s) === cat).reduce((a,s) => a + paymentInMonth(s, mk), 0);
       const cApoSales2 = cSales.filter(s => getResult(s) !== '成約（2回目）');
       const cApo = cApoSales2.length;
       const cCancel = cApoSales2.filter(s => getResult(s) === 'キャンセル').length;
@@ -5366,7 +5503,8 @@ function renderMonthlySummary() {
       return pDate && pDate.startsWith(m.key);
     });
     const total = monthFilteredSales.filter(s => s.rowType !== '追加決済').reduce((a,s) => a+s.amount, 0);
-    const totalPayment = monthFilteredSales.reduce((a,s) => a+(s.payment||0), 0);
+    // 【最終着金額】月次サマリーの着金も着金イベント単位(1〜3回目)で当月分を合計する
+    const totalPayment = data.sales.reduce((a,s) => a + paymentInMonth(s, m.key), 0);
     // 件数は面談月ベースのまま表示（旧来の挙動）
     const mendanSalesCount = data.sales.filter(s => s.date && s.date.startsWith(m.key) && s.rowType !== '追加決済').length;
     const goal = getGoal(m.key);
@@ -5393,7 +5531,8 @@ function renderMemberReport() {
   }
   const rows = data.members.map(m => {
     const mSales = data.sales.filter(s => s.memberId === m.id);
-    const totalPayment = mSales.reduce((a,s) => a+(s.payment||0), 0);
+    // 【最終着金額】メンバー累計は全期間の1〜3回目合計（分割着金の後払い分も含む）
+    const totalPayment = mSales.reduce((a,s) => a + paymentAllTime(s), 0);
     const cnt = mSales.filter(s => s.rowType !== '追加決済').length;
     return { m, total: totalPayment, cnt };
   }).sort((a,b) => b.total - a.total);
@@ -5783,7 +5922,6 @@ function syncFromSheet() {
         const business = (category.includes('(AI)') || category.includes('（AI）') || ['チョーさん', 'イーサン', '浩志さん', '的場'].some(kw => category.includes(kw))) ? 'AI' : (category.includes('(物販)') || category.includes('（物販）')) ? '物販' : '';
         const note = row['顧客名(LINE名)'] || '';
         const result = row['結果'] || '';
-        const paymentRaw = row['着金'] || row['着金金額'] || '0';
 
         if (!name) return;
         // ローカル入力済みの行はスキップ（重複防止）しつつ、スプシ側で割り当てられたIDがあれば上書きする
@@ -5851,8 +5989,28 @@ function syncFromSheet() {
           addedMembers++;
         }
 
-        const payment2 = Number(String(row['着金'] || '0').replace(/[^0-9]/g, '')) || 0;
-        
+        // 【修正5・QA指摘対応】この変数は「1回目着金」の数値であり、後述の s.payment2（2回目着金）
+        // と紛らわしいため payment1Num にリネームした（動作は変更していない）
+        const payment1Num = Number(String(row['着金'] || '0').replace(/[^0-9]/g, '')) || 0;
+
+        // 【2回目・3回目着金】ヘッダーが未追加(V1〜Y1未設定)のシートでは全てundefinedになり、
+        // 0/空扱いとなって従来と完全に同じ挙動になる（後方互換）
+        const paymentField2 = Number(String(row['2回目着金'] || '0').replace(/[^0-9]/g, '')) || 0;
+        const paymentField3 = Number(String(row['3回目着金'] || '0').replace(/[^0-9]/g, '')) || 0;
+        // 着金日と同じロジックで日付文字列を正規化するヘルパー
+        const parsePaymentDateCol = raw => {
+          const s = String(raw || '');
+          if (s.match(/^\d{4}-\d{2}-\d{2}T/)) {
+            const jst = new Date(new Date(s).getTime() + 9*60*60*1000);
+            return jst.getUTCFullYear() + '-' + String(jst.getUTCMonth()+1).padStart(2,'0') + '-' + String(jst.getUTCDate()).padStart(2,'0');
+          }
+          const m = s.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+          if (m) return `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
+          return '';
+        };
+        const paymentDateField2 = parsePaymentDateCol(row['2回目着金日'] || '');
+        const paymentDateField3 = parsePaymentDateCol(row['3回目着金日'] || '');
+
         // ID取得の強化：どの列にあっても 'sale-' を含む文字列があればIDとして抜き出す
         const allVals = Object.values(row).map(v => String(v || ""));
         const foundSaleId = allVals.reduce((found, v) => {
@@ -5888,7 +6046,7 @@ function syncFromSheet() {
           barrier:          String(row['行動の障壁'] || ''),
           firstNote:        String(row['備考／所感'] || row['備考/所感'] || ''),
         };
-        data.sales.push({ id: saleId, date: dateStr, memberId: member.id, amount, payment: payment2, paymentDate, product, category, business, result, note, recording, source: 'sheet', rowType, history, customerInfo: ciFromSheet });
+        data.sales.push({ id: saleId, date: dateStr, memberId: member.id, amount, payment: payment1Num, paymentDate, payment2: paymentField2, paymentDate2: paymentDateField2, payment3: paymentField3, paymentDate3: paymentDateField3, product, category, business, result, note, recording, source: 'sheet', rowType, history, customerInfo: ciFromSheet });
         addedSales++;
       });
 
@@ -6060,6 +6218,51 @@ function getRankingDateFilter() {
   }
   return () => true;
 }
+// 【修正B・QA再指摘対応・最終着金額対応】現在選択中のrankingPeriod（getRankingDateFilterと同じ期間区分）に
+// 応じて、レコードsの「対象期間内に着金したイベントの合計」を返す。
+// 【重要】getRankingDateFilter()はレコード単位（1回目着金日 or 面談日の1点）だけで期間内/外を
+// 判定するため、「1回目は期間外だが2回目/3回目だけ期間内」の分割着金がまるごと漏れてしまう
+// 問題があった。ここではpaymentEventsOf(s)で全イベントを見て、イベントごとに期間内かどうかを
+// 判定してから合計するため、ダッシュボードの月次集計(paymentInMonth)と同じ考え方で漏れなく拾える。
+function rankingPaymentAmountOf(s) {
+  const now = new Date();
+  const y = now.getFullYear(), m = now.getMonth();
+  // 指定の日付範囲[from, to]に該当する着金イベントだけを合計する
+  const sumInRange = (from, to) => paymentEventsOf(s)
+    .filter(e => e.date && new Date(e.date) >= from && new Date(e.date) <= to)
+    .reduce((a, e) => a + e.amount, 0);
+
+  if (rankingPeriod === '7days') {
+    const cutoff = new Date(now); cutoff.setDate(now.getDate() - 7); cutoff.setHours(0,0,0,0);
+    return sumInRange(cutoff, now);
+  }
+  if (rankingPeriod === 'oneweek') {
+    const { from, to } = getOneWeekRange(false);
+    return sumInRange(from, to);
+  }
+  if (rankingPeriod === 'oneweek_last') {
+    const { from, to } = getOneWeekRange(true);
+    return sumInRange(from, to);
+  }
+  if (rankingPeriod === 'month') {
+    return paymentInMonth(s, `${y}-${String(m+1).padStart(2,'0')}`);
+  }
+  if (rankingPeriod === 'last') {
+    const d = new Date(y, m-1, 1);
+    return paymentInMonth(s, `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+  }
+  if (rankingPeriod === '3month') {
+    const cutoff = new Date(y, m-2, 1);
+    return sumInRange(cutoff, now);
+  }
+  if (rankingPeriod === 'year') {
+    const from = new Date(y, 0, 1);
+    const to = new Date(y, 11, 31, 23, 59, 59, 999);
+    return sumInRange(from, to);
+  }
+  return paymentAllTime(s); // 'all'（全期間）
+}
+
 // カテゴリ文字列から業種（AI / 物販 / ''）を判定する関数
 function getBusinessType(category) {
   const c = String(category || '');
@@ -6083,6 +6286,15 @@ function renderRanking() {
     if (rankingBusiness !== '総合') {
       mSales = mSales.filter(s => getBusinessType(s.category) === rankingBusiness);
     }
+    // 【修正B・QA再指摘対応】着金額の集計はレコード単位の期間フィルタ(mSales/filter(s))に
+    // 頼らない。filter(s)は1回目着金日(または面談日)の1点だけで判定するため、
+    // 「1回目は期間外だが2回目/3回目だけ期間内」のレコードがmSalesから漏れてしまい、
+    // ダッシュボードの集計(data.sales全体からイベント単位で拾う方式)とズレる原因になっていた。
+    // そのため着金額系だけは、このメンバー(+業種)の全レコードを対象にイベント単位で拾い直す。
+    let moneyScope = data.sales.filter(s => s.memberId === m.id);
+    if (rankingBusiness !== '総合') {
+      moneyScope = moneyScope.filter(s => getBusinessType(s.category) === rankingBusiness);
+    }
     const normal = mSales.filter(s => s.rowType !== '追加決済');
     const cancelCnt = normal.filter(s => getResult2(s) === 'キャンセル').length;
     const mendan = normal.length - cancelCnt;
@@ -6091,16 +6303,22 @@ function renderRanking() {
     const seiyakuRate = mendan > 0 ? (keiyaku / mendan * 100) : null;
     // 成約額（売上金額の合計）
     const seiyakuAmount = keiyakuRows.reduce((a, s) => a + (s.amount || 0), 0);
-    // 着金額
-    const chakkinAmount = mSales.reduce((a, s) => a + (s.payment || 0), 0);
-    const coolingOff = mSales.filter(s => getResult2(s) === 'クーリングオフ').reduce((a, s) => a + Math.abs(s.payment||0), 0);
+    // 着金額（【最終着金額】1〜3回目の合計を、対象期間のイベント単位でmoneyScope全体から集計する）
+    // 【修正・QA最終指摘対応】payment/payment2/payment3はクーリングオフ確定時に保存側で
+    // 既にマイナス化済みのため、chakkinAmountは既に「返金を差し引いた純額」になっている。
+    // そのためcoolingOffをここから再度差し引くと二重減算になってしまう
+    // （例：成約10万円→クーリングオフで本来0円のところ-10万円と表示されるバグがあった）。
+    // ダッシュボード・メンバー別テーブルと同様、coolingOffは表示専用の参考値として残し、
+    // 着金額(順位/着金率に使う値)はchakkinAmountをそのまま使う。
+    const chakkinAmount = moneyScope.reduce((a, s) => a + rankingPaymentAmountOf(s), 0);
+    const coolingOff = moneyScope.filter(s => getResult2(s) === 'クーリングオフ').reduce((a, s) => a + Math.abs(rankingPaymentAmountOf(s)), 0);
+    // 件数系(クーリングオフ件数)は従来通りレコード単位(mSales)のままでよい
     const coolingCnt = mSales.filter(s => getResult2(s) === 'クーリングオフ').length;
-    const net = chakkinAmount - coolingOff;
     // 平均成約単価（成約額ベース）
     const tanka = keiyaku > 0 ? Math.round(seiyakuAmount / keiyaku) : null;
-    // 着金率 = 着金額 / 成約額
-    const chakkinRate = seiyakuAmount > 0 ? (net / seiyakuAmount * 100) : null;
-    return { m, total: net, cnt: normal.length, mendan, keiyaku, seiyakuRate, seiyakuAmount, tanka, chakkinRate, coolingCnt, coolingOff };
+    // 着金率 = 着金額(純額) / 成約額
+    const chakkinRate = seiyakuAmount > 0 ? (chakkinAmount / seiyakuAmount * 100) : null;
+    return { m, total: chakkinAmount, cnt: normal.length, mendan, keiyaku, seiyakuRate, seiyakuAmount, tanka, chakkinRate, coolingCnt, coolingOff };
   }).filter(r => r.cnt > 0 || r.total > 0).sort((a, b) => b.total - a.total);
 
   if (ranked.length === 0) {
@@ -6223,8 +6441,8 @@ function renderSeminarPage() {
         map[clientKey].isKeiyaku = true;
       }
       
-      // 着金額（分子）はすべての行を合算
-      map[clientKey].payment += (s.payment || 0);
+      // 着金額（分子）はすべての行を合算（【最終着金額】1〜3回目の合計を全期間で加算）
+      map[clientKey].payment += paymentAllTime(s);
     });
     return map;
   };
@@ -6702,105 +6920,12 @@ if (isSessionAuthed()) {
 
 // 修正B: 認証確認後にだけ実行する初期化本体（売上データ取得・共有データ同期・定期syncの開始）
 function startAuthenticatedInit() {
-  // 起動時に自動同期（売上データ本体）。修正BでauthHash付きのtype:'getAllRows'に変更。
-  // 修正I: authHashをURL(GET)に残さないよう、gasPostJSON()でPOST送信する。
-  const authHashParam = (authConfig && authConfig.usePasswordHash) || '';
-  gasPostJSON({ type: 'getAllRows', authHash: authHashParam })
-  .then(rows => {
-    // 修正B: unauthorized応答等でrowsが配列でない場合は何もせずダッシュボードだけ再描画する
-    // （売上データを不用意に書き換えず、既存ローカルデータを守るための防御）
-    if (!Array.isArray(rows)) { renderDashboard(); return; }
-    data.sales = data.sales.filter(s => s.source !== 'sheet');
-    let addedSales = 0, addedMembers = 0;
-    const stripRd = n => n.replace(/[（(][^）)]*[）)]/g, '').trim();
-    const localSales = data.sales.filter(s => s.source === 'local');
-    rows.forEach(row => {
-      const name = stripRd(row['担当者'] || '');
-      const dateRaw = row['日時'] || '';
-      const amount = Number(String(row['売上金額'] || '0').replace(/[^0-9]/g, '')) || 0;
-      const category = row['導線'] || '';
-      const note = row['顧客名(LINE名)'] || '';
-      const result = row['結果'] || '';
-      const cat2 = row['導線'] || '';
-      const business = (cat2.includes('(AI)') || cat2.includes('（AI）')) ? 'AI' : (cat2.includes('(物販)') || cat2.includes('（物販）')) ? '物販' : '';
-      if (!name) return;
-      // ローカル入力済みの行はスキップ（重複防止）
-      const alreadyLocal = localSales.some(s => {
-        const sName = stripRd(data.members.find(m => m.id === s.memberId)?.name || '');
-        return s.note === String(note).trim() && s.category === category && sName === name;
-      });
-      if (alreadyLocal) return;
-      const tsRawVal = row['タイムスタンプ'] || row['Timestamp'] || Object.values(row).find(v => String(v).match(/^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}/)) || '';
-      let tsDateStr = '';
-      const tsM = String(tsRawVal).match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
-      if (tsM) tsDateStr = `${tsM[1]}-${String(tsM[2]).padStart(2,'0')}-${String(tsM[3]).padStart(2,'0')}`;
-      let dateStr = '';
-      const dateStr2 = String(dateRaw);
-      if (dateStr2.match(/^(\d{4})-(\d{2})-(\d{2})/)) {
-        dateStr = dateStr2.slice(0, 10);
-      } else if (dateStr2.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/)) {
-        const m = dateStr2.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
-        dateStr = `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
-      } else if (dateStr2.match(/(\d{1,2})[\/](\d{1,2})/)) {
-        const m = dateStr2.match(/(\d{1,2})[\/](\d{1,2})/);
-        dateStr = `${new Date().getFullYear()}-${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`;
-      }
-      if (tsDateStr && (!dateStr || dateStr.slice(0,7) !== tsDateStr.slice(0,7))) dateStr = tsDateStr;
-      if (!dateStr) return;
-      let member = data.members.find(m => stripRd(m.name) === name);
-      if (!member) {
-        member = { id: 'member-' + Date.now() + Math.random(), name, role: '営業担当', color: COLORS[data.members.length % COLORS.length] };
-        data.members.push(member);
-        addedMembers++;
-      }
-      let pDateStr = '';
-      const pRaw = String(row['着金日'] || '').trim();
-      if (pRaw.match(/^(\d{4})-(\d{2})-(\d{2})/)) pDateStr = pRaw.slice(0, 10);
-      else if (pRaw.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/)) {
-        const m = pRaw.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
-        pDateStr = `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
-      } else if (pRaw) pDateStr = pRaw.replace(/\//g, '-');
-      
-      const payment3 = Number(String(row['着金'] || '0').replace(/[^0-9]/g, '')) || 0;
-      data.sales.push({ id: 'sale-' + Date.now() + Math.random(), date: dateStr, memberId: member.id, amount, payment: payment3, paymentDate: pDateStr, category, business, result, note, source: 'sheet' });
-      addedSales++;
-    });
-    // スプシに存在しないローカルエントリを削除
-    const sheetKeys = new Set(rows.map(row => {
-      const n = stripRd(row['担当者'] || '');
-      const ln = String(row['顧客名(LINE名)'] || '').trim();
-      const cat = String(row['導線'] || '').trim();
-      return `${n}|${ln}|${cat}`;
-    }));
-    data.sales = data.sales.filter(s => {
-      if (s.source !== 'local') return true;
-      const mName = stripRd(data.members.find(m => m.id === s.memberId)?.name || '');
-      const key = `${mName}|${s.note||''}|${s.category||''}`;
-      return sheetKeys.has(key);
-    });
-    // 重複メンバーをマージ
-    const seenR = {};
-    const toRm = [];
-    data.members.forEach(m => {
-      const key = stripRd(m.name);
-      if (!seenR[key]) { seenR[key] = m.id; }
-      else { toRm.push(m.id); }
-    });
-    toRm.forEach(dupId => {
-      const keepId = seenR[stripRd(data.members.find(m => m.id === dupId).name)];
-      data.sales.forEach(s => { if (s.memberId === dupId) s.memberId = keepId; });
-    });
-    data.members = data.members.filter(m => !toRm.includes(m.id));
-    data.sales.sort((a, b) => b.date.localeCompare(a.date));
-    localStorage.setItem('sales-manager-data', JSON.stringify(data));
-    renderDashboard();
-    if (document.getElementById('page-sales')?.classList.contains('active')) renderSalesList();
-    if (document.getElementById('page-reports')?.classList.contains('active')) renderReports();
-  })
-  .catch(() => {
-    renderDashboard();
-  });
-
+  // 【修正1・QA指摘対応】以前はここに syncFromSheet() とほぼ同じ「getAllRows→data.sales再構築」
+  // 処理が重複して実装されていた（2重取得）。この複製側は payment2/paymentDate2/payment3/
+  // paymentDate3（2回目・3回目着金）を読み込んでおらず、起動/ログイン直後に syncFromSheet() と
+  // 非同期でレースし、複製側の応答が後着すると2回目/3回目着金が消えた状態でdata.salesが
+  // 上書き・localStorage保存されてしまう不具合があった。
+  // 売上シート取得はsyncFromSheet()一箇所に集約し、二重取得・レースが起きないようにする。
   renderDashboard();
   document.getElementById('loading-overlay').style.display = 'none';
 
