@@ -1809,6 +1809,13 @@
 
     </div><!-- /2カラムグリッド -->
 
+    <!-- 所感（面談時の入力内容・読み取り専用） -->
+    <div style="display:flex;flex-direction:column;gap:5px;grid-column:1/-1;margin-top:14px;">
+      <label style="font-size:11px;font-weight:700;color:var(--text-muted);">📄 所感（面談時の入力内容）</label>
+      <textarea id="sd-memo" readonly placeholder="（入力なし）" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;resize:vertical;min-height:70px;background:var(--surface2);color:var(--text-muted);"></textarea>
+      <span style="font-size:11px;color:var(--text-muted);">※修正は新規入力時のみ可能です</span>
+    </div>
+
     <!-- 区切り線：顧客情報セクション -->
     <div style="margin:20px 0 14px;padding-top:16px;border-top:2px solid var(--surface2);">
       <div style="font-size:13px;font-weight:700;color:var(--text-muted);margin-bottom:14px;">顧客情報</div>
@@ -3719,6 +3726,8 @@ function openSaleDetailModal(id, event) {
   document.getElementById('sd-first-note').value = ci.firstNote || ci.customerMemo || '';
   // 2回目所感（詳細モーダルからのみ編集可能）
   document.getElementById('sd-second-note').value = ci.secondNote || '';
+  // 所感（面談時に入力されたメモ本文。読み取り専用で表示するだけ）
+  document.getElementById('sd-memo').value = s.memo || '';
   // 次回アプローチ日のプレビュー表示
   const previewEl = document.getElementById('sd-next-approach-preview');
   if (previewEl && ci.nextApproachDate) {
@@ -5943,6 +5952,8 @@ function syncFromSheet() {
           // 録画URLをスプシから補完（ローカルに未設定の場合）
           const recFromSheet = String(row['録画URL'] || row['録画'] || '').trim();
           if (!existingLocal.recording && recFromSheet) existingLocal.recording = recFromSheet;
+          // 所感（面談時の入力メモ）をスプシから補完（ローカルに未設定の場合のみ。ローカル優先で上書きしない）
+          if (!existingLocal.memo) existingLocal.memo = String(row['所感'] || row['メモ'] || '');
           // スプシの顧客情報もマージ（次回アプローチ日などを反映）
           const ciMerge = existingLocal.customerInfo || {};
           if (!ciMerge.nextApproachDate) ciMerge.nextApproachDate = toJstDate(row['次回アプローチ予定日'] || '');
@@ -6036,6 +6047,8 @@ function syncFromSheet() {
         const product = row['商品'] || '';
         const history = row['履歴'] || '';
         const recording = String(row['録画URL'] || row['録画'] || '').trim();
+        // 所感（面談時に入力されたメモ本文）。ヘッダー名変更（メモ→所感）の前後どちらにも対応
+        const memo = String(row['所感'] || row['メモ'] || '');
         const rowType = (result.includes('追加決済') || result.includes('決済')) && !result.includes('待ち') ? '追加決済' : undefined;
         // スプシの顧客情報列をcustomerInfoにマッピング
         const ciFromSheet = {
@@ -6047,7 +6060,7 @@ function syncFromSheet() {
           barrier:          String(row['行動の障壁'] || ''),
           firstNote:        String(row['備考／所感'] || row['備考/所感'] || ''),
         };
-        data.sales.push({ id: saleId, date: dateStr, memberId: member.id, amount, payment: payment1Num, paymentDate, payment2: paymentField2, paymentDate2: paymentDateField2, payment3: paymentField3, paymentDate3: paymentDateField3, product, category, business, result, note, recording, source: 'sheet', rowType, history, customerInfo: ciFromSheet });
+        data.sales.push({ id: saleId, date: dateStr, memberId: member.id, amount, payment: payment1Num, paymentDate, payment2: paymentField2, paymentDate2: paymentDateField2, payment3: paymentField3, paymentDate3: paymentDateField3, product, category, business, result, note, recording, memo, source: 'sheet', rowType, history, customerInfo: ciFromSheet });
         addedSales++;
       });
 
