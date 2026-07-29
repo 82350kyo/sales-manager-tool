@@ -3150,6 +3150,7 @@ function addSale() {
     customerInfo.approachMonths = document.getElementById('sale-approach-months-nc')?.value || '';
     customerInfo.nextApproachDate = document.getElementById('sale-next-approach-nc')?.value || '';
     customerInfo.firstNote = document.getElementById('sale-second-note')?.value.trim() || '';
+    customerInfo.customerMemo = customerInfo.firstNote; // 後方互換：GAS側がスプレッドシートのT列(備考／所感)にcustomerMemoしか書き込まないため、未成約系でもここに所感を複製しておかないと他端末で所感が空になって消えてしまう
   }
 
   data.sales.push({ id, date, time, memberId, amount, payment, paymentDate, category, result, note: lineName, memo: note, product, recording, source: 'local', customerInfo, additionalAmount, ...(rowType ? { rowType } : {}) });
