@@ -2633,6 +2633,18 @@ function loadData() {
     const br = bi === -1 ? 999 : bi;
     return ar - br;
   });
+
+  // 【アクションプラン月マイグレーション（初回のみ）】
+  // これまでアクションプラン／センターピンには「月」の情報が無く、目標管理ページで
+  // 月を切り替えても全月のデータが表示されていた。month（"YYYY-MM"）フィールドを
+  // 追加するにあたり、既存データを消さずに一度だけ補完する。
+  // 「未実施」「進行中」の運用中プラン・センターピンは、ユーザーの画面に今まさに
+  // 表示されている実データなので、createdAt に関係なく「マイグレーション実行時点の
+  // 当月」に寄せる（＝画面から消えたように見えないようにする）。
+  // 「完了」済みのプランのみ、過去の記録として createdAt の月に割り当てる。
+  // 既に month が設定済みのプランは絶対に上書きしない（何度読み込んでも冪等）。
+  normalizeActionPlanMonths(data.actionPlans, 'initial');
+
   saveData();
 }
 
@@ -4476,8 +4488,11 @@ function memberActionPlanHTML(m) {
     return ''; // 未実施はデフォルトスタイル
   };
 
-  // このメンバーの全アクションプランを取得し、センターピンと通常プランに分離
-  const allPlans = (data.actionPlans || []).filter(p => p.memberId === m.id);
+  // 月ナビで選択中の月キー（"YYYY-MM"）。この月のプランだけを表示する。
+  const mk = getMonthKey(goalViewMonth);
+
+  // このメンバーの「選択中の月」のアクションプランだけを取得し、センターピンと通常プランに分離
+  const allPlans = (data.actionPlans || []).filter(p => p.memberId === m.id && p.month === mk);
   const centerPin = allPlans.find(p => p.isCenterPin);
   // 通常プラン（センターピン除外）を作成日降順ソート
   const plans = allPlans
@@ -4544,7 +4559,10 @@ function memberActionPlanHTML(m) {
   return `
     <div style="margin-top:12px;padding-top:12px;border-top:1px dashed var(--border);">
       ${centerPinBox}
-      <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px;">📋 アクションプラン (${plans.length}件)</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+        <div style="font-size:12px;font-weight:700;color:var(--text-muted);">📋 アクションプラン (${plans.length}件)</div>
+        <button class="btn btn-sm btn-outline" onclick="copyActionPlansFromPrevMonth('${m.id}')" title="前月の未完了プランとセンターピンをこの月へコピー">⬅️ 前月からコピー</button>
+      </div>
       ${planRows}
       <!-- 新規プラン追加フォーム -->
       <div style="display:flex;gap:8px;margin-top:10px;">
@@ -4574,6 +4592,8 @@ function addActionPlan(memberId) {
     memberId,
     text,
     status: '未実施',
+    // 【月切り替え対応】今表示している月ナビの月に紐づけて保存する（今日の日付ではない）
+    month: getMonthKey(goalViewMonth),
     createdAt: now,
     updatedAt: now
   });
@@ -4616,8 +4636,10 @@ function setCenterPin(memberId) {
   if (!text) { alert('センターピン（最重要アクション）の内容を入力してください'); return; }
   if (!Array.isArray(data.actionPlans)) data.actionPlans = [];
   const now = Date.now();
-  // 既存のセンターピンを検索（メンバーごとに1件のみ）
-  const existing = data.actionPlans.find(p => p.memberId === memberId && p.isCenterPin);
+  // 【月切り替え対応】今表示している月ナビの月に紐づける（今日の日付ではない）
+  const mk = getMonthKey(goalViewMonth);
+  // 既存のセンターピンを検索（メンバー×月ごとに1件のみ）
+  const existing = data.actionPlans.find(p => p.memberId === memberId && p.isCenterPin && p.month === mk);
   if (existing) {
     // 既存センターピンのテキストを更新（ステータスは維持）
     existing.text = text;
@@ -4626,13 +4648,91 @@ function setCenterPin(memberId) {
     // 新規センターピンを追加（isCenterPin:true で通常プランと区別）
     data.actionPlans.push({
       id: 'ap-' + now + '-' + Math.random().toString(36).slice(2, 7),
-      memberId, text, status: '未実施', isCenterPin: true,
+      memberId, text, status: '未実施', isCenterPin: true, month: mk,
       createdAt: now, updatedAt: now
     });
   }
   if (inp) inp.value = ''; // 入力欄をリセット
   // 保存後に編集モードを解除（表示モードに戻す）
   if (_editCenterPin[memberId]) delete _editCenterPin[memberId];
+  saveData();
+  renderGoalsPage(); // KPI ループ内 inline 描画のため全体再描画
+}
+
+/**
+ * 「前月からコピー」機能。
+ * 前月の「未実施」「進行中」の通常アクションプランと、前月のセンターピンを
+ * 選択中の月（月ナビで表示している月）へコピーする。
+ * ・完了済みのプランはコピーしない
+ * ・同じ文言のプランが選択中の月に既にある場合はスキップ（重複防止）
+ * ・センターピンは、選択中の月にまだセンターピンが無い場合のみコピーする
+ * ・コピーしたプランには必ず新しい一意のIDを振る（同期時にID無しデータが消えるバグを防ぐため）
+ * @param {string} memberId - 対象のメンバーID
+ */
+function copyActionPlansFromPrevMonth(memberId) {
+  const mk = getMonthKey(goalViewMonth); // 選択中（コピー先）の月
+  const prevMonthDate = new Date(goalViewMonth.getFullYear(), goalViewMonth.getMonth() - 1, 1);
+  const prevMk = getMonthKey(prevMonthDate); // 前月（コピー元）の月
+
+  if (!Array.isArray(data.actionPlans)) data.actionPlans = [];
+
+  // コピー元候補：前月の未実施／進行中の通常プラン
+  const prevPlans = data.actionPlans.filter(p =>
+    p.memberId === memberId && p.month === prevMk && !p.isCenterPin &&
+    (p.status === '未実施' || p.status === '進行中')
+  );
+  // コピー元候補：前月のセンターピン
+  const prevCenterPin = data.actionPlans.find(p =>
+    p.memberId === memberId && p.month === prevMk && p.isCenterPin
+  );
+
+  if (prevPlans.length === 0 && !prevCenterPin) {
+    alert('前月にコピーできるアクションプランがありません');
+    return;
+  }
+
+  if (!confirm(`前月（${formatMonth(prevMonthDate)}）のアクションプランを${formatMonth(goalViewMonth)}にコピーしますか？`)) return;
+
+  // 選択中の月に既にある通常プランのテキスト一覧（重複コピー防止用）
+  const existingTexts = new Set(
+    data.actionPlans
+      .filter(p => p.memberId === memberId && p.month === mk && !p.isCenterPin)
+      .map(p => p.text)
+  );
+
+  prevPlans.forEach(p => {
+    if (existingTexts.has(p.text)) return; // 同じ文言は追加しない
+    const now = Date.now();
+    data.actionPlans.push({
+      id: 'ap-' + now + '-' + Math.random().toString(36).slice(2, 9), // 新規の一意なID
+      memberId,
+      text: p.text,
+      status: p.status, // ステータスは前月から引き継ぐ
+      month: mk,
+      createdAt: now,
+      updatedAt: now
+    });
+    existingTexts.add(p.text); // 同一実行内での重複追加も防ぐ
+  });
+
+  // センターピンは選択中の月にまだ無い場合のみコピーする（月ごとに1件までのルールを守る）
+  const hasCenterPinThisMonth = data.actionPlans.some(p =>
+    p.memberId === memberId && p.month === mk && p.isCenterPin
+  );
+  if (prevCenterPin && !hasCenterPinThisMonth) {
+    const now = Date.now();
+    data.actionPlans.push({
+      id: 'ap-' + now + '-' + Math.random().toString(36).slice(2, 9),
+      memberId,
+      text: prevCenterPin.text,
+      status: prevCenterPin.status,
+      isCenterPin: true,
+      month: mk,
+      createdAt: now,
+      updatedAt: now
+    });
+  }
+
   saveData();
   renderGoalsPage(); // KPI ループ内 inline 描画のため全体再描画
 }
@@ -5628,6 +5728,79 @@ function mergeGoalsDeep(local, remote, remoteNewer) {
 
 // ==================== アクションプラン マージ ヘルパー ====================
 
+// createdAt から安全に月キー（"YYYY-MM"）を算出するヘルパー。
+// createdAt が無い、または壊れた値（Date化してNaNになる等）の場合は
+// フォールバック月（通常は当月）を返す。「NaN-NaN」のような不正な month が
+// 生成されてプランがどの月にも表示されなくなる事故を防ぐためのガード。
+function monthKeyFromCreatedAt(createdAt, fallbackMk) {
+  if (!createdAt) return fallbackMk;
+  const d = new Date(createdAt);
+  return Number.isFinite(d.getTime()) ? getMonthKey(d) : fallbackMk;
+}
+
+/**
+ * アクションプラン配列の month（"YYYY-MM"）欠損を補完する共通処理。
+ * loadData() の初回マイグレーションと、mergeActionPlans() の同期経路の両方から呼ばれる。
+ * 既に month が設定済みの要素は絶対に上書きしない（何度呼んでも結果が変わらない＝冪等）。
+ *
+ * @param {Array} plans - data.actionPlans（またはマージ後の配列）。破壊的に更新する。
+ * @param {'initial'|'sync'} mode
+ *   'initial' … loadData() の初回マイグレーション専用。
+ *               未実施／進行中の運用中プランとセンターピンは、ユーザーの画面に
+ *               今まさに表示されている実データなので createdAt に関係なく
+ *               「実行時点の当月」に寄せる（画面から消えたように見えないようにする）。
+ *               完了済みプランのみ createdAt の月（無ければ当月）に割り当てる。
+ *   'sync'    … GASとの同期経路（push/pull）専用。改修前バージョンの端末が送ってきた
+ *               month無しプランを補完するためだけに使う。同期のたびに過去のプランが
+ *               当月へ動いてしまわないよう、ステータスによる「当月寄せ」は行わず、
+ *               常に createdAt の月（無ければ当月）を補完するだけにとどめる。
+ * @returns {boolean} 1件でも month を補完したら true
+ */
+function normalizeActionPlanMonths(plans, mode) {
+  if (!Array.isArray(plans) || !plans.length) return false;
+  let changed = false;
+  const nowMk = getMonthKey(new Date());
+  // 今回の呼び出しで新たに month を割り当てたセンターピンだけを対象に、後段で重複チェックする
+  const touchedCenterPins = [];
+
+  plans.forEach(p => {
+    if (!p || p.month) return; // 既に month があるものはスキップ（冪等性の担保）
+    if (mode === 'initial' && p.status !== '完了') {
+      // 未実施／進行中（センターピン含む）は運用中の実データとして当月に寄せる
+      p.month = nowMk;
+    } else {
+      // 完了済み、または同期経路：createdAt の月（無ければ当月）を補完
+      // createdAt が壊れた値でも "NaN-NaN" にならないよう monthKeyFromCreatedAt でガードする
+      p.month = monthKeyFromCreatedAt(p.createdAt, nowMk);
+    }
+    changed = true;
+    if (p.isCenterPin) touchedCenterPins.push(p);
+  });
+
+  // 【センターピン重複防止】初回マイグレーションの「当月寄せ」によって、同一メンバー×
+  // 同一月にセンターピンが複数できてしまった場合に解消する。
+  // 月を付け替える方式だと、敗者側の createdAt がたまたま同じ当月だと再計算しても
+  // 同じ月のままになり重複が残ってしまう（月に依存する解決策の限界）。
+  // そのため「状態そのもの」を変える方式にする：createdAt が最も新しい1件だけ
+  // isCenterPin を true のまま残し、それ以外は isCenterPin を false にして
+  // 通常のアクションプランへ降格させる（テキストや月はそのまま残し、データは消さない）。
+  if (mode === 'initial' && touchedCenterPins.length > 1) {
+    const groups = {};
+    touchedCenterPins.forEach(p => {
+      const key = p.memberId + '|' + p.month;
+      (groups[key] = groups[key] || []).push(p);
+    });
+    Object.values(groups).forEach(group => {
+      if (group.length <= 1) return;
+      group.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      // 先頭（最新）以外は通常プランへ降格。月は変えないため、月に依存せず確実に1件へ収束する。
+      group.slice(1).forEach(p => { p.isCenterPin = false; });
+    });
+  }
+
+  return changed;
+}
+
 // アクションプランを id 単位でマージ（同一idは updatedAt が新しい方を採用、削除idは除外）
 function mergeActionPlans(local, remote, deletedSet) {
   local  = Array.isArray(local)  ? local  : [];
@@ -5640,7 +5813,11 @@ function mergeActionPlans(local, remote, deletedSet) {
     const cur = byId[item.id];
     if (!cur || (item.updatedAt || 0) >= (cur.updatedAt || 0)) byId[item.id] = item;
   });
-  return Object.values(byId);
+  const merged = Object.values(byId);
+  // 【同期経路のmonth補完】改修前バージョンの端末で追加され month が無いまま届いた
+  // プランを補完する。過去プランが同期のたびに当月へ動かないよう 'sync' モードで呼ぶ。
+  normalizeActionPlanMonths(merged, 'sync');
+  return merged;
 }
 
 // ==================== END アクションプラン マージ ヘルパー ====================
