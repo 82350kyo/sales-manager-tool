@@ -43,7 +43,6 @@
     .sidebar-refresh-btn:hover:not(:disabled) { background: rgba(255,255,255,0.22); }
     .sidebar-refresh-btn:disabled { opacity: 0.7; cursor: not-allowed; }
     .sidebar-refresh-status { font-size: 11px; opacity: 0.75; margin-top: 6px; min-height: 14px; }
-    .sidebar-refresh-status.error { color: #fecaca; opacity: 1; font-weight: 600; }
     .sidebar-nav { flex: 1; padding: 12px 0; }
     .nav-item { display: flex; align-items: center; gap: 12px; padding: 12px 20px; cursor: pointer; transition: background 0.15s; font-size: 14px; font-weight: 500; }
     .nav-item:hover { background: rgba(255,255,255,0.1); }
@@ -6073,8 +6072,8 @@ const GAS_URL = (location.hostname === 'localhost' || location.hostname === '127
 
 // 【不具合修正：同期タイムアウト延長】gasPostJSON()のデフォルトタイムアウトは8秒だが、
 // 「売上シート全行取得」「共有データ全件取得」のようにデータ量が多い処理は8秒では終わらないことがあり、
-// サイドバーの「🔄 最新の状態に更新」・設定ページの「🔄 スプシから同期」が毎回タイムアウトで
-// 失敗する不具合の原因になっていた。重い処理だけ個別に長めのタイムアウトを設定する
+// ページ読み込み時の自動同期（startAuthenticatedInit）・設定ページの「🔄 スプシから同期」が毎回
+// タイムアウトで失敗する不具合の原因になっていた。重い処理だけ個別に長めのタイムアウトを設定する
 // （gasPostJSON自体のデフォルト8秒は変更しない＝他の軽い1件だけの読み書きに影響しないようにするため）。
 // GATE_CHECK_TIMEOUT_MS（ログイン前の疎通確認・20秒）に倣った命名・考え方にしている。
 const SYNC_GET_ALL_ROWS_TIMEOUT_MS   = 30000; // 売上シート全行取得（最も件数が多く重いため最長）
@@ -6576,9 +6575,9 @@ function syncFromSheet(onRetry) {
   // 修正I: authHashをURL(GET)に残さないよう、gasPostJSON()でPOST送信する。
   const authHashParam = (authConfig && authConfig.usePasswordHash) || '';
 
-  // 【最新化ボタン対応】以前はここに return が無く戻り値が使われていなかったが、
-  // return を付けて呼び出し元（サイドバーの「最新の状態に更新」ボタン）が完了を待てるようにする。
-  // 誰も戻り値を使っていなかったため、既存の onclick="syncFromSheet()" の挙動は変わらない。
+  // 【不具合修正対応】戻り値({ok:true/false, ...})を返すようにしている。現在この戻り値を
+  // 直接使っている呼び出し元は無いが、失敗理由の判定に使えるよう残してある（既存の
+  // onclick="syncFromSheet()" や自動同期の呼び出し方には影響しない）。
   // 【不具合修正】売上シート全行取得は重いため、タイムアウトをSYNC_GET_ALL_ROWS_TIMEOUT_MS(30秒)に延長し、
   // タイムアウト時に限り1回だけ自動リトライする（gasPostJSONWithRetry）
   _syncFromSheetInFlight = gasPostJSONWithRetry({ type: 'getAllRows', authHash: authHashParam }, SYNC_GET_ALL_ROWS_TIMEOUT_MS, () => {
@@ -6807,40 +6806,14 @@ function syncFromSheet(onRetry) {
 
 // =====================================================
 // 【サイドバー「🔄 最新の状態に更新」ボタン】
-// みんなが入力を始める前にこのボタンを押してもらい、
-// 「スプレッドシートの売上データ」と「他メンバーが入力した共有データ（目標・アクションプラン等）」
-// の両方を取り込んでから、今開いているページを最新の内容に描画し直すための機能。
+// このツールは「押すとページを再読み込み（リロード）するだけ」のシンプルな仕様にしている。
+// 起動時の初期化処理 startAuthenticatedInit() が、ページを開くたびに必ず
+// syncFromSheet()（スプレッドシートの売上データ取り込み）と
+// pullSharedDataFromGAS()（他メンバーが入力した共有データ取り込み）を実行してくれるため、
+// このボタン自身が同期処理を呼ばなくても、リロードするだけで自動的に最新の状態になる。
+// （以前はこのボタン専用に「同期→現在ページだけ再描画→成功/失敗や最終更新時刻を表示」という
+// 処理を作り込んでいたが、リロード方式にしたことで不要になったため整理した）
 // =====================================================
-
-// 今アクティブな（画面に表示中の）ページを判定し、そのページ専用の再描画関数を呼ぶ。
-// showPage()と違い、ナビの選択状態切り替えやevent.currentTargetへの依存が無いため、
-// クリックイベント以外（Promiseの.then内など）からも安全に呼び出せる。
-function refreshCurrentPageView() {
-  const activeEl = document.querySelector('.page.active');
-  if (!activeEl) return;
-  const page = activeEl.id.replace('page-', '');
-  if (page === 'dashboard') renderDashboard();
-  else if (page === 'sales') renderSalesPage();
-  else if (page === 'members') renderMemberList();
-  // 目標管理ページは「入力中は保留」のFromSync版ではなく、通常のrenderGoalsPage()を直接呼ぶ。
-  // このボタンはユーザーが明示的に押す操作なので保留せず即座に最新化してよい。
-  // また、renderGoalsPage()自体が「未保存の入力欄(_goalsDirtyFields)の値を退避→再描画→復元」する
-  // 仕組みを内蔵しているため、未保存の入力が黙って消えることはない（既存の安全機構をそのまま利用）。
-  else if (page === 'goals') renderGoalsPage();
-  else if (page === 'reports') renderReports();
-  else if (page === 'ranking') renderRanking();
-  else if (page === 'seminar') renderSeminarPage();
-  else if (page === 'projects') renderProjects();
-  else if (page === 'teamtasks') renderTeamTasks();
-  else if (page === 'settings') renderSettings();
-  else if (page === 'projecttasks') renderPTProjects();
-  else if (page === 'knowledge') renderKnowledge();
-  else if (page === 'item-settings') {
-    // 商品タブ／導線タブのどちらが表示中でも一覧データだけ更新する（表示中のタブ自体は切り替えない）
-    renderProductsList();
-    renderRoutesList();
-  }
-}
 
 // 【モバイル対応修正】現在の画面幅がモバイル用レイアウト（下部の横並びナビ）かどうかを判定する。
 // CSSの @media (max-width: 768px) と同じ基準値を使う。呼び出す都度チェックするため、
@@ -6873,90 +6846,35 @@ window.addEventListener('resize', () => {
   if (btn && !btn.disabled) btn.textContent = _refreshBtnLabel('idle');
 });
 
-// サイドバーの「🔄 最新の状態に更新」ボタンから呼ばれるメイン処理。
-// ① syncFromSheet()でスプレッドシートの売上データを取り込み →
-// ② pullSharedDataFromGAS()で他メンバーの共有データ（目標・アクションプラン等）を取り込み →
-// ③ 今開いているページを再描画する、という順に必ず実行する（自動同期のsetIntervalと同じ順序）。
-// ボタンは処理中disabledにして連打を防ぎ、成功・失敗と最終更新時刻を必ずボタン直下に表示する。
+// サイドバーの「🔄 最新の状態に更新」ボタンから呼ばれる処理。
+// 「更新＝ページをリロードするだけ」というシンプルな仕様にしている。
+// リロードすると起動時の初期化処理（startAuthenticatedInit）が自動的に
+// syncFromSheet()・pullSharedDataFromGAS()を実行してくれるため、最新のスプレッドシート／
+// 共有データが自然に反映される（このボタンから直接これらの関数を呼ぶ必要はない）。
 function manualRefreshAll() {
   const btn = document.getElementById('sidebar-refresh-btn');
-  const statusEl = document.getElementById('sidebar-refresh-status');
   if (!btn || btn.disabled) return; // 連打防止（念のため二重ガード）
 
+  // 【未保存入力の保護】目標管理ページでまだ保存していない入力（オレンジ枠表示）が残っている場合、
+  // そのままリロードすると入力内容が消えてしまうため、必ず確認を挟む。
+  // 【QA指摘対応】_goalsDirtyFieldsはページを切り替えても（showPage()では）クリアされないため、
+  // 目標管理ページを見ていない状態でこのボタンを押した場合にも確認が出ることがある。
+  // どの入力のことか分からず戸惑わないよう、文言に「目標管理ページ」と場所を明記しておく。
+  // キャンセルされたらリロードせずそのまま処理を終える。
+  if (typeof _goalsDirtyFields !== 'undefined' && _goalsDirtyFields.size > 0) {
+    const okToReload = confirm('目標管理ページに保存していない入力があります。更新するとその入力内容は失われます。よろしいですか？');
+    if (!okToReload) return;
+  }
+
+  // 押したことが分かるように、ボタンをdisabledにして文言を「更新中」に変える。
+  // リロードで画面ごと作り直されるため、元の文言に戻す処理は不要（新しいページ読み込み時に
+  // _initSidebarRefreshLabel() が改めて'idle'表示にしてくれる）。
   btn.disabled = true;
   btn.textContent = _refreshBtnLabel('loading');
-  statusEl.classList.remove('error');
-  statusEl.removeAttribute('title'); // 前回失敗時の詳細ツールチップが残らないようにリセットする
-  statusEl.textContent = _isMobileSidebarView() ? '更新中…' : '更新しています…';
+  const statusEl = document.getElementById('sidebar-refresh-status');
+  if (statusEl) statusEl.textContent = _isMobileSidebarView() ? '更新中…' : '更新しています…';
 
-  // タイムアウトによる自動リトライに入ったタイミングで、サイドバーの表示も
-  // 「⏳ 再試行中…」に更新するためのコールバック（syncFromSheet/pullSharedDataFromGASの内部から呼ばれる）
-  const onRetry = () => {
-    statusEl.textContent = _isMobileSidebarView() ? '⏳ 再試行中' : '⏳ 再試行中…';
-  };
-
-  // syncFromSheet() / pullSharedDataFromGAS() はどちらも内部で例外をcatchして
-  // {ok:false,...} を返すよう作られている（＝rejectしない）ため、Promise.resolve()で包み、
-  // 万一同期関数側が例外を投げても.catch()で確実に拾えるようにしている。
-  // 片方が失敗しても、成功した側の取り込み結果はそのまま残るため不整合は生じない
-  // （認証エラー時はどちらの関数も既存の安全ガードによりローカルデータを書き換えない）。
-  Promise.resolve()
-    .then(() => syncFromSheet(onRetry))
-    .then(r1 => Promise.resolve(pullSharedDataFromGAS(onRetry)).then(r2 => [r1, r2]))
-    .then(([r1, r2]) => {
-      refreshCurrentPageView(); // 今開いているページを最新の内容で描画し直す（成功した側の取り込み結果はそのまま反映される）
-      const now = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
-      const mobile = _isMobileSidebarView();
-      const salesFailed  = !!(r1 && r1.ok === false); // syncFromSheet（売上シート同期）の失敗判定
-      const sharedFailed = !!(r2 && r2.ok === false); // pullSharedDataFromGAS（共有データ同期）の失敗判定
-
-      if (!salesFailed && !sharedFailed) {
-        statusEl.classList.remove('error');
-        statusEl.removeAttribute('title');
-        statusEl.textContent = mobile ? `最終 ${now}` : `最終更新: ${now}`;
-        return;
-      }
-
-      // 【不具合修正】どちらが・なぜ失敗したのかが分かるよう、原因ごとに文言を出し分ける。
-      // 開発者コンソールには常に生のエラーオブジェクトを残す（今後の調査用）。
-      console.error('manualRefreshAll: 同期に失敗しました', { syncFromSheet: r1, pullSharedDataFromGAS: r2 });
-      statusEl.classList.add('error');
-
-      const authFail    = (r1 && r1.reason === 'auth') || (r2 && r2.reason === 'auth');
-      const timeoutFail = !!((r1 && r1.timedOut) || (r2 && r2.timedOut));
-
-      let shortMsg, longMsg; // shortMsg=モバイル用（幅の都合上できるだけ短く）／longMsg=PC用＆title属性（詳細）
-      if (authFail) {
-        shortMsg = '⚠️ 認証エラー';
-        longMsg  = '⚠️ 認証エラーです。再ログインしてください';
-      } else if (salesFailed && sharedFailed) {
-        // 両方失敗：タイムアウトかどうかで文言を変える
-        shortMsg = timeoutFail ? '⚠️ タイムアウト' : '⚠️ 失敗';
-        longMsg  = timeoutFail ? '⚠️ 通信がタイムアウトしました。もう一度お試しください' : `⚠️ 更新に失敗しました（最終試行: ${now}）`;
-      } else {
-        // 片方だけ失敗：成功した側の取り込み結果は refreshCurrentPageView() で既に反映済み
-        shortMsg = '⚠️ 一部失敗';
-        longMsg  = `⚠️ 一部のみ更新（売上: ${salesFailed ? '失敗' : '成功'} / 共有データ: ${sharedFailed ? '失敗' : '成功'}）`;
-      }
-      statusEl.textContent = mobile ? shortMsg : longMsg;
-      // モバイルでは短い文言しか表示できないため、title属性に詳細説明を入れておく（長押し・PC表示時のホバーで確認可能）
-      statusEl.title = longMsg;
-    })
-    .catch((e) => {
-      // 想定外のエラーが起きても、取り込めた範囲までは画面に反映しておく
-      console.error('manualRefreshAll: 想定外のエラー', e);
-      refreshCurrentPageView();
-      const now = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
-      const longMsg = `⚠️ 更新に失敗しました（最終試行: ${now}）`;
-      statusEl.classList.add('error');
-      statusEl.textContent = _isMobileSidebarView() ? '⚠️ 失敗' : longMsg;
-      statusEl.title = longMsg;
-    })
-    .finally(() => {
-      // 成功・失敗どちらでも必ずボタンを元に戻し、再度押せる状態にする
-      btn.disabled = false;
-      btn.textContent = _refreshBtnLabel('idle');
-    });
+  location.reload();
 }
 
 // ==================== RANKING ====================
