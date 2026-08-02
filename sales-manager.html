@@ -4465,6 +4465,11 @@ function _simReadVal(id) {
   return (isNaN(n) || n < 0) ? null : n;
 }
 
+// シミュレーターの「反映先」セレクトで選ばれている値を再描画をまたいで覚えておく変数
+// （select は _goalsDirtyFields の監視対象外＝再描画で消えてしまうため、この変数で選択状態を維持する）
+// 'team' = チーム全体、それ以外はメンバーID
+let _simApplyTarget = 'team';
+
 /**
  * 目標逆算シミュレーターを goal-simulator-section に描画する
  * renderGoalsPage() の末尾から呼ばれる
@@ -4517,9 +4522,15 @@ function renderGoalSimulator() {
     </div>
     <!-- 算出結果表示エリア -->
     <div id="sim-result" style="background:var(--bg-secondary,#f4f6f8);border-radius:8px;border:1px solid var(--border);padding:14px;margin-bottom:16px;font-size:13px;min-height:56px;"></div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
       <button class="btn btn-primary" onclick="saveGoalSimulator()">保存</button>
-      <button class="btn btn-outline" onclick="applySimulatorToKPI()">成約率・単価・契約数・面談数をKPI目標に反映</button>
+      <!-- 反映先セレクト: チーム全体 or メンバーを選んでからKPI目標に反映する -->
+      <select id="sim-apply-target" onchange="_simApplyTarget=this.value" style="max-width:160px;">
+        <option value="team" ${_simApplyTarget === 'team' ? 'selected' : ''}>チーム全体</option>
+        ${data.members.map(m => `<option value="${esc(m.id)}" ${_simApplyTarget === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}
+      </select>
+      <button class="btn btn-outline" onclick="applySimulatorToKPI()">KPI目標に反映</button>
+      <div style="width:100%;font-size:11px;color:var(--text-muted);">反映される項目: 成約率・成約単価・契約数・面談数</div>
     </div>
   `;
 
@@ -4606,14 +4617,34 @@ function saveGoalSimulator() {
 }
 
 /**
- * シミュレーターで算出された値（または入力値）を teamKPI に反映して保存する
- * 反映対象: seiyakuRate(成約率) / tanka(成約単価) / keiyaku(契約数) / mendan(面談数)
+ * シミュレーターで算出された値（または入力値）を KPI 目標に反映して保存する。
+ * 反映対象の項目: seiyakuRate(成約率) / tanka(成約単価) / keiyaku(契約数) / mendan(面談数)
+ * 反映先は #sim-apply-target セレクトの選択値で決まる（'team'=チーム全体 / それ以外=メンバーID）。
+ * ・チーム全体 → data.goals[mk].teamKPI を上書き（従来どおりの挙動）
+ * ・メンバー   → data.goals[mk].memberKPI[memberId] を上書き（apo は対象外のため既存値を保持する）
  */
 function applySimulatorToKPI() {
-  // 誤操作防止: KPI 上書き前に確認ダイアログを表示
-  if (!confirm('チームKPI目標（成約率・成約単価・契約数・面談数）を上書きします。よろしいですか？')) return;
-
+  const targetSelectEl = document.getElementById('sim-apply-target');
+  const targetId = targetSelectEl ? targetSelectEl.value : 'team';
   const mk = getMonthKey(goalViewMonth);
+
+  // 【安全ガード】メンバー反映時は、選択中のIDが data.members に実在するか必ず確認する。
+  // 複数人が同時利用する共有ツールのため、このセレクトを開いたまま他端末でそのメンバーが
+  // 削除→同期される可能性がある（自動同期は入力中の再描画を保留するが、data.members自体は
+  // 即時更新されるため、DOM上のセレクトだけが古いまま残ることがある）。
+  // 実在しないIDのまま反映してしまうと、表示先の無い「幽霊メンバーKPI」が
+  // 以後ずっと全端末に同期され続け、誰も気づけずに残り続けてしまうため、ここで処理を中断する。
+  const targetMember = (targetId !== 'team') ? data.members.find(m => m.id === targetId) : null;
+  if (targetId !== 'team' && !targetMember) {
+    alert('反映先のメンバーが見つかりません。画面を再読み込みして選び直してください。');
+    return;
+  }
+
+  // 誤操作防止: KPI 上書き前に、反映先が分かる文言で確認ダイアログを表示する
+  const confirmMsg = (targetId === 'team')
+    ? 'チームKPI目標（成約率・成約単価・契約数・面談数）を上書きします。よろしいですか？'
+    : `${targetMember.name}さんの${formatMonth(goalViewMonth)}のKPI目標（成約率・成約単価・契約数・面談数）を上書きします。よろしいですか？`;
+  if (!confirm(confirmMsg)) return;
 
   // 再描画で入力欄が消えないよう、現在の入力値を simulator に先保存する
   if (!data.goals[mk]) data.goals[mk] = { teamGoal: 0, memberGoals: {}, teamKPI: {}, memberKPI: {} };
@@ -4634,16 +4665,30 @@ function applySimulatorToKPI() {
     M: _simReadVal('sim-mendan'),
   });
 
-  if (!data.goals[mk].teamKPI) data.goals[mk].teamKPI = {};
-
-  // 有効な値のみ KPI 目標に上書き（null・NaN・負数は反映しない）
-  if (solved.R != null) data.goals[mk].teamKPI.seiyakuRate = parseFloat(solved.R.toFixed(1));
-  if (solved.U != null) data.goals[mk].teamKPI.tanka       = Math.round(solved.U);
-  if (solved.D != null) data.goals[mk].teamKPI.keiyaku     = Math.ceil(solved.D);
-  if (solved.M != null) data.goals[mk].teamKPI.mendan      = Math.ceil(solved.M);
+  if (targetId === 'team') {
+    // ---- チーム全体に反映（従来どおりの挙動） ----
+    if (!data.goals[mk].teamKPI) data.goals[mk].teamKPI = {};
+    // 有効な値のみ KPI 目標に上書き（null・NaN・負数は反映しない）
+    if (solved.R != null) data.goals[mk].teamKPI.seiyakuRate = parseFloat(solved.R.toFixed(1));
+    if (solved.U != null) data.goals[mk].teamKPI.tanka       = Math.round(solved.U);
+    if (solved.D != null) data.goals[mk].teamKPI.keiyaku     = Math.ceil(solved.D);
+    if (solved.M != null) data.goals[mk].teamKPI.mendan      = Math.ceil(solved.M);
+  } else {
+    // ---- 選択されたメンバーに反映 ----
+    // saveMemberCard と同じ形で未作成の入れ物を初期化してから書き込む
+    if (!data.goals[mk].memberKPI) data.goals[mk].memberKPI = {};
+    if (!data.goals[mk].memberKPI[targetId]) data.goals[mk].memberKPI[targetId] = {};
+    const mKPI = data.goals[mk].memberKPI[targetId];
+    // apo（アポ数）はシミュレーターに対応項目が無いため、既存の値を保持して0で潰さない
+    // 有効な値のみ上書き（null・NaN・負数は反映しない）
+    if (solved.R != null) mKPI.seiyakuRate = parseFloat(solved.R.toFixed(1));
+    if (solved.U != null) mKPI.tanka       = Math.round(solved.U);
+    if (solved.D != null) mKPI.keiyaku     = Math.ceil(solved.D);
+    if (solved.M != null) mKPI.mendan      = Math.ceil(solved.M);
+  }
 
   saveData();
-  renderGoalsPage(); // KPI テーブルにも即反映される
+  renderGoalsPage(); // KPI テーブル・メンバーカードにも即反映される
 }
 
 // ==================== ACTION PLANS ====================
