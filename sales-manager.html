@@ -29,9 +29,21 @@
     /* Layout */
     .app { display: flex; min-height: 100vh; }
     .sidebar { width: 240px; background: var(--primary-dark); color: white; display: flex; flex-direction: column; flex-shrink: 0; }
-    .sidebar-header { padding: 24px 20px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+    /* 【モバイル対応修正】以前はborder-bottomをsidebar-headerに付けていたが、
+       ボタンをsidebar-headerの外（.sidebar-refresh-wrap）に移したため、区切り線もそちらへ移動した
+       （PC表示の見た目・余白はheader側のpadding-bottomを0にし、wrap側で肩代わりすることで従来と同じに保っている） */
+    .sidebar-header { padding: 24px 20px 0; }
     .sidebar-title { font-size: 18px; font-weight: 700; }
     .sidebar-sub { font-size: 12px; opacity: 0.7; margin-top: 4px; }
+    /* 「最新の状態に更新」ボタン（サイドバーの濃紺背景の上でも見やすいよう、白枠+白文字にしている）
+       【モバイル対応修正】sidebar-headerはモバイル幅で非表示になるため、ボタンをheaderの外側に出し、
+       PC・モバイルどちらでも必ず表示されるようにした（PC表示の見た目は変えていない） */
+    .sidebar-refresh-wrap { padding: 0 20px 24px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+    .sidebar-refresh-btn { width: 100%; margin-top: 14px; padding: 9px 10px; border-radius: 8px; border: 1.5px solid rgba(255,255,255,0.6); background: rgba(255,255,255,0.08); color: #fff; font-size: 13px; font-weight: 700; font-family: inherit; cursor: pointer; transition: background 0.15s, opacity 0.15s; }
+    .sidebar-refresh-btn:hover:not(:disabled) { background: rgba(255,255,255,0.22); }
+    .sidebar-refresh-btn:disabled { opacity: 0.7; cursor: not-allowed; }
+    .sidebar-refresh-status { font-size: 11px; opacity: 0.75; margin-top: 6px; min-height: 14px; }
+    .sidebar-refresh-status.error { color: #fecaca; opacity: 1; font-weight: 600; }
     .sidebar-nav { flex: 1; padding: 12px 0; }
     .nav-item { display: flex; align-items: center; gap: 12px; padding: 12px 20px; cursor: pointer; transition: background 0.15s; font-size: 14px; font-weight: 500; }
     .nav-item:hover { background: rgba(255,255,255,0.1); }
@@ -248,6 +260,17 @@
       /* サイドバーを下部ナビに変更 */
       .sidebar { width: 100%; flex-direction: row; height: 60px; order: 2; position: fixed; bottom: 0; left: 0; z-index: 100; }
       .sidebar-header { display: none; }
+      /* 【モバイル対応修正】「最新の状態に更新」ボタンはsidebar-headerの中に無いため、ここでは非表示にしない。
+         下部ナビ（横スクロールする.sidebar-nav）の左側に、常に見える固定チップとして表示する。
+         flex-shrink:0にすることで、nav側が横スクロールしてもこのボタンだけは画面から消えない。 */
+      .sidebar-refresh-wrap { flex-shrink: 0; width: 70px; padding: 6px 4px; border-bottom: none; border-right: 1px solid rgba(255,255,255,0.15); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+      /* 【はみ出し修正】以前はword-break:keep-allでCJK文字間の改行が禁止され、長い文言(「🔄 最新の状態に更新」)が
+         チップ幅70pxを超えて右隣のナビ項目にはみ出していた。JS側(_refreshBtnLabel)でモバイル時は
+         「🔄 更新」「⏳ 更新中」という短い文言に出し分けるようにしたため、通常は1行に収まる。
+         それでも万一長い文言が入った場合に備え、white-space:nowrap + overflow:hidden + text-overflow:ellipsis で
+         はみ出しを物理的に防ぐ保険をかけている（overflow-wrapも指定し、単語区切りが無い文字列でも折り返せるようにする）。 */
+      .sidebar-refresh-btn { width: auto; max-width: 100%; margin-top: 0; padding: 4px 4px; font-size: 10px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: anywhere; }
+      .sidebar-refresh-status { font-size: 8px; line-height: 1.15; margin-top: 0; min-height: 0; max-width: 66px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .sidebar-nav { display: flex; flex-direction: row; padding: 0; overflow-x: auto; }
       .sidebar-footer { display: none; }
       .nav-item { flex-direction: column; justify-content: center; align-items: center; padding: 8px 12px; gap: 2px; min-width: 60px; flex: 1; }
@@ -571,6 +594,13 @@
     <div class="sidebar-header">
       <div class="sidebar-title">📊 売上管理</div>
       <div class="sidebar-sub">Bチーム売上管理</div>
+    </div>
+    <!-- 【全員向け】入力前に押してもらう「最新化」ボタン。押すとスプシ同期＋共有データ同期をまとめて実行し、今見ているページを最新の内容に描画し直す。
+         【モバイル対応修正】sidebar-headerの外に出すことで、モバイル幅（sidebar-headerが非表示になる画面）でも
+         必ず表示されるようにしている（PC表示ではheaderの直下に見えるため見た目・位置は変わらない） -->
+    <div class="sidebar-refresh-wrap" id="sidebar-refresh-wrap">
+      <button class="sidebar-refresh-btn" id="sidebar-refresh-btn" onclick="manualRefreshAll()">🔄 最新の状態に更新</button>
+      <div class="sidebar-refresh-status" id="sidebar-refresh-status"></div>
     </div>
     <nav class="sidebar-nav">
       <div class="nav-item active" onclick="showPage('dashboard')">
@@ -6357,7 +6387,9 @@ function pullSharedDataFromGAS() {
       _sharedDataReady = true;
       // 修正4: unauthorized等でres.ok===falseのときはここで即returnするため、
       // 以降のローカルデータ書き換え処理は一切実行されない（売上データ等が消えることはない）
-      if (!res.ok || !res.data) return;
+      // 【最新化ボタン対応】戻り値に{ok:false}を付けて呼び出し元が失敗を判定できるようにする
+      // （戻り値は今まで誰も使っていなかったため、既存の呼び出し箇所の動作には影響しない）
+      if (!res.ok || !res.data) return { ok: false };
       const remote = res.data;
       const localTs  = data._sharedUpdatedAt || 0;
       const remoteTs = remote._updatedAt    || 0;
@@ -6416,7 +6448,7 @@ function pullSharedDataFromGAS() {
       }
 
       if (remoteTs > localTs) { data._sharedUpdatedAt = remoteTs; changed = true; }
-      if (!changed) return;
+      if (!changed) return { ok: true, changed: false };
       localStorage.setItem('sales-manager-data', JSON.stringify(data));
       renderDashboard();
       if (document.getElementById('page-knowledge')?.classList.contains('active')) renderKnowledge();
@@ -6427,10 +6459,13 @@ function pullSharedDataFromGAS() {
       if (document.getElementById('page-goals')?.classList.contains('active')) renderGoalsPageFromSync();
       const el = document.getElementById('sync-status');
       if (el) el.textContent = '共有データ同期: ' + new Date().toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' });
+      return { ok: true, changed: true };
     })
-    .catch(() => {
+    .catch((e) => {
       // エラーでもフラグを立てる（GASが落ちていてもツールは使えるよう）
       _sharedDataReady = true;
+      // 【最新化ボタン対応】失敗を呼び出し元に伝えるための戻り値（既存動作への影響なし）
+      return { ok: false, error: e };
     });
 }
 
@@ -6475,14 +6510,17 @@ function syncFromSheet() {
   // 修正I: authHashをURL(GET)に残さないよう、gasPostJSON()でPOST送信する。
   const authHashParam = (authConfig && authConfig.usePasswordHash) || '';
 
-  gasPostJSON({ type: 'getAllRows', authHash: authHashParam })
+  // 【最新化ボタン対応】以前はここに return が無く戻り値が使われていなかったが、
+  // return を付けて呼び出し元（サイドバーの「最新の状態に更新」ボタン）が完了を待てるようにする。
+  // 誰も戻り値を使っていなかったため、既存の onclick="syncFromSheet()" の挙動は変わらない。
+  return gasPostJSON({ type: 'getAllRows', authHash: authHashParam })
     .then(rawRows => {
       // 修正H: unauthorized応答などで配列以外が返ってきた場合は、データを書き換えず
       // エラー表示に留める（既存のローカル売上データを守るための防御）
       if (!Array.isArray(rawRows)) {
         status.textContent = '❌ 同期失敗：認証エラーの可能性があります';
         showAlert('sync-alert', 'error', '同期に失敗しました（認証エラーの可能性があります）');
-        return;
+        return { ok: false, reason: 'auth' };
       }
       // getAllRowsは既にヘッダー名をキーにしたオブジェクト配列を返すため、
       // gviz時代の col.label マッピングは不要。_rowIdx（ID列が無い行のフォールバックID生成用）
@@ -6681,10 +6719,131 @@ function syncFromSheet() {
         renderSalesList();
       }
       renderDashboard();
+      return { ok: true, addedSales, addedMembers };
     })
     .catch(err => {
       status.textContent = '❌ 同期失敗：' + err.message;
       showAlert('sync-alert', 'error', '同期に失敗しました');
+      // 【最新化ボタン対応】失敗を呼び出し元に伝える戻り値（既存動作への影響なし）
+      return { ok: false, error: err };
+    });
+}
+
+// =====================================================
+// 【サイドバー「🔄 最新の状態に更新」ボタン】
+// みんなが入力を始める前にこのボタンを押してもらい、
+// 「スプレッドシートの売上データ」と「他メンバーが入力した共有データ（目標・アクションプラン等）」
+// の両方を取り込んでから、今開いているページを最新の内容に描画し直すための機能。
+// =====================================================
+
+// 今アクティブな（画面に表示中の）ページを判定し、そのページ専用の再描画関数を呼ぶ。
+// showPage()と違い、ナビの選択状態切り替えやevent.currentTargetへの依存が無いため、
+// クリックイベント以外（Promiseの.then内など）からも安全に呼び出せる。
+function refreshCurrentPageView() {
+  const activeEl = document.querySelector('.page.active');
+  if (!activeEl) return;
+  const page = activeEl.id.replace('page-', '');
+  if (page === 'dashboard') renderDashboard();
+  else if (page === 'sales') renderSalesPage();
+  else if (page === 'members') renderMemberList();
+  // 目標管理ページは「入力中は保留」のFromSync版ではなく、通常のrenderGoalsPage()を直接呼ぶ。
+  // このボタンはユーザーが明示的に押す操作なので保留せず即座に最新化してよい。
+  // また、renderGoalsPage()自体が「未保存の入力欄(_goalsDirtyFields)の値を退避→再描画→復元」する
+  // 仕組みを内蔵しているため、未保存の入力が黙って消えることはない（既存の安全機構をそのまま利用）。
+  else if (page === 'goals') renderGoalsPage();
+  else if (page === 'reports') renderReports();
+  else if (page === 'ranking') renderRanking();
+  else if (page === 'seminar') renderSeminarPage();
+  else if (page === 'projects') renderProjects();
+  else if (page === 'teamtasks') renderTeamTasks();
+  else if (page === 'settings') renderSettings();
+  else if (page === 'projecttasks') renderPTProjects();
+  else if (page === 'knowledge') renderKnowledge();
+  else if (page === 'item-settings') {
+    // 商品タブ／導線タブのどちらが表示中でも一覧データだけ更新する（表示中のタブ自体は切り替えない）
+    renderProductsList();
+    renderRoutesList();
+  }
+}
+
+// 【モバイル対応修正】現在の画面幅がモバイル用レイアウト（下部の横並びナビ）かどうかを判定する。
+// CSSの @media (max-width: 768px) と同じ基準値を使う。呼び出す都度チェックするため、
+// 画面回転やウィンドウのリサイズが起きた後にボタンの状態が変わってもズレない。
+function _isMobileSidebarView() {
+  return !!(window.matchMedia && window.matchMedia('(max-width: 768px)').matches);
+}
+
+// ボタンの文言をPC/モバイルで出し分けるヘルパー。
+// モバイルではチップの幅(70px)に収まる短い文言にし、はみ出し・誤タップ域の発生を防ぐ。
+// PC表示の文言は従来のまま変更しない。
+function _refreshBtnLabel(state) {
+  const mobile = _isMobileSidebarView();
+  if (state === 'loading') return mobile ? '⏳ 更新中' : '⏳ 更新中...';
+  return mobile ? '🔄 更新' : '🔄 最新の状態に更新'; // state === 'idle'
+}
+
+// 【はみ出し修正・初期表示対応】ボタンのHTML内テキストはPC向けの長い文言を直書きしているため、
+// これを実行せずページを開くと、一度もボタンを押していないモバイル端末では長い文言のまま
+// チップからはみ出して表示されてしまう。スクリプト読み込み時点（＝ボタン要素は既にDOMに存在する）で
+// 現在の画面幅に応じた正しい文言に必ず上書きしておく。
+(function _initSidebarRefreshLabel() {
+  const btn = document.getElementById('sidebar-refresh-btn');
+  if (btn) btn.textContent = _refreshBtnLabel('idle');
+})();
+// 画面回転やウィンドウのリサイズでPC⇔モバイルの表示が切り替わったときも文言を追従させる。
+// 更新処理の実行中（disabled中）は上書きしない＝処理中の「⏳ 更新中」表示を壊さないようにする。
+window.addEventListener('resize', () => {
+  const btn = document.getElementById('sidebar-refresh-btn');
+  if (btn && !btn.disabled) btn.textContent = _refreshBtnLabel('idle');
+});
+
+// サイドバーの「🔄 最新の状態に更新」ボタンから呼ばれるメイン処理。
+// ① syncFromSheet()でスプレッドシートの売上データを取り込み →
+// ② pullSharedDataFromGAS()で他メンバーの共有データ（目標・アクションプラン等）を取り込み →
+// ③ 今開いているページを再描画する、という順に必ず実行する（自動同期のsetIntervalと同じ順序）。
+// ボタンは処理中disabledにして連打を防ぎ、成功・失敗と最終更新時刻を必ずボタン直下に表示する。
+function manualRefreshAll() {
+  const btn = document.getElementById('sidebar-refresh-btn');
+  const statusEl = document.getElementById('sidebar-refresh-status');
+  if (!btn || btn.disabled) return; // 連打防止（念のため二重ガード）
+
+  btn.disabled = true;
+  btn.textContent = _refreshBtnLabel('loading');
+  statusEl.classList.remove('error');
+  statusEl.textContent = _isMobileSidebarView() ? '更新中…' : '更新しています…';
+
+  // syncFromSheet() / pullSharedDataFromGAS() はどちらも内部で例外をcatchして
+  // {ok:false,...} を返すよう作られている（＝rejectしない）ため、Promise.resolve()で包み、
+  // 万一同期関数側が例外を投げても.catch()で確実に拾えるようにしている。
+  // 片方が失敗しても、成功した側の取り込み結果はそのまま残るため不整合は生じない
+  // （認証エラー時はどちらの関数も既存の安全ガードによりローカルデータを書き換えない）。
+  Promise.resolve()
+    .then(() => syncFromSheet())
+    .then(r1 => Promise.resolve(pullSharedDataFromGAS()).then(r2 => [r1, r2]))
+    .then(([r1, r2]) => {
+      const failed = (r1 && r1.ok === false) || (r2 && r2.ok === false);
+      refreshCurrentPageView(); // 今開いているページを最新の内容で描画し直す
+      const now = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+      const mobile = _isMobileSidebarView();
+      if (failed) {
+        statusEl.classList.add('error');
+        statusEl.textContent = mobile ? '⚠️ 失敗' : `⚠️ 更新に失敗しました（最終試行: ${now}）`;
+      } else {
+        statusEl.classList.remove('error');
+        statusEl.textContent = mobile ? `最終 ${now}` : `最終更新: ${now}`;
+      }
+    })
+    .catch(() => {
+      // 想定外のエラーが起きても、取り込めた範囲までは画面に反映しておく
+      refreshCurrentPageView();
+      const now = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+      statusEl.classList.add('error');
+      statusEl.textContent = _isMobileSidebarView() ? '⚠️ 失敗' : `⚠️ 更新に失敗しました（最終試行: ${now}）`;
+    })
+    .finally(() => {
+      // 成功・失敗どちらでも必ずボタンを元に戻し、再度押せる状態にする
+      btn.disabled = false;
+      btn.textContent = _refreshBtnLabel('idle');
     });
 }
 
