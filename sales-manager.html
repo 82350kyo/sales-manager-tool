@@ -2760,6 +2760,50 @@ function paymentAllTime(s) {
   return (s.payment || 0) + (s.payment2 || 0) + (s.payment3 || 0);
 }
 
+// =====================================================
+// 【目標管理ページ：メンバー別KPI「実績」共通ヘルパー】
+// 当月の実績も先月の実績（参考表示）も、必ずこの関数を通して計算する。
+// こうすることで、計算式を直したいときに1箇所直すだけで済み、
+// 「当月は直したのに先月は直し忘れた」という事故を防げる。
+// 戻り値: { apo:アポ数, mendan:面談数, keiyaku:契約数,
+//          seiyakuRate:成約率(%,データなしはnull), tanka:成約単価(データなしはnull),
+//          payment:着金実績(円) }
+// =====================================================
+// 【パフォーマンス改善】売上配列(sales)をメンバーIDごとにグループ分けしたMapを作るヘルパー関数。
+// 以前は calcMemberKpiActuals が呼ばれるたびに data.sales / monthSales を毎回 filter で全走査していたが、
+// このMapを呼び出し元(renderGoalsPage)で1回だけ作って渡すことで、全走査の回数を減らす。
+// ※中身の絞り込みロジック自体は一切変更していない（Array.filterと同じ順序で同じ要素が入るだけ）。
+function groupSalesByMemberId(salesArr) {
+  const map = new Map();
+  salesArr.forEach(s => {
+    const key = s.memberId;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(s);
+  });
+  return map;
+}
+
+// monthSalesByMember: 対象月(mk)に面談日があるsalesを memberId ごとにグループ化したMap（groupSalesByMemberIdで作成）
+// allSalesByMember: 全期間のsalesを memberId ごとにグループ化したMap（着金実績の計算に使う。groupSalesByMemberIdで作成）
+function calcMemberKpiActuals(memberId, mk, monthSalesByMember, allSalesByMember) {
+  const getResultOf = s => s.result || (s.category||'').split(' ').pop();
+
+  // 面談日(date)が対象月のレコードのみ抽出（アポ・面談・契約数はこちらの月で数える）
+  const mSales = monthSalesByMember.get(memberId) || [];
+  const mNormal = mSales.filter(s => s.rowType !== '追加決済');
+  const apo = mNormal.length;
+  const cancel = mNormal.filter(s => getResultOf(s) === 'キャンセル').length;
+  const mendan = apo - cancel;
+  const keiyaku = mNormal.filter(s => getResultOf(s).startsWith('成約')).length;
+  const seiyakuRate = mendan > 0 ? (keiyaku / mendan * 100) : null;
+  // 着金実績は「着金イベント単位」で対象月(mk)に着金した分を合計する（面談日ではなく着金日ベース）
+  const memberSales = allSalesByMember.get(memberId) || [];
+  const payment = memberSales.reduce((a,s) => a + paymentInMonth(s, mk), 0);
+  const tanka = keiyaku > 0 ? Math.round(payment / keiyaku) : null;
+
+  return { apo, mendan, keiyaku, seiyakuRate, tanka, payment };
+}
+
 function formatMonth(d) {
   return `${d.getFullYear()}年${d.getMonth()+1}月`;
 }
@@ -4170,6 +4214,18 @@ function renderGoalsPage() {
   // teamTotal/tPayment/mPaymentが全てdata.sales全体からのpaymentInMonth集計に置き換わり
   // 未使用になっていたため削除した（動作は変更なし）
 
+  // 【パフォーマンス改善】メンバー別実績(calcMemberKpiActuals)で使う「先月分の月フィルタ済みsales配列」を、
+  // 当月分(monthSales)と同様にここで1回だけ作っておく（メンバーごとに毎回data.salesを全走査しないため）
+  const prevGoalMonthDate = new Date(goalViewMonth.getFullYear(), goalViewMonth.getMonth() - 1, 1);
+  const prevMk = getMonthKey(prevGoalMonthDate);
+  const prevMonthSales = data.sales.filter(s => s.date && s.date.startsWith(prevMk));
+
+  // 着金計算(calcMemberKpiActuals)で使う「メンバーID→sales配列」のMapを、ここで1回だけ構築する。
+  // メンバー数が増えても、data.salesの全走査は最大3回（当月/先月/全期間）に抑えられる。
+  const monthSalesByMember = groupSalesByMemberId(monthSales);
+  const prevMonthSalesByMember = groupSalesByMemberId(prevMonthSales);
+  const allSalesByMember = groupSalesByMemberId(data.sales);
+
   // 【最終着金額】チーム目標の実績はレコード単位ではなく着金イベント単位(1〜3回目)で当月分を合計する
   const teamTotal = data.sales.reduce((a,s) => a + paymentInMonth(s, mk), 0);
   const grGetResult = s => s.result || (s.category||'').split(' ').pop();
@@ -4236,27 +4292,26 @@ function renderGoalsPage() {
   if (!data.members.length) {
     memberKpiEl.innerHTML = '<div class="empty-state"><div class="icon">👥</div><p>メンバーを登録してください</p></div>';
   } else {
+    // 「先月」の月キー(prevMk)・先月分のsales/Map(prevMonthSalesByMember)は
+    // renderGoalsPage冒頭で1回だけ作成済みのものをそのまま使う（1月表示中なら前年12月になるよう年またぎ対応済み）
+
     memberKpiEl.innerHTML = data.members.map(m => {
       const mKPI = memberKPIAll[m.id] || {};
-      const mSales = monthSales.filter(s => s.memberId === m.id);
-      const mNormal = mSales.filter(s => s.rowType !== '追加決済');
-      const mApo = mNormal.length;
-      const mCancel = mNormal.filter(s => grGetResult(s) === 'キャンセル').length;
-      const mMendan = mApo - mCancel;
-      const mKeiyaku = mNormal.filter(s => grGetResult(s).startsWith('成約')).length;
-      const mSeiyakuRate = mMendan > 0 ? (mKeiyaku / mMendan * 100) : null;
-      // 【最終着金額】メンバーの当月実績も着金イベント単位(1〜3回目)で合計する
-      const mPayment = data.sales.filter(s => s.memberId === m.id).reduce((a,s) => a + paymentInMonth(s, mk), 0);
-      const mTanka = mKeiyaku > 0 ? Math.round(mPayment / mKeiyaku) : null;
+      // 当月・先月の実績を、同じ計算ロジック(calcMemberKpiActuals)で算出する
+      // （リファクタ前の当月ロジックと完全に同じ計算式・同じ結果になるようMapを渡すだけの変更にとどめている）
+      const cur = calcMemberKpiActuals(m.id, mk, monthSalesByMember, allSalesByMember);
+      const prev = calcMemberKpiActuals(m.id, prevMk, prevMonthSalesByMember, allSalesByMember);
+      const mApo = cur.apo, mMendan = cur.mendan, mKeiyaku = cur.keiyaku;
+      const mSeiyakuRate = cur.seiyakuRate, mTanka = cur.tanka, mPayment = cur.payment;
       // 目標金額（着金）の計算（goalAch は KPIループ内の ach と別変数）
       const mGoal = (goal.memberGoals && goal.memberGoals[m.id]) || 0;
       const goalAch = mGoal > 0 ? Math.min((mPayment / mGoal) * 100, 999) : 0;
       const mKpiDefs = [
-        { key: 'apo',         label: 'アポ数',   actual: mApo,         fmtA: v => v+'件' },
-        { key: 'mendan',      label: '面談数',   actual: mMendan,       fmtA: v => v+'件' },
-        { key: 'keiyaku',     label: '契約数',   actual: mKeiyaku,      fmtA: v => v+'件' },
-        { key: 'seiyakuRate', label: '成約率',   actual: mSeiyakuRate,  fmtA: v => v!=null?v.toFixed(1)+'%':'-' },
-        { key: 'tanka',       label: '成約単価', actual: mTanka,        fmtA: v => v!=null?fmt(v):'-' },
+        { key: 'apo',         label: 'アポ数',   actual: mApo,         prevActual: prev.apo,         fmtA: v => v+'件' },
+        { key: 'mendan',      label: '面談数',   actual: mMendan,       prevActual: prev.mendan,      fmtA: v => v+'件' },
+        { key: 'keiyaku',     label: '契約数',   actual: mKeiyaku,      prevActual: prev.keiyaku,     fmtA: v => v+'件' },
+        { key: 'seiyakuRate', label: '成約率',   actual: mSeiyakuRate,  prevActual: prev.seiyakuRate, fmtA: v => v!=null?v.toFixed(1)+'%':'-' },
+        { key: 'tanka',       label: '成約単価', actual: mTanka,        prevActual: prev.tanka,       fmtA: v => v!=null?fmt(v):'-' },
       ];
       return `<div style="border:2px solid ${m.color};border-radius:14px;padding:18px 20px;margin-bottom:18px;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
         <div style="margin-bottom:14px;">
@@ -4266,8 +4321,10 @@ function renderGoalsPage() {
         <div style="margin-bottom:16px;padding:12px 14px;background:#f8fafc;border-radius:10px;">
           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
             <span style="font-size:13px;font-weight:700;color:var(--text-muted);">目標金額（着金）</span>
-            <input type="number" id="goal-${m.id}" value="${mGoal||''}" placeholder="目標金額" style="width:180px;">
+            <input type="number" id="goal-${m.id}" value="${mGoal||''}" placeholder="目標金額" style="width:180px;" onkeydown="if(event.key==='Enter'){event.preventDefault();saveMemberGoal('${m.id}');}">
+            <button class="btn btn-outline btn-sm" onclick="saveMemberGoal('${m.id}')">保存</button>
             <span style="font-size:13px;color:var(--text-muted);">実績: <strong>${fmt(mPayment)}</strong></span>
+            <span style="font-size:11px;color:var(--text-muted);">先月: ${fmt(prev.payment)}</span>
             ${mGoal > 0 ? `<span style="font-size:13px;font-weight:700;color:${goalAch>=100?'var(--success)':goalAch>=70?'var(--warning)':'var(--danger)'};">${goalAch.toFixed(1)}%達成</span>` : ''}
           </div>
           ${mGoal > 0 ? `<div style="margin-top:8px;"><div class="progress-bar"><div class="progress-fill ${goalAch>=100?'good':goalAch>=70?'warn':'bad'}" style="width:${Math.min(goalAch,100)}%"></div></div></div>` : ''}
@@ -4279,13 +4336,15 @@ function renderGoalsPage() {
             const ach = target > 0 && actual != null ? Math.min(actual / target * 100, 999) : null;
             return `<div>
               <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:4px;">${kpi.label}</div>
-              <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">実績: ${kpi.fmtA(actual)}</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:2px;">実績: ${kpi.fmtA(actual)}</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">先月: ${kpi.fmtA(kpi.prevActual)}</div>
               <input type="number" id="mkpi-${m.id}-${kpi.key}" value="${target||''}" placeholder="目標" style="width:100%;margin-bottom:4px;">
               ${ach !== null ? `<div style="display:flex;align-items:center;gap:4px;"><div class="progress-bar" style="flex:1;"><div class="progress-fill ${ach>=100?'good':ach>=70?'warn':'bad'}" style="width:${Math.min(ach,100)}%"></div></div><span style="font-size:11px;font-weight:600;color:${ach>=100?'var(--success)':ach>=70?'var(--warning)':'var(--danger)'}">${ach.toFixed(0)}%</span></div>` : ''}
             </div>`;
           }).join('')}
         </div>
-        <button class="btn btn-outline btn-sm" onclick="saveMemberCard('${m.id}')">保存</button>
+        <!-- 目標金額の保存は上のブロック内の専用ボタンで完結するため、こちらはKPI目標をまとめて保存するボタンだと分かる文言にしている -->
+        <button class="btn btn-outline btn-sm" onclick="saveMemberCard('${m.id}')">KPIをまとめて保存</button>
         ${memberActionPlanHTML(m)}
       </div>`;
     }).join('');
