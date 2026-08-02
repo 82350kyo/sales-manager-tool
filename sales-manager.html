@@ -66,6 +66,8 @@
     input, select, textarea { border: 1.5px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 14px; color: var(--text); background: var(--surface); transition: border-color 0.15s; }
     input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); }
     textarea { resize: vertical; min-height: 80px; }
+    /* 【目標管理ページ】未保存の入力欄をひと目で分かるようにする軽量な見た目（枠線オレンジ＋薄い背景色） */
+    .goals-unsaved-input { border-color: var(--warning) !important; background: rgba(245, 158, 11, 0.06) !important; }
 
     /* Buttons */
     .btn { display: inline-flex; align-items: center; gap: 6px; padding: 10px 18px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all 0.15s; }
@@ -2645,6 +2647,12 @@ function loadData() {
   // 既に month が設定済みのプランは絶対に上書きしない（何度読み込んでも冪等）。
   normalizeActionPlanMonths(data.actionPlans, 'initial');
 
+  // 【アクションプラン並び替え機能マイグレーション（初回のみ）】
+  // order（表示順）フィールドが無い既存プランに、現在の表示順（作成日降順＝従来の並び）
+  // に沿って 0,1,2... を付与する。メンバー×月ごとに独立した連番。
+  // 既に order があるプランは上書きしないため、何度読み込んでも冪等。
+  assignActionPlanOrders(data.actionPlans);
+
   saveData();
 }
 
@@ -2763,6 +2771,9 @@ function changeMonth(dir) {
 
 function changeGoalMonth(dir) {
   goalViewMonth = new Date(goalViewMonth.getFullYear(), goalViewMonth.getMonth() + dir, 1);
+  // 月を切り替えたら、前の月に入力していた未保存の値を新しい月の欄へ持ち込まないよう、
+  // 未保存扱い（_goalsDirtyFields）を一旦すべてクリアする
+  if (typeof _goalsDirtyFields !== 'undefined') _goalsDirtyFields.clear();
   renderGoalsPage();
 }
 
@@ -4045,10 +4056,114 @@ function getGoal(monthKey) {
   return data.goals[monthKey] || { teamGoal: 0, memberGoals: {}, teamKPI: {}, memberKPI: {} };
 }
 
+// =====================================================
+// 【目標管理ページ：自動同期による入力消失バグの対策】
+// 60秒/5分ごとの自動同期(pullSharedDataFromGAS)がrenderGoalsPage()を呼ぶと、
+// 目標金額やKPI目標の入力欄がinnerHTMLごと作り直され、保存前に打ち込んだ値が消えてしまう。
+// これを防ぐため、以下の仕組みを用意する。
+//   1) 入力中（フォーカス中）は自動同期からの再描画を「保留」し、フォーカスが外れたら実行する
+//   2) 再描画そのものが走った場合でも、ユーザーが触った未保存の値だけは退避→復元する
+//   3) 未保存の入力欄は枠線をオレンジにして、ひと目で「まだ保存されていない」と分かるようにする
+// =====================================================
+
+// 自動同期からの再描画が保留中かどうか（入力中に再描画をスキップしたときtrueになる）
+let _goalsRenderPending = false;
+// ユーザーが編集して「まだ保存していない」入力欄のid集合（目標管理ページ用）
+// ここに入っているidだけが、再描画時の値復元・未保存表示の対象になる
+// （触っていない欄は対象外にすることで、リモート同期の正しい更新値を誤って上書きしないようにする）
+let _goalsDirtyFields = new Set();
+
+/**
+ * 目標管理ページ内の入力欄（input/select/textarea）に現在フォーカスがあるかどうかを判定する。
+ * @returns {boolean}
+ */
+function isGoalsInputFocused() {
+  const ae = document.activeElement;
+  if (!ae || !ae.tagName) return false;
+  const tag = ae.tagName;
+  if (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA') return false;
+  return !!(ae.closest && ae.closest('#page-goals'));
+}
+
+/**
+ * 自動同期(pullSharedDataFromGAS)専用の目標管理ページ再描画ラッパー。
+ * ユーザーが目標管理ページの入力欄を編集中（フォーカス中）のときは再描画を保留し、
+ * フォーカスが外れたタイミング（focusoutイベント）でまとめて再描画する。
+ * 保存ボタン・月切り替え・ページ表示時などユーザー操作からの直接呼び出しは、
+ * 今までどおり renderGoalsPage() をそのまま使うため、このガードの影響を受けない。
+ */
+function renderGoalsPageFromSync() {
+  if (isGoalsInputFocused()) {
+    _goalsRenderPending = true; // 入力中なので再描画を保留し、フォーカスが外れたら実行する
+    return;
+  }
+  renderGoalsPage();
+}
+
+// 目標管理ページ内の入力欄が編集されたら「未保存」として記録し、枠線色をすぐに変えて分かるようにする（イベント委譲で常時監視）
+document.addEventListener('input', function(e) {
+  const t = e.target;
+  if (!t || !t.id) return;
+  if (t.tagName !== 'INPUT' && t.tagName !== 'TEXTAREA') return;
+  if (t.closest && t.closest('#page-goals')) {
+    _goalsDirtyFields.add(t.id);
+    t.classList.add('goals-unsaved-input'); // 入力した瞬間に枠線をオレンジにして未保存だと分かるようにする
+  }
+});
+
+// 保留中の再描画を、目標管理ページ内の入力欄からフォーカスが外れたタイミングで実行する
+document.addEventListener('focusout', function(e) {
+  if (!_goalsRenderPending) return;
+  const t = e.target;
+  if (t && t.closest && t.closest('#page-goals')) {
+    _goalsRenderPending = false; // 先に倒しておく（renderGoalsPage内で再度focusoutが発生しても無限ループしないように）
+    renderGoalsPage();
+  }
+});
+
+/**
+ * 目標管理ページの入力欄のうち、_goalsDirtyFields に記録されている
+ * （＝ユーザーが編集してまだ保存していない）要素の現在値を id をキーに退避する。
+ * renderGoalsPage() が innerHTML を差し替える直前に呼ぶ。
+ * @returns {Object} 退避した値。キーが要素id、値が現在の入力内容
+ */
+function _captureGoalsDirtySnapshot() {
+  const snapshot = {};
+  _goalsDirtyFields.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) snapshot[id] = el.value;
+  });
+  return snapshot;
+}
+
+/**
+ * _captureGoalsDirtySnapshot() で退避しておいた値を、再描画直後の入力欄に復元する。
+ * 「退避した値」と「再描画後に表示されている保存済みの値」が異なる場合だけ復元する。
+ * こうすることで、ユーザーが触っていない欄（退避値＝保存済み値で一致）まで復元してしまい、
+ * リモート同期で更新された正しい値を誤って打ち消すことを防いでいる。
+ * 復元した（＝まだ未保存の）欄には goals-unsaved-input クラスを付け、枠線をオレンジにする。
+ * @param {Object} snapshot - _captureGoalsDirtySnapshot() の戻り値
+ */
+function _restoreGoalsDirtySnapshot(snapshot) {
+  Object.keys(snapshot).forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return; // 編集モード終了などで要素自体が無くなっていれば何もしない
+    if (el.value !== snapshot[id]) {
+      el.value = snapshot[id]; // ユーザーが打ち込んだ未保存の値を復元
+    }
+    // 復元後もまだ未保存（dirty集合に残っている）なら、見た目でも分かるようにする
+    if (_goalsDirtyFields.has(id)) el.classList.add('goals-unsaved-input');
+  });
+}
+
 function renderGoalsPage() {
   const mk = getMonthKey(goalViewMonth);
   document.getElementById('goal-month-label').textContent = formatMonth(goalViewMonth);
   const goal = getGoal(mk);
+
+  // 【入力消失バグ対策】innerHTMLで入力欄を作り直す前に、未保存の入力値を退避しておく
+  // （このあと team-goal-section / team-kpi-section / member-kpi-section の描画が終わった直後に復元する）
+  const _goalsSnapshot = _captureGoalsDirtySnapshot();
 
   const monthSales = data.sales.filter(s => s.date && s.date.startsWith(mk));
   // 【Low・QA指摘対応】旧paymentMonthSales(paymentDate||dateが当月のレコード集合)は、
@@ -4176,6 +4291,10 @@ function renderGoalsPage() {
     }).join('');
   }
 
+  // 【入力消失バグ対策】team-goal-section / team-kpi-section / member-kpi-section の
+  // 差し替えが終わった直後に、退避しておいた未保存の入力値を復元する
+  _restoreGoalsDirtySnapshot(_goalsSnapshot);
+
   // シミュレーターを描画（renderGoalsPage の末尾で呼ぶ）
   // アクションプランは KPI ループ内で inline 描画されるため個別呼び出し不要
   renderGoalSimulator();
@@ -4187,6 +4306,7 @@ function saveTeamGoal() {
   if (!data.goals[mk]) data.goals[mk] = { teamGoal: 0, memberGoals: {} };
   data.goals[mk].teamGoal = val;
   saveData();
+  _goalsDirtyFields.delete('team-goal-input'); // 保存済みになったので未保存扱いを解除する
   renderGoalsPage();
 }
 
@@ -4197,6 +4317,7 @@ function saveMemberGoal(memberId) {
   if (!data.goals[mk].memberGoals) data.goals[mk].memberGoals = {};
   data.goals[mk].memberGoals[memberId] = val;
   saveData();
+  _goalsDirtyFields.delete('goal-' + memberId); // 保存済みになったので未保存扱いを解除する
   renderGoalsPage();
 }
 
@@ -4207,6 +4328,7 @@ function saveTeamKPI() {
   ['apo', 'mendan', 'keiyaku', 'seiyakuRate', 'tanka'].forEach(f => {
     const el = document.getElementById('team-kpi-' + f);
     data.goals[mk].teamKPI[f] = el ? (parseFloat(el.value) || 0) : 0;
+    _goalsDirtyFields.delete('team-kpi-' + f); // 保存済みになったので未保存扱いを解除する
   });
   saveData();
   renderGoalsPage();
@@ -4220,6 +4342,7 @@ function saveMemberKPI(memberId) {
   ['apo', 'mendan', 'keiyaku', 'seiyakuRate', 'tanka'].forEach(f => {
     const el = document.getElementById('mkpi-' + memberId + '-' + f);
     data.goals[mk].memberKPI[memberId][f] = el ? (parseFloat(el.value) || 0) : 0;
+    _goalsDirtyFields.delete('mkpi-' + memberId + '-' + f); // 保存済みになったので未保存扱いを解除する
   });
   saveData();
   renderGoalsPage();
@@ -4233,12 +4356,14 @@ function saveMemberCard(memberId) {
   if (!data.goals[mk].memberGoals) data.goals[mk].memberGoals = {};
   const gEl = document.getElementById('goal-' + memberId);
   data.goals[mk].memberGoals[memberId] = gEl ? (parseFloat(gEl.value) || 0) : 0;
+  _goalsDirtyFields.delete('goal-' + memberId); // 保存済みになったので未保存扱いを解除する
   // KPI 目標を保存
   if (!data.goals[mk].memberKPI) data.goals[mk].memberKPI = {};
   if (!data.goals[mk].memberKPI[memberId]) data.goals[mk].memberKPI[memberId] = {};
   ['apo', 'mendan', 'keiyaku', 'seiyakuRate', 'tanka'].forEach(f => {
     const el = document.getElementById('mkpi-' + memberId + '-' + f);
     data.goals[mk].memberKPI[memberId][f] = el ? (parseFloat(el.value) || 0) : 0;
+    _goalsDirtyFields.delete('mkpi-' + memberId + '-' + f); // 保存済みになったので未保存扱いを解除する
   });
   saveData();
   renderGoalsPage();
@@ -4416,6 +4541,7 @@ function saveGoalSimulator() {
     mendan: _simReadVal('sim-mendan'),
   };
 
+  ['sim-amount', 'sim-tanka', 'sim-rate', 'sim-deals', 'sim-mendan'].forEach(id => _goalsDirtyFields.delete(id)); // 保存済みになったので未保存扱いを解除する
   saveData();
   renderGoalsPage();
 }
@@ -4473,6 +4599,39 @@ function applySimulatorToKPI() {
  * @param {Object} m - メンバーオブジェクト（id/name/color）
  * @returns {string} HTML文字列
  */
+/**
+ * 通常アクションプラン（センターピン除く）の並び順を決める比較関数。
+ * order（数値）を第一キーの昇順で並べる。order を持つプランを優先し、
+ * order が無い（未移行の古いデータ等）プラン同士は従来どおり createdAt 降順にする。
+ * order の有無が混在していても例外を出さず、必ず何らかの順序に確定する。
+ * @param {Object} a
+ * @param {Object} b
+ * @returns {number}
+ */
+function actionPlanSortComparator(a, b) {
+  const hasA = typeof a.order === 'number' && isFinite(a.order);
+  const hasB = typeof b.order === 'number' && isFinite(b.order);
+  if (hasA && hasB) return a.order - b.order;
+  if (hasA !== hasB) return hasA ? -1 : 1; // order を持つ方を先に表示
+  return (b.createdAt || 0) - (a.createdAt || 0); // 両方 order 無しの場合は従来どおり作成日降順
+}
+
+/**
+ * 指定メンバー×月の通常アクションプラン（センターピン除く）の中で、
+ * 現在の最小 order より1つ小さい値を返す。新規追加・コピーしたプランを
+ * 一覧の先頭（従来の「新しい順」表示と同じ位置）に置くために使う。
+ * 対象プランが無ければ 0 を返す。
+ * @param {string} memberId
+ * @param {string} month - "YYYY-MM"
+ * @returns {number}
+ */
+function getActionPlanTopOrder(memberId, month) {
+  const orders = (data.actionPlans || [])
+    .filter(p => p && !p.isCenterPin && p.memberId === memberId && p.month === month && typeof p.order === 'number' && isFinite(p.order))
+    .map(p => p.order);
+  return orders.length ? Math.min(...orders) - 1 : 0;
+}
+
 function memberActionPlanHTML(m) {
   // ステータスに応じた文字色スタイルを返すヘルパー
   const statusColor = status => {
@@ -4494,10 +4653,10 @@ function memberActionPlanHTML(m) {
   // このメンバーの「選択中の月」のアクションプランだけを取得し、センターピンと通常プランに分離
   const allPlans = (data.actionPlans || []).filter(p => p.memberId === m.id && p.month === mk);
   const centerPin = allPlans.find(p => p.isCenterPin);
-  // 通常プラン（センターピン除外）を作成日降順ソート
+  // 通常プラン（センターピン除外）を order 昇順（無ければ作成日降順）でソート
   const plans = allPlans
     .filter(p => !p.isCenterPin)
-    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    .sort(actionPlanSortComparator);
 
   // センターピン・ボックスの HTML（ゴールド枠で先頭に表示）
   // 3状態: 未設定 / 設定済み表示モード / 設定済み編集モード
@@ -4539,10 +4698,24 @@ function memberActionPlanHTML(m) {
     </div>`;
 
   // 通常プラン行の HTML を生成（無い場合は空状態メッセージ）
+  // 各行は「表示モード（編集・↑↓・削除ボタン付き）」「編集モード（入力欄＋保存/キャンセル）」の2状態を持つ
   const planRows = plans.length
-    ? plans.map(p => `
-      <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
-        <div style="flex:1;font-size:14px;">${esc(p.text)}</div>
+    ? plans.map((p, i) => {
+        if (_editActionPlan[p.id]) {
+          // 編集モード：現在値をプリフィルした入力バー＋保存＋キャンセル（センターピン編集と同じ挙動）
+          return `
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;">
+        <input type="text" id="edit-action-plan-${p.id}" value="${esc(p.text)}" style="flex:1;min-width:160px;font-size:14px;" onkeydown="if(event.key==='Enter') saveActionPlan('${p.id}')">
+        <button class="btn btn-sm" style="background:#f59e0b;color:#fff;border-color:#f59e0b;" onclick="saveActionPlan('${p.id}')">保存</button>
+        <button class="btn btn-sm btn-outline" onclick="cancelEditActionPlan('${p.id}')">キャンセル</button>
+      </div>`;
+        }
+        // 表示モード：先頭は▲、末尾は▼を disabled にして押せないようにする
+        const upDisabled = i === 0;
+        const downDisabled = i === plans.length - 1;
+        return `
+      <div style="display:flex;align-items:center;gap:6px;padding:8px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;">
+        <div style="flex:1;min-width:120px;font-size:14px;">${esc(p.text)}</div>
         <select
           style="font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);cursor:pointer;${statusBg(p.status)}"
           onchange="setActionPlanStatus('${p.id}', this.value)">
@@ -4551,8 +4724,14 @@ function memberActionPlanHTML(m) {
           <option value="完了"   ${p.status === '完了'   ? 'selected' : ''}>完了</option>
         </select>
         <span style="font-size:11px;min-width:36px;${statusColor(p.status)}">${esc(p.status)}</span>
+        <div style="display:flex;gap:2px;">
+          <button class="btn btn-sm" style="padding:2px 6px;font-size:11px;${upDisabled ? 'opacity:0.35;cursor:not-allowed;' : ''}" onclick="moveActionPlan('${p.id}','up')" ${upDisabled ? 'disabled' : ''} title="上へ移動">▲</button>
+          <button class="btn btn-sm" style="padding:2px 6px;font-size:11px;${downDisabled ? 'opacity:0.35;cursor:not-allowed;' : ''}" onclick="moveActionPlan('${p.id}','down')" ${downDisabled ? 'disabled' : ''} title="下へ移動">▼</button>
+        </div>
+        <button class="btn btn-sm" style="color:#d97706;border-color:#d97706;padding:2px 8px;font-size:11px;" onclick="startEditActionPlan('${p.id}')" title="編集">✏️</button>
         <button class="btn btn-sm" style="color:var(--danger);border-color:var(--danger);padding:2px 8px;font-size:11px;" onclick="deleteActionPlan('${p.id}')">削除</button>
-      </div>`).join('')
+      </div>`;
+      }).join('')
     : '<div style="color:var(--text-muted);font-size:13px;padding:8px 0;">アクションプランがありません</div>';
 
   // メンバーKPIブロック内のサブセクションとして返す（センターピンを先頭に配置）
@@ -4587,17 +4766,22 @@ function addActionPlan(memberId) {
   if (!text) { alert('アクションプランの内容を入力してください'); return; }
   if (!Array.isArray(data.actionPlans)) data.actionPlans = [];
   const now = Date.now();
+  const mkNew = getMonthKey(goalViewMonth);
   data.actionPlans.push({
     id: 'ap-' + now + '-' + Math.random().toString(36).slice(2, 7),
     memberId,
     text,
     status: '未実施',
     // 【月切り替え対応】今表示している月ナビの月に紐づけて保存する（今日の日付ではない）
-    month: getMonthKey(goalViewMonth),
+    month: mkNew,
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
+    // 新規プランは一覧の先頭（従来の「新しい順」表示と同じ位置）に来るよう、
+    // 現在の最小 order より1つ小さい値を割り当てる
+    order: getActionPlanTopOrder(memberId, mkNew)
   });
   if (inp) inp.value = ''; // 入力欄をリセット
+  _goalsDirtyFields.delete('new-action-plan-' + memberId); // 追加済みになったので未保存扱いを解除する
   saveData();
   renderGoalsPage(); // KPI ループ内 inline 描画のため全体再描画
 }
@@ -4621,7 +4805,82 @@ function startEditCenterPin(memberId) {
  */
 function cancelEditCenterPin(memberId) {
   delete _editCenterPin[memberId];
+  _goalsDirtyFields.delete('center-pin-' + memberId); // 編集を破棄したので未保存扱いも解除する
   renderGoalsPage();
+}
+
+/**
+ * 通常アクションプラン（センターピン以外）を編集モードに切り替える。
+ * _editActionPlan フラグを立てて全体再描画することで入力バーを表示する（センターピン編集と同じ挙動）。
+ * @param {string} planId - 編集対象のプランID
+ */
+function startEditActionPlan(planId) {
+  _editActionPlan[planId] = true;
+  renderGoalsPage();
+  // 再描画後に入力欄へフォーカス
+  const inp = document.getElementById('edit-action-plan-' + planId);
+  if (inp) inp.focus();
+}
+
+/**
+ * 通常アクションプランの編集モードをキャンセルして表示モードに戻す。
+ * @param {string} planId - 対象のプランID
+ */
+function cancelEditActionPlan(planId) {
+  delete _editActionPlan[planId];
+  _goalsDirtyFields.delete('edit-action-plan-' + planId); // 編集を破棄したので未保存扱いも解除する
+  renderGoalsPage();
+}
+
+/**
+ * 通常アクションプランの本文を保存する。
+ * 空文字での保存は禁止し、テキストと updatedAt を更新して編集モードを解除する。
+ * @param {string} planId - 対象のプランID
+ */
+function saveActionPlan(planId) {
+  const inp = document.getElementById('edit-action-plan-' + planId);
+  const text = inp ? inp.value.trim() : '';
+  if (!text) { alert('アクションプランの内容を入力してください'); return; }
+  const p = (data.actionPlans || []).find(x => x.id === planId);
+  if (!p) return;
+  p.text = text;
+  p.updatedAt = Date.now();
+  delete _editActionPlan[planId];
+  _goalsDirtyFields.delete('edit-action-plan-' + planId); // 保存済みになったので未保存扱いを解除する
+  saveData();
+  renderGoalsPage(); // KPI ループ内 inline 描画のため全体再描画
+}
+
+/**
+ * 通常アクションプランの表示順を1つ上／下に入れ替える（ボタン方式の並び替え）。
+ * センターピンは並び替え対象外。同じメンバー×同じ月のプランだけを対象に、
+ * 現在の表示順（actionPlanSortComparator）で並べ直してから隣同士の order を入れ替える。
+ * 先頭で「上へ」、末尾で「下へ」を実行した場合は何もしない（画面側でも disabled にしているが二重ガード）。
+ * @param {string} planId - 対象のプランID
+ * @param {'up'|'down'} direction
+ */
+function moveActionPlan(planId, direction) {
+  if (!Array.isArray(data.actionPlans)) return;
+  const p = data.actionPlans.find(x => x.id === planId);
+  if (!p || p.isCenterPin) return;
+  // 同じメンバー×同じ月の通常プランのみを対象に、現在の表示順で並べる
+  const group = data.actionPlans
+    .filter(x => x && !x.isCenterPin && x.memberId === p.memberId && x.month === p.month)
+    .sort(actionPlanSortComparator);
+  const idx = group.findIndex(x => x.id === planId);
+  if (idx === -1) return;
+  const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+  if (swapIdx < 0 || swapIdx >= group.length) return; // 端っこなら何もしない
+  const other = group[swapIdx];
+  // order が無い（未移行）プランが混ざっていても例外にならないよう 0 にフォールバックしてから入れ替える
+  const now = Date.now();
+  const tmp = typeof p.order === 'number' && isFinite(p.order) ? p.order : 0;
+  p.order = typeof other.order === 'number' && isFinite(other.order) ? other.order : 0;
+  other.order = tmp;
+  p.updatedAt = now;
+  other.updatedAt = now;
+  saveData();
+  renderGoalsPage(); // KPI ループ内 inline 描画のため全体再描画
 }
 
 /**
@@ -4655,6 +4914,7 @@ function setCenterPin(memberId) {
   if (inp) inp.value = ''; // 入力欄をリセット
   // 保存後に編集モードを解除（表示モードに戻す）
   if (_editCenterPin[memberId]) delete _editCenterPin[memberId];
+  _goalsDirtyFields.delete('center-pin-' + memberId); // 保存済みになったので未保存扱いを解除する
   saveData();
   renderGoalsPage(); // KPI ループ内 inline 描画のため全体再描画
 }
@@ -4700,6 +4960,8 @@ function copyActionPlansFromPrevMonth(memberId) {
       .map(p => p.text)
   );
 
+  // コピーしたプランを一覧の先頭にまとめて置けるよう、現在の最小 order から減算していく
+  let topOrder = getActionPlanTopOrder(memberId, mk);
   prevPlans.forEach(p => {
     if (existingTexts.has(p.text)) return; // 同じ文言は追加しない
     const now = Date.now();
@@ -4710,7 +4972,8 @@ function copyActionPlansFromPrevMonth(memberId) {
       status: p.status, // ステータスは前月から引き継ぐ
       month: mk,
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
+      order: topOrder--
     });
     existingTexts.add(p.text); // 同一実行内での重複追加も防ぐ
   });
@@ -5801,6 +6064,47 @@ function normalizeActionPlanMonths(plans, mode) {
   return changed;
 }
 
+/**
+ * アクションプラン配列の order（表示順・並び替え機能用）欠損を補完する共通処理。
+ * loadData() の初回マイグレーションと、mergeActionPlans() の同期経路の両方から呼ばれる。
+ * センターピンは並び替え対象外なので order を付与しない。
+ * メンバー×月ごとに独立した連番を、現在の表示順（createdAt降順＝従来の並び）に沿って付与する。
+ * 既に order が設定済みの要素は絶対に上書きしない（何度呼んでも結果が変わらない＝冪等）。
+ * 同じグループ内に order 済みのプランが既にある場合（他端末からの同期など）は、
+ * その最大値の続きから採番することで、既存の並びと衝突しないようにする。
+ *
+ * @param {Array} plans - data.actionPlans（またはマージ後の配列）。破壊的に更新する。
+ * @returns {boolean} 1件でも order を補完したら true
+ */
+function assignActionPlanOrders(plans) {
+  if (!Array.isArray(plans) || !plans.length) return false;
+  let changed = false;
+
+  // メンバー×月ごとに、order が未設定の通常プラン（センターピン除く）をグループ化
+  const groups = {};
+  plans.forEach(p => {
+    if (!p || p.isCenterPin) return; // センターピンは並び替え対象外
+    if (typeof p.order === 'number' && isFinite(p.order)) return; // 既に order があるものはスキップ（冪等性の担保）
+    const key = p.memberId + '|' + p.month;
+    (groups[key] = groups[key] || []).push(p);
+  });
+
+  Object.keys(groups).forEach(key => {
+    const [memberId, month] = key.split('|');
+    // 同じグループ内で既に使われている order の最大値を調べ、その続きから採番する
+    const existingOrders = plans
+      .filter(p => p && !p.isCenterPin && p.memberId === memberId && p.month === month && typeof p.order === 'number' && isFinite(p.order))
+      .map(p => p.order);
+    let next = existingOrders.length ? Math.max(...existingOrders) + 1 : 0;
+    // 現在の表示順（createdAt降順＝従来の並び）を維持できるよう、その順で連番を付与
+    groups[key]
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+      .forEach(p => { p.order = next++; changed = true; });
+  });
+
+  return changed;
+}
+
 // アクションプランを id 単位でマージ（同一idは updatedAt が新しい方を採用、削除idは除外）
 function mergeActionPlans(local, remote, deletedSet) {
   local  = Array.isArray(local)  ? local  : [];
@@ -5817,6 +6121,9 @@ function mergeActionPlans(local, remote, deletedSet) {
   // 【同期経路のmonth補完】改修前バージョンの端末で追加され month が無いまま届いた
   // プランを補完する。過去プランが同期のたびに当月へ動かないよう 'sync' モードで呼ぶ。
   normalizeActionPlanMonths(merged, 'sync');
+  // 【同期経路のorder補完】order（並び替え機能）が無いまま届いた古いプランを補完する。
+  // 既に order を持つプランは上書きされないため、他端末での並び替え結果は保持される。
+  assignActionPlanOrders(merged);
   return merged;
 }
 
@@ -6011,7 +6318,9 @@ function pullSharedDataFromGAS() {
       if (document.getElementById('page-knowledge')?.classList.contains('active')) renderKnowledge();
       if (document.getElementById('page-members')?.classList.contains('active')) renderMemberList();
       // 目標ページが表示中のとき、KPI + アクションプランをまとめて再描画する
-      if (document.getElementById('page-goals')?.classList.contains('active')) renderGoalsPage();
+      // 【入力消失バグ対策】直接renderGoalsPage()を呼ぶと入力中の値が消えるため、
+      // 自動同期専用のラッパー(renderGoalsPageFromSync)経由で呼び、入力中は再描画を保留する
+      if (document.getElementById('page-goals')?.classList.contains('active')) renderGoalsPageFromSync();
       const el = document.getElementById('sync-status');
       if (el) el.textContent = '共有データ同期: ' + new Date().toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' });
     })
@@ -7220,6 +7529,8 @@ function deleteProduct(idx) {
 
 // センターピンの編集モード管理 { [memberId]: true } 編集中のセンターピン
 let _editCenterPin = {};
+// 通常アクションプランの編集モード管理 { [planId]: true } 編集中のプランID
+let _editActionPlan = {};
 
 // グループ名インライン編集（商品）
 let _editProdGroups = {};
