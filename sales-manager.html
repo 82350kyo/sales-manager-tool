@@ -4796,16 +4796,20 @@ function memberActionPlanHTML(m) {
   let centerPinInner;
   if (!centerPin) {
     // 未設定：入力バー＋設定ボタン
+    // 【Enter確定はしない】日本語入力の変換中にEnterを押すと誤確定してしまうため、
+    // Enterでは何もしない仕様にしている。確定は必ず「設定」ボタンを押す。
     centerPinInner = `
       <div style="display:flex;gap:8px;">
-        <input type="text" id="center-pin-${m.id}" placeholder="最重要アクションを設定..." style="flex:1;font-size:13px;" onkeydown="if(event.key==='Enter') setCenterPin('${m.id}')">
+        <input type="text" id="center-pin-${m.id}" placeholder="最重要アクションを設定..." style="flex:1;font-size:13px;">
         <button class="btn btn-sm" style="background:#f59e0b;color:#fff;border-color:#f59e0b;" onclick="setCenterPin('${m.id}')">設定</button>
       </div>`;
   } else if (_editCenterPin[m.id]) {
     // 設定済み・編集モード：現在値をプリフィルした入力バー＋保存＋キャンセル
+    // 【Enter確定はしない】日本語入力の変換中にEnterを押すと誤確定してしまうため、
+    // Enterでは何もしない仕様にしている。確定は必ず「保存」ボタンを押す。
     centerPinInner = `
       <div style="display:flex;gap:8px;">
-        <input type="text" id="center-pin-${m.id}" value="${esc(centerPin.text)}" placeholder="センターピンを変更..." style="flex:1;font-size:14px;" onkeydown="if(event.key==='Enter') setCenterPin('${m.id}')">
+        <input type="text" id="center-pin-${m.id}" value="${esc(centerPin.text)}" placeholder="センターピンを変更..." style="flex:1;font-size:14px;">
         <button class="btn btn-sm" style="background:#f59e0b;color:#fff;border-color:#f59e0b;" onclick="setCenterPin('${m.id}')">保存</button>
         <button class="btn btn-sm btn-outline" onclick="cancelEditCenterPin('${m.id}')">キャンセル</button>
       </div>`;
@@ -4836,9 +4840,11 @@ function memberActionPlanHTML(m) {
     ? plans.map((p, i) => {
         if (_editActionPlan[p.id]) {
           // 編集モード：現在値をプリフィルした入力バー＋保存＋キャンセル（センターピン編集と同じ挙動）
+          // 【Enter確定はしない】日本語入力の変換中にEnterを押すと誤確定してしまうため、
+          // Enterでは何もしない仕様にしている。確定は必ず「保存」ボタンを押す。
           return `
       <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;">
-        <input type="text" id="edit-action-plan-${p.id}" value="${esc(p.text)}" style="flex:1;min-width:160px;font-size:14px;" onkeydown="if(event.key==='Enter') saveActionPlan('${p.id}')">
+        <input type="text" id="edit-action-plan-${p.id}" value="${esc(p.text)}" style="flex:1;min-width:160px;font-size:14px;">
         <button class="btn btn-sm" style="background:#f59e0b;color:#fff;border-color:#f59e0b;" onclick="saveActionPlan('${p.id}')">保存</button>
         <button class="btn btn-sm btn-outline" onclick="cancelEditActionPlan('${p.id}')">キャンセル</button>
       </div>`;
@@ -4877,13 +4883,14 @@ function memberActionPlanHTML(m) {
       </div>
       ${planRows}
       <!-- 新規プラン追加フォーム -->
+      <!-- 【Enter確定はしない】日本語入力の変換中にEnterを押すと誤確定してしまうため、
+           Enterでは何もしない仕様にしている。確定は必ず「追加」ボタンを押す。 -->
       <div style="display:flex;gap:8px;margin-top:10px;">
         <input
           type="text"
           id="new-action-plan-${m.id}"
           placeholder="新しいアクションプランを入力..."
-          style="flex:1;font-size:13px;"
-          onkeydown="if(event.key==='Enter') addActionPlan('${m.id}')">
+          style="flex:1;font-size:13px;">
         <button class="btn btn-primary btn-sm" onclick="addActionPlan('${m.id}')">追加</button>
       </div>
     </div>`;
