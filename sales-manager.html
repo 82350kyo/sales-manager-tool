@@ -2676,10 +2676,19 @@ function loadData() {
   // 既に month が設定済みのプランは絶対に上書きしない（何度読み込んでも冪等）。
   normalizeActionPlanMonths(data.actionPlans, 'initial');
 
+  // 【アクションプラン階層化マイグレーション（初回のみ）】
+  // level（大中小の階層）・parentId（親プランID）・dueDate（期限）を持たない
+  // 旧バージョンのプランに、後方互換のためのデフォルト値を補完する。
+  // 階層機能が無かった頃のプランはすべて「大項目（level:1, parentId:null）」として扱う。
+  // 既に値を持つプランは上書きしないため、何度読み込んでも冪等。
+  normalizeActionPlanHierarchy(data.actionPlans);
+
   // 【アクションプラン並び替え機能マイグレーション（初回のみ）】
   // order（表示順）フィールドが無い既存プランに、現在の表示順（作成日降順＝従来の並び）
-  // に沿って 0,1,2... を付与する。メンバー×月ごとに独立した連番。
+  // に沿って 0,1,2... を付与する。メンバー×月×親（同じ階層の兄弟同士）ごとに独立した連番。
   // 既に order があるプランは上書きしないため、何度読み込んでも冪等。
+  // 【重要】必ず normalizeActionPlanHierarchy の後に呼ぶこと（parentId が未確定のままだと
+  // 兄弟グループの判定を誤るため）。
   assignActionPlanOrders(data.actionPlans);
 
   saveData();
@@ -4750,19 +4759,65 @@ function actionPlanSortComparator(a, b) {
 }
 
 /**
- * 指定メンバー×月の通常アクションプラン（センターピン除く）の中で、
- * 現在の最小 order より1つ小さい値を返す。新規追加・コピーしたプランを
- * 一覧の先頭（従来の「新しい順」表示と同じ位置）に置くために使う。
- * 対象プランが無ければ 0 を返す。
+ * 指定メンバー×月×親（parentId）の通常アクションプラン（センターピン除く）＝
+ * 「同じ親を持つ兄弟」の中で、現在の最小 order より1つ小さい値を返す。
+ * 新規追加・コピーしたプランを、その兄弟グループの先頭（従来の「新しい順」表示と
+ * 同じ位置）に置くために使う。対象プランが無ければ 0 を返す。
  * @param {string} memberId
  * @param {string} month - "YYYY-MM"
+ * @param {string|null} [parentId] - 親プランID。大項目（ルート）なら null（省略可）
  * @returns {number}
  */
-function getActionPlanTopOrder(memberId, month) {
+function getActionPlanTopOrder(memberId, month, parentId) {
+  const pid = parentId || null;
   const orders = (data.actionPlans || [])
-    .filter(p => p && !p.isCenterPin && p.memberId === memberId && p.month === month && typeof p.order === 'number' && isFinite(p.order))
+    .filter(p => p && !p.isCenterPin && p.memberId === memberId && p.month === month && (p.parentId || null) === pid && typeof p.order === 'number' && isFinite(p.order))
     .map(p => p.order);
   return orders.length ? Math.min(...orders) - 1 : 0;
+}
+
+/**
+ * 指定した期限（"YYYY-MM-DD"）が「今日から3日以内（今日を含む）」かどうかを判定する。
+ * 期限切れ（過去日）は含まない。一覧で「もうすぐ期限」を軽く目立たせるための任意の演出に使う。
+ * @param {string} dueDate - "YYYY-MM-DD"
+ * @param {string} todayStr - "YYYY-MM-DD"（今日の日付）
+ * @returns {boolean}
+ */
+function isActionPlanDueSoon(dueDate, todayStr) {
+  if (!dueDate) return false;
+  const due = new Date(dueDate + 'T00:00:00');
+  const today = new Date(todayStr + 'T00:00:00');
+  if (!isFinite(due.getTime()) || !isFinite(today.getTime())) return false;
+  const diffDays = Math.round((due.getTime() - today.getTime()) / 86400000);
+  return diffDays >= 0 && diffDays <= 3;
+}
+
+/**
+ * 指定プランの子孫（子・孫…）のIDをすべて再帰的に集める。
+ * 削除時に「親を消したら配下もまとめて消す」ために使う。
+ * 【安全対策】通常のUI操作では発生しないが、スプレッドシートの手動編集や同期不具合等で
+ * parentId が循環参照（A→B→A や自己参照 A→A）になったデータが混入した場合に備え、
+ * visited（訪問済みID）で同じIDを二度以上たどらないようにする。これが無いと stack に
+ * 同じIDを無限に積み続けてしまい、ブラウザのタブがフリーズ／クラッシュする事故につながる。
+ * @param {string} id - 起点となるプランID
+ * @param {Array} plans - data.actionPlans（全体を渡す）
+ * @returns {Array<string>} 子孫のID一覧（起点自身は含まない）
+ */
+function collectActionPlanDescendantIds(id, plans) {
+  const result = [];
+  const visited = new Set([id]); // 起点自身も「訪問済み」にしておき、自己参照(parentId===id)も弾く
+  const stack = [id];
+  while (stack.length) {
+    const cur = stack.pop();
+    (plans || []).forEach(p => {
+      if (p && p.parentId === cur && !visited.has(p.id)) {
+        visited.add(p.id); // 同じIDを二度以上たどらせない（循環参照ガード）
+        result.push(p.id);
+        stack.push(p.id);
+      }
+    });
+  }
+  return result;
 }
 
 function memberActionPlanHTML(m) {
@@ -4834,27 +4889,80 @@ function memberActionPlanHTML(m) {
       ${centerPinInner}
     </div>`;
 
-  // 通常プラン行の HTML を生成（無い場合は空状態メッセージ）
-  // 各行は「表示モード（編集・↑↓・削除ボタン付き）」「編集モード（入力欄＋保存/キャンセル）」の2状態を持つ
-  const planRows = plans.length
-    ? plans.map((p, i) => {
-        if (_editActionPlan[p.id]) {
-          // 編集モード：現在値をプリフィルした入力バー＋保存＋キャンセル（センターピン編集と同じ挙動）
-          // 【Enter確定はしない】日本語入力の変換中にEnterを押すと誤確定してしまうため、
-          // Enterでは何もしない仕様にしている。確定は必ず「保存」ボタンを押す。
-          return `
-      <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;">
+  // 【階層アクションプラン】通常プラン（センターピン除外）を親子関係（大項目→中項目→小項目）に
+  // 沿って組み立てる。親IDが設定されていても、対象リスト内にその親が存在しない場合
+  // （同期の巻き戻りなどで親だけ消えた等）は「孤児」として大項目（ルート）扱いにし、
+  // 画面から消えないようにする（フォールバック）。
+  const plansById = {};
+  plans.forEach(p => { plansById[p.id] = p; });
+  const childrenOf = {}; // 親プランID -> 子プラン配列
+  const rootPlans = [];  // 大項目として表示するプラン（孤児も含む）
+  plans.forEach(p => {
+    if (p.parentId && plansById[p.parentId]) {
+      (childrenOf[p.parentId] = childrenOf[p.parentId] || []).push(p);
+    } else {
+      rootPlans.push(p);
+    }
+  });
+  rootPlans.sort(actionPlanSortComparator);
+  Object.keys(childrenOf).forEach(pid => childrenOf[pid].sort(actionPlanSortComparator));
+
+  // 期限の赤字判定用に「今日」を "YYYY-MM-DD" で用意（他画面の日付初期値と同じ方式に合わせる）
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  // 階層の深さ（0:大項目 1:中項目 2:小項目）に応じた見た目の強弱スタイル
+  const levelTextStyle = depth => {
+    if (depth === 0) return 'font-size:14px;font-weight:700;color:var(--text);';
+    if (depth === 1) return 'font-size:13.5px;font-weight:600;color:var(--text);';
+    return 'font-size:13px;font-weight:400;color:var(--text-muted);'; // 小項目は控えめ
+  };
+  const levelLabel = depth => (depth === 0 ? '大項目' : depth === 1 ? '中項目' : '小項目');
+
+  // 1行分のHTMLを生成する再帰関数（子プランがあれば、その下に続けて描画する）
+  // depth: 階層の深さ（0/1/2）, siblings: 同じ親を持つ兄弟プランの配列, idx: siblings内での位置
+  function renderPlanRow(p, depth, siblings, idx) {
+    const indentPx = depth * 22; // 深さ1段階につき22pxインデントする
+    let rowHtml;
+    if (_editActionPlan[p.id]) {
+      // 編集モード：現在値をプリフィルした入力バー＋保存＋キャンセル（センターピン編集と同じ挙動）
+      // 【Enter確定はしない】日本語入力の変換中にEnterを押すと誤確定してしまうため、
+      // Enterでは何もしない仕様にしている。確定は必ず「保存」ボタンを押す。
+      rowHtml = `
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 0 8px ${indentPx}px;border-bottom:1px solid var(--border);flex-wrap:wrap;">
         <input type="text" id="edit-action-plan-${p.id}" value="${esc(p.text)}" style="flex:1;min-width:160px;font-size:14px;">
         <button class="btn btn-sm" style="background:#f59e0b;color:#fff;border-color:#f59e0b;" onclick="saveActionPlan('${p.id}')">保存</button>
         <button class="btn btn-sm btn-outline" onclick="cancelEditActionPlan('${p.id}')">キャンセル</button>
       </div>`;
+    } else {
+      // 表示モード：先頭は▲、末尾は▼を disabled にして押せないようにする（同じ親を持つ兄弟の中だけで判定）
+      const upDisabled = idx === 0;
+      const downDisabled = idx === siblings.length - 1;
+
+      // 期限の入力欄スタイルとバッジ。期限切れ（今日より前）かつ未完了なら赤字で目立たせる。
+      // 今日から3日以内は任意の演出としてオレンジで軽く目立たせる。
+      let dueInputStyle = 'font-size:12px;padding:4px 6px;border-radius:6px;';
+      let dueBadge = '';
+      if (p.dueDate) {
+        if (p.dueDate < todayStr && p.status !== '完了') {
+          dueInputStyle += 'color:var(--danger);font-weight:700;border-color:var(--danger);';
+          dueBadge = '<span style="font-size:10px;font-weight:700;color:var(--danger);white-space:nowrap;">⚠️ 期限切れ</span>';
+        } else if (isActionPlanDueSoon(p.dueDate, todayStr)) {
+          dueInputStyle += 'color:#d97706;font-weight:700;border-color:#f59e0b;';
         }
-        // 表示モード：先頭は▲、末尾は▼を disabled にして押せないようにする
-        const upDisabled = i === 0;
-        const downDisabled = i === plans.length - 1;
-        return `
-      <div style="display:flex;align-items:center;gap:6px;padding:8px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;">
-        <div style="flex:1;min-width:120px;font-size:14px;">${esc(p.text)}</div>
+      }
+
+      // 中項目・小項目の頭に小さな記号を付ける（折り返した時もインデントだけより親子関係が分かりやすい）
+      const depthMark = depth === 0 ? '' : (depth === 1
+        ? '<span style="color:var(--text-muted);margin-right:4px;">▸</span>'
+        : '<span style="color:var(--text-muted);margin-right:4px;">‧</span>');
+
+      rowHtml = `
+      <div style="display:flex;align-items:center;gap:6px;padding:8px 0 8px ${indentPx}px;border-bottom:1px solid var(--border);flex-wrap:wrap;" title="${levelLabel(depth)}">
+        <div style="flex:1;min-width:120px;${levelTextStyle(depth)}">${depthMark}${esc(p.text)}</div>
+        <div style="display:flex;align-items:center;gap:3px;">
+          <input type="date" id="due-action-plan-${p.id}" value="${esc(p.dueDate || '')}" style="${dueInputStyle}" onchange="setActionPlanDueDate('${p.id}', this.value)" title="期限（変更すると即保存されます）">
+          ${dueBadge}
+        </div>
         <select
           style="font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);cursor:pointer;${statusBg(p.status)}"
           onchange="setActionPlanStatus('${p.id}', this.value)">
@@ -4867,10 +4975,35 @@ function memberActionPlanHTML(m) {
           <button class="btn btn-sm" style="padding:2px 6px;font-size:11px;${upDisabled ? 'opacity:0.35;cursor:not-allowed;' : ''}" onclick="moveActionPlan('${p.id}','up')" ${upDisabled ? 'disabled' : ''} title="上へ移動">▲</button>
           <button class="btn btn-sm" style="padding:2px 6px;font-size:11px;${downDisabled ? 'opacity:0.35;cursor:not-allowed;' : ''}" onclick="moveActionPlan('${p.id}','down')" ${downDisabled ? 'disabled' : ''} title="下へ移動">▼</button>
         </div>
+        ${depth < 2 ? `<button class="btn btn-sm btn-outline" style="padding:2px 8px;font-size:11px;white-space:nowrap;" onclick="toggleAddChildActionPlan('${p.id}')" title="${depth === 0 ? '中項目を追加' : '小項目を追加'}">＋子を追加</button>` : ''}
         <button class="btn btn-sm" style="color:#d97706;border-color:#d97706;padding:2px 8px;font-size:11px;" onclick="startEditActionPlan('${p.id}')" title="編集">✏️</button>
         <button class="btn btn-sm" style="color:var(--danger);border-color:var(--danger);padding:2px 8px;font-size:11px;" onclick="deleteActionPlan('${p.id}')">削除</button>
       </div>`;
-      }).join('')
+    }
+
+    // 「＋子を追加」フォーム（このプランで開いている場合のみ、子プラン一覧の直前に差し込む）
+    // 既存の新規追加フォームと同じ方針：インライン入力欄＋「追加」ボタンのみで確定し、Enterでは確定しない。
+    let addChildFormHtml = '';
+    if (_addChildFor[p.id]) {
+      addChildFormHtml = `
+      <div style="display:flex;gap:8px;padding:6px 0 6px ${indentPx + 22}px;flex-wrap:wrap;">
+        <input type="text" id="new-action-plan-child-${p.id}" placeholder="${depth === 0 ? '中項目' : '小項目'}を入力..." style="flex:1;min-width:140px;font-size:13px;">
+        <button class="btn btn-primary btn-sm" onclick="addActionPlan('${m.id}', '${p.id}')">追加</button>
+        <button class="btn btn-sm btn-outline" onclick="toggleAddChildActionPlan('${p.id}')">キャンセル</button>
+      </div>`;
+    }
+
+    // 子プランを再帰的に描画（あれば深さ+1で続けて描画する）
+    const childList = childrenOf[p.id] || [];
+    const childrenHtml = childList.map((c, i) => renderPlanRow(c, depth + 1, childList, i)).join('');
+
+    return rowHtml + addChildFormHtml + childrenHtml;
+  }
+
+  // 通常プラン行の HTML を生成（無い場合は空状態メッセージ）。大項目（ルート）から順に、
+  // 親子関係に沿って再帰的に描画する。
+  const planRows = plans.length
+    ? rootPlans.map((p, i) => renderPlanRow(p, 0, rootPlans, i)).join('')
     : '<div style="color:var(--text-muted);font-size:13px;padding:8px 0;">アクションプランがありません</div>';
 
   // メンバーKPIブロック内のサブセクションとして返す（センターピンを先頭に配置）
@@ -4878,18 +5011,18 @@ function memberActionPlanHTML(m) {
     <div style="margin-top:12px;padding-top:12px;border-top:1px dashed var(--border);">
       ${centerPinBox}
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
-        <div style="font-size:12px;font-weight:700;color:var(--text-muted);">📋 アクションプラン (${plans.length}件)</div>
+        <div style="font-size:12px;font-weight:700;color:var(--text-muted);">📋 アクションプラン (${plans.length}件・大中小の合計)</div>
         <button class="btn btn-sm btn-outline" onclick="copyActionPlansFromPrevMonth('${m.id}')" title="前月の未完了プランとセンターピンをこの月へコピー">⬅️ 前月からコピー</button>
       </div>
       ${planRows}
-      <!-- 新規プラン追加フォーム -->
+      <!-- 新規プラン追加フォーム（この欄からの追加は常に「大項目」として作成される） -->
       <!-- 【Enter確定はしない】日本語入力の変換中にEnterを押すと誤確定してしまうため、
            Enterでは何もしない仕様にしている。確定は必ず「追加」ボタンを押す。 -->
       <div style="display:flex;gap:8px;margin-top:10px;">
         <input
           type="text"
           id="new-action-plan-${m.id}"
-          placeholder="新しいアクションプランを入力..."
+          placeholder="新しい大項目を入力..."
           style="flex:1;font-size:13px;">
         <button class="btn btn-primary btn-sm" onclick="addActionPlan('${m.id}')">追加</button>
       </div>
@@ -4898,15 +5031,46 @@ function memberActionPlanHTML(m) {
 
 /**
  * 指定メンバーに新しいアクションプランを追加する。
+ * parentId を渡すと、その親の「子」（中項目／小項目）として追加する（入力欄は
+ * 「＋子を追加」フォームの id="new-action-plan-child-<parentId>"）。
+ * parentId を渡さない場合は、ページ下部の入力欄 id="new-action-plan-<memberId>" から
+ * 「大項目」として追加する（従来どおりの動作）。
  * @param {string} memberId - 追加対象のメンバーID
+ * @param {string} [parentId] - 親プランID（子として追加する場合のみ指定）
  */
-function addActionPlan(memberId) {
-  const inp = document.getElementById('new-action-plan-' + memberId);
+function addActionPlan(memberId, parentId) {
+  const isChild = !!parentId;
+  if (!Array.isArray(data.actionPlans)) data.actionPlans = [];
+
+  // 【階層の上限ガード】UI側は depth<2（大項目・中項目の行）にしか「＋子を追加」ボタンを
+  // 出していないが、それはあくまで表示上の制御。実データ側でも必ずチェックしないと、
+  // 万が一小項目のIDが parentId として渡された場合に4階層目が作られてしまう
+  // （表示は3階層目までしか区別しないため、データが壊れていても気づけない）。
+  // 親の level（無ければ1として扱う）が3以上＝小項目の場合は、ここで明示的に追加を拒否する。
+  let parent = null;
+  if (isChild) {
+    parent = data.actionPlans.find(x => x.id === parentId);
+    const parentLevel = parent && typeof parent.level === 'number' ? parent.level : 1;
+    if (parentLevel >= 3) {
+      alert('小項目の下にはこれ以上追加できません');
+      return;
+    }
+  }
+
+  const inputId = isChild ? ('new-action-plan-child-' + parentId) : ('new-action-plan-' + memberId);
+  const inp = document.getElementById(inputId);
   const text = inp ? inp.value.trim() : '';
   if (!text) { alert('アクションプランの内容を入力してください'); return; }
-  if (!Array.isArray(data.actionPlans)) data.actionPlans = [];
   const now = Date.now();
   const mkNew = getMonthKey(goalViewMonth);
+
+  // 階層（level）を決める：親があれば「親のlevel+1」（最大3＝小項目まで）、無ければ1（大項目）
+  let level = 1;
+  if (isChild) {
+    const parentLevel = parent && typeof parent.level === 'number' ? parent.level : 1;
+    level = Math.min(parentLevel + 1, 3);
+  }
+
   data.actionPlans.push({
     id: 'ap-' + now + '-' + Math.random().toString(36).slice(2, 7),
     memberId,
@@ -4914,14 +5078,51 @@ function addActionPlan(memberId) {
     status: '未実施',
     // 【月切り替え対応】今表示している月ナビの月に紐づけて保存する（今日の日付ではない）
     month: mkNew,
+    level,
+    parentId: isChild ? parentId : null,
+    dueDate: '', // 期限は未設定で作成（あとから各行の期限欄で設定できる）
     createdAt: now,
     updatedAt: now,
-    // 新規プランは一覧の先頭（従来の「新しい順」表示と同じ位置）に来るよう、
-    // 現在の最小 order より1つ小さい値を割り当てる
-    order: getActionPlanTopOrder(memberId, mkNew)
+    // 新規プランは「同じ親を持つ兄弟」の先頭（従来の「新しい順」表示と同じ位置）に来るよう、
+    // その兄弟グループの現在の最小 order より1つ小さい値を割り当てる
+    order: getActionPlanTopOrder(memberId, mkNew, isChild ? parentId : null)
   });
   if (inp) inp.value = ''; // 入力欄をリセット
-  _goalsDirtyFields.delete('new-action-plan-' + memberId); // 追加済みになったので未保存扱いを解除する
+  _goalsDirtyFields.delete(inputId); // 追加済みになったので未保存扱いを解除する
+  if (isChild) delete _addChildFor[parentId]; // 追加できたので子追加フォームを閉じる
+  saveData();
+  renderGoalsPage(); // KPI ループ内 inline 描画のため全体再描画
+}
+
+/**
+ * 「＋子を追加」フォームの開閉を切り替える（中項目・小項目を追加するためのインライン入力欄）。
+ * @param {string} parentId - 子を追加する親プランID
+ */
+function toggleAddChildActionPlan(parentId) {
+  if (_addChildFor[parentId]) {
+    delete _addChildFor[parentId];
+  } else {
+    _addChildFor[parentId] = true;
+  }
+  renderGoalsPage();
+  // 開いた場合は再描画後に入力欄へフォーカス
+  const inp = document.getElementById('new-action-plan-child-' + parentId);
+  if (inp) inp.focus();
+}
+
+/**
+ * アクションプランの期限（dueDate）を設定・変更・解除する。
+ * 日付欄は onchange で即保存する（ステータスの選択欄と同じ挙動に合わせている）。
+ * 空にして解除することもできる。
+ * @param {string} id - プランID
+ * @param {string} value - "YYYY-MM-DD"（空文字なら未設定に戻す）
+ */
+function setActionPlanDueDate(id, value) {
+  const p = (data.actionPlans || []).find(x => x.id === id);
+  if (!p) return;
+  p.dueDate = value || '';
+  p.updatedAt = Date.now();
+  _goalsDirtyFields.delete('due-action-plan-' + id); // 保存済みになったので未保存扱いを解除する
   saveData();
   renderGoalsPage(); // KPI ループ内 inline 描画のため全体再描画
 }
@@ -4993,8 +5194,9 @@ function saveActionPlan(planId) {
 
 /**
  * 通常アクションプランの表示順を1つ上／下に入れ替える（ボタン方式の並び替え）。
- * センターピンは並び替え対象外。同じメンバー×同じ月のプランだけを対象に、
- * 現在の表示順（actionPlanSortComparator）で並べ直してから隣同士の order を入れ替える。
+ * センターピンは並び替え対象外。同じメンバー×同じ月×同じ親（parentId）＝
+ * 「同じ親を持つ兄弟」だけを対象に、現在の表示順（actionPlanSortComparator）で
+ * 並べ直してから隣同士の order を入れ替える。他の階層・別の親の下へは移動しない。
  * 先頭で「上へ」、末尾で「下へ」を実行した場合は何もしない（画面側でも disabled にしているが二重ガード）。
  * @param {string} planId - 対象のプランID
  * @param {'up'|'down'} direction
@@ -5003,9 +5205,10 @@ function moveActionPlan(planId, direction) {
   if (!Array.isArray(data.actionPlans)) return;
   const p = data.actionPlans.find(x => x.id === planId);
   if (!p || p.isCenterPin) return;
-  // 同じメンバー×同じ月の通常プランのみを対象に、現在の表示順で並べる
+  // 同じメンバー×同じ月×同じ親（兄弟）の通常プランのみを対象に、現在の表示順で並べる
+  const parentKey = p.parentId || null;
   const group = data.actionPlans
-    .filter(x => x && !x.isCenterPin && x.memberId === p.memberId && x.month === p.month)
+    .filter(x => x && !x.isCenterPin && x.memberId === p.memberId && x.month === p.month && (x.parentId || null) === parentKey)
     .sort(actionPlanSortComparator);
   const idx = group.findIndex(x => x.id === planId);
   if (idx === -1) return;
@@ -5067,6 +5270,12 @@ function setCenterPin(memberId) {
  * ・同じ文言のプランが選択中の月に既にある場合はスキップ（重複防止）
  * ・センターピンは、選択中の月にまだセンターピンが無い場合のみコピーする
  * ・コピーしたプランには必ず新しい一意のIDを振る（同期時にID無しデータが消えるバグを防ぐため）
+ * ・【階層コピー対応】親子関係（大項目→中項目→小項目）を保ったままコピーする。
+ *   旧ID→新IDの対応表を作りながら「親→子」の順で処理し、子の parentId を新しい親IDに
+ *   付け替える。親が「完了」でコピー対象外だった場合など、新しい親が見つからない子は
+ *   大項目（ルート）としてコピーする（＝親を失っても消えないフォールバック）。
+ * ・【期限はコピーしない】前月の期限をそのまま持ち込むと必ず過去日＝期限切れ表示になって
+ *   しまうため、コピー時は毎回クリアする（未設定の状態で作成し、必要ならその月で改めて設定する）。
  * @param {string} memberId - 対象のメンバーID
  */
 function copyActionPlansFromPrevMonth(memberId) {
@@ -5076,7 +5285,7 @@ function copyActionPlansFromPrevMonth(memberId) {
 
   if (!Array.isArray(data.actionPlans)) data.actionPlans = [];
 
-  // コピー元候補：前月の未実施／進行中の通常プラン
+  // コピー元候補：前月の未実施／進行中の通常プラン（大中小すべての階層が対象）
   const prevPlans = data.actionPlans.filter(p =>
     p.memberId === memberId && p.month === prevMk && !p.isCenterPin &&
     (p.status === '未実施' || p.status === '進行中')
@@ -5100,20 +5309,36 @@ function copyActionPlansFromPrevMonth(memberId) {
       .map(p => p.text)
   );
 
-  // コピーしたプランを一覧の先頭にまとめて置けるよう、現在の最小 order から減算していく
-  let topOrder = getActionPlanTopOrder(memberId, mk);
-  prevPlans.forEach(p => {
+  // 【階層順で処理】親が先に新IDを持っていないと子の parentId を付け替えられないため、
+  // level（大→中→小）の昇順、同じ階層内は現在の表示順（actionPlanSortComparator）で処理する。
+  const idMap = {}; // 旧プランID -> 新プランID の対応表
+  const sortedPrevPlans = prevPlans.slice().sort((a, b) => {
+    const la = typeof a.level === 'number' ? a.level : 1;
+    const lb = typeof b.level === 'number' ? b.level : 1;
+    if (la !== lb) return la - lb;
+    return actionPlanSortComparator(a, b);
+  });
+
+  sortedPrevPlans.forEach(p => {
     if (existingTexts.has(p.text)) return; // 同じ文言は追加しない
     const now = Date.now();
+    const newId = 'ap-' + now + '-' + Math.random().toString(36).slice(2, 9); // 新規の一意なID
+    idMap[p.id] = newId;
+    // 旧親IDが今回コピーされた（＝idMapに存在する）場合のみ新しい親IDに付け替える。
+    // 親が完了済みなどでコピーされなかった場合は null にして大項目（ルート）として扱う。
+    const newParentId = p.parentId && idMap[p.parentId] ? idMap[p.parentId] : null;
     data.actionPlans.push({
-      id: 'ap-' + now + '-' + Math.random().toString(36).slice(2, 9), // 新規の一意なID
+      id: newId,
       memberId,
       text: p.text,
       status: p.status, // ステータスは前月から引き継ぐ
       month: mk,
+      level: typeof p.level === 'number' ? p.level : 1,
+      parentId: newParentId,
+      dueDate: '', // 期限はコピーしない（過去日のまま持ち込まれるのを防ぐため毎回クリア）
       createdAt: now,
       updatedAt: now,
-      order: topOrder--
+      order: getActionPlanTopOrder(memberId, mk, newParentId) // 「同じ親を持つ兄弟」の先頭に配置
     });
     existingTexts.add(p.text); // 同一実行内での重複追加も防ぐ
   });
@@ -5156,14 +5381,30 @@ function setActionPlanStatus(id, status) {
 
 /**
  * アクションプランを削除する（削除ID追跡で同期先にも反映）。
+ * 【階層削除対応】親（大項目・中項目）を削除した場合は、配下の子・孫プランも
+ * まとめて削除する。削除前に配下件数付きで確認ダイアログを出し、削除した全IDを
+ * 必ず _deleted_actionPlans に記録する（記録漏れがあると他端末で復活してしまうため）。
  * @param {string} id - プランID
  */
 function deleteActionPlan(id) {
-  if (!confirm('このアクションプランを削除しますか？')) return;
-  // 削除ID を追跡配列に記録（GAS同期時に他端末でも除外される）
+  const plans = data.actionPlans || [];
+  const target = plans.find(x => x.id === id);
+  // 配下（子・孫…）のIDをすべて集める。センターピンや子を持たない末端プランは常に空配列。
+  const descendantIds = target ? collectActionPlanDescendantIds(id, plans) : [];
+
+  const confirmMsg = descendantIds.length
+    ? `このアクションプランを削除しますか？\n配下の項目（${descendantIds.length}件）もすべて削除されます。`
+    : 'このアクションプランを削除しますか？';
+  if (!confirm(confirmMsg)) return;
+
+  const allIds = [id, ...descendantIds];
+  // 削除ID を追跡配列に記録（GAS同期時に他端末でも除外される）【重要】配下のIDも必ず記録する
   if (!data._deleted_actionPlans) data._deleted_actionPlans = [];
-  if (!data._deleted_actionPlans.includes(id)) data._deleted_actionPlans.push(id);
-  data.actionPlans = (data.actionPlans || []).filter(x => x.id !== id);
+  allIds.forEach(delId => {
+    if (!data._deleted_actionPlans.includes(delId)) data._deleted_actionPlans.push(delId);
+  });
+  const idSet = new Set(allIds);
+  data.actionPlans = plans.filter(x => !idSet.has(x.id));
   saveData();
   renderGoalsPage(); // KPI ループ内 inline 描画のため全体再描画
 }
@@ -6234,10 +6475,48 @@ function normalizeActionPlanMonths(plans, mode) {
 }
 
 /**
+ * アクションプラン配列の level（大中小の階層）・parentId（親プランID）・dueDate（期限）
+ * 欠損を補完する共通処理。loadData() の初回マイグレーションと、mergeActionPlans() の
+ * 同期経路の両方から呼ばれる。
+ * 階層機能が無かった頃の既存プランはすべて「大項目（level:1, parentId:null）」として扱う。
+ * dueDate（期限）は未設定なら空文字にする（"未設定"を表す値として統一する）。
+ * 既に値を持つ項目は絶対に上書きしない（何度呼んでも結果が変わらない＝冪等）。
+ * センターピンは階層の対象外だが、フィールドが無いと後続処理で毎回"補完対象"と
+ * 誤判定されてしまうため、同じデフォルト値（level:1, parentId:null, dueDate:''）を
+ * 一律で補完しておく（表示上は専用ボックスのままで階層UIには出てこない）。
+ *
+ * @param {Array} plans - data.actionPlans（またはマージ後の配列）。破壊的に更新する。
+ * @returns {boolean} 1件でも補完したら true
+ */
+function normalizeActionPlanHierarchy(plans) {
+  if (!Array.isArray(plans) || !plans.length) return false;
+  let changed = false;
+  plans.forEach(p => {
+    if (!p) return;
+    if (typeof p.level !== 'number' || !isFinite(p.level)) {
+      p.level = 1; // 階層情報が無い＝旧バージョンのプラン → 大項目扱い
+      changed = true;
+    }
+    if (typeof p.parentId === 'undefined') {
+      p.parentId = null; // 親情報が無い＝ルート（大項目）扱い
+      changed = true;
+    }
+    if (typeof p.dueDate !== 'string') {
+      p.dueDate = ''; // 期限が無い＝未設定
+      changed = true;
+    }
+  });
+  return changed;
+}
+
+/**
  * アクションプラン配列の order（表示順・並び替え機能用）欠損を補完する共通処理。
  * loadData() の初回マイグレーションと、mergeActionPlans() の同期経路の両方から呼ばれる。
  * センターピンは並び替え対象外なので order を付与しない。
- * メンバー×月ごとに独立した連番を、現在の表示順（createdAt降順＝従来の並び）に沿って付与する。
+ * メンバー×月×親（parentId）ごと＝「同じ親を持つ兄弟同士」で独立した連番を、
+ * 現在の表示順（createdAt降順＝従来の並び）に沿って付与する。
+ * 【重要】必ず normalizeActionPlanHierarchy() の後に呼ぶこと。parentId が未確定のままだと
+ * 兄弟グループの判定（＝親子関係）を誤ってしまう。
  * 既に order が設定済みの要素は絶対に上書きしない（何度呼んでも結果が変わらない＝冪等）。
  * 同じグループ内に order 済みのプランが既にある場合（他端末からの同期など）は、
  * その最大値の続きから採番することで、既存の並びと衝突しないようにする。
@@ -6249,20 +6528,22 @@ function assignActionPlanOrders(plans) {
   if (!Array.isArray(plans) || !plans.length) return false;
   let changed = false;
 
-  // メンバー×月ごとに、order が未設定の通常プラン（センターピン除く）をグループ化
+  // メンバー×月×親ごとに、order が未設定の通常プラン（センターピン除く）をグループ化
   const groups = {};
   plans.forEach(p => {
     if (!p || p.isCenterPin) return; // センターピンは並び替え対象外
     if (typeof p.order === 'number' && isFinite(p.order)) return; // 既に order があるものはスキップ（冪等性の担保）
-    const key = p.memberId + '|' + p.month;
+    const parentKey = p.parentId || 'root';
+    const key = p.memberId + '|' + p.month + '|' + parentKey;
     (groups[key] = groups[key] || []).push(p);
   });
 
   Object.keys(groups).forEach(key => {
-    const [memberId, month] = key.split('|');
-    // 同じグループ内で既に使われている order の最大値を調べ、その続きから採番する
+    const [memberId, month, parentKey] = key.split('|');
+    const parentId = parentKey === 'root' ? null : parentKey;
+    // 同じグループ（同じ親を持つ兄弟）内で既に使われている order の最大値を調べ、その続きから採番する
     const existingOrders = plans
-      .filter(p => p && !p.isCenterPin && p.memberId === memberId && p.month === month && typeof p.order === 'number' && isFinite(p.order))
+      .filter(p => p && !p.isCenterPin && p.memberId === memberId && p.month === month && (p.parentId || null) === parentId && typeof p.order === 'number' && isFinite(p.order))
       .map(p => p.order);
     let next = existingOrders.length ? Math.max(...existingOrders) + 1 : 0;
     // 現在の表示順（createdAt降順＝従来の並び）を維持できるよう、その順で連番を付与
@@ -6290,6 +6571,11 @@ function mergeActionPlans(local, remote, deletedSet) {
   // 【同期経路のmonth補完】改修前バージョンの端末で追加され month が無いまま届いた
   // プランを補完する。過去プランが同期のたびに当月へ動かないよう 'sync' モードで呼ぶ。
   normalizeActionPlanMonths(merged, 'sync');
+  // 【同期経路の階層情報補完】level・parentId・dueDate が無いまま届いた古いプラン
+  // （階層機能を知らない旧バージョンの端末から来たデータ）を補完する。
+  // 既に値を持つプランは上書きされないため、他端末での階層構造は保持される。
+  // 【重要】必ず assignActionPlanOrders より先に呼ぶこと（parentId 確定後に兄弟判定するため）。
+  normalizeActionPlanHierarchy(merged);
   // 【同期経路のorder補完】order（並び替え機能）が無いまま届いた古いプランを補完する。
   // 既に order を持つプランは上書きされないため、他端末での並び替え結果は保持される。
   assignActionPlanOrders(merged);
@@ -7831,6 +8117,9 @@ function deleteProduct(idx) {
 let _editCenterPin = {};
 // 通常アクションプランの編集モード管理 { [planId]: true } 編集中のプランID
 let _editActionPlan = {};
+// 【階層アクションプラン】「＋子を追加」ボタンを押して子追加フォームを開いている親プランID管理
+// { [parentPlanId]: true } の形。フォームを閉じる/子を追加できたら該当キーを削除する。
+let _addChildFor = {};
 
 // グループ名インライン編集（商品）
 let _editProdGroups = {};
