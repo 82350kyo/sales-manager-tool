@@ -782,11 +782,15 @@
             </div>
             <div class="form-group">
               <label>導線</label>
-              <!-- 動線プルダウン（updateRouteSelect()で動的生成） -->
-              <select id="sale-category" onchange="previewSaleReport();toggleCategoryCustom()">
-                <option value="">なし</option>
+              <!-- 【変更】以前は「個別相談 (物販)」のような導線名一覧から選ぶ方式だったが、
+                   ①業種(物販/AI)をプルダウンで選び ②導線名は自由記入する方式に変更した。
+                   選択肢は物販/AIの2つだけで固定のため、data.routesからJSで作り直す必要はない。 -->
+              <select id="sale-category" onchange="previewSaleReport()">
+                <option value="">業種を選択してください（未選択でも保存できます）</option>
+                <option value="物販">物販</option>
+                <option value="AI">AI</option>
               </select>
-              <input type="text" id="sale-category-custom" placeholder="導線を入力..." style="display:none;margin-top:6px;" oninput="previewSaleReport()">
+              <input type="text" id="sale-category-custom" placeholder="導線を入力...（例：個別相談、広告 など）" style="margin-top:6px;" oninput="previewSaleReport()">
             </div>
             <div class="form-group">
               <label>LINE名（顧客名）</label>
@@ -1760,12 +1764,20 @@
         </select>
       </div>
 
-      <!-- 導線 -->
+      <!-- 業種（旧:導線プルダウン。物販/AIの2択に変更） -->
       <div style="display:flex;flex-direction:column;gap:5px;">
-        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">導線</label>
-        <select id="sd-category" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;background:var(--surface);">
-          <option value="">なし</option>
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">業種</label>
+        <select id="sd-business" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;background:var(--surface);">
+          <option value="">未選択</option>
+          <option value="物販">物販</option>
+          <option value="AI">AI</option>
         </select>
+      </div>
+
+      <!-- 導線名（自由記入） -->
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">導線名</label>
+        <input type="text" id="sd-category-custom" placeholder="導線を入力..." style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;">
       </div>
 
       <!-- 面談日 -->
@@ -3079,33 +3091,54 @@ function autoFillProductAmount() {
 }
 
 // ==================== 動線セレクト更新 ====================
+// 【変更】入力フォームの「導線」は "業種プルダウン(物販/AI)" + "導線名の自由記入欄" に変わったため、
+// この関数はもう data.routes から #sale-category の選択肢を作り直す必要が無くなった
+// （業種は物販/AIの2つで固定なのでHTMLに直接書いてある）。
+// ただし項目設定ページで動線マスタ(data.routes)を追加・削除・修正したときに、売上一覧の
+// 「導線」絞り込みセレクト（filter-category）へは反映させたいので、そちらの更新だけ行う。
+// 関数名を変えると呼び出し元(項目設定ページ側)を大量に書き換える必要が出るため、
+// 互換性のためこの名前のまま残してある。
 function updateRouteSelect() {
-  const sel = document.getElementById('sale-category');
-  if (!sel) return;
-  const current = sel.value;
-  sel.innerHTML = '<option value="">なし</option>';
-  // グループ別にoptgroupを生成
-  const groups = {};
-  (data.routes || []).forEach(r => {
-    if (!groups[r.group]) groups[r.group] = [];
-    groups[r.group].push(r.name);
-  });
-  Object.entries(groups).forEach(([grp, names]) => {
-    const og = document.createElement('optgroup');
-    og.label = '── ' + grp + ' ──';
-    names.forEach(n => {
-      const o = document.createElement('option');
-      o.value = n; o.textContent = n;
-      og.appendChild(o);
-    });
-    sel.appendChild(og);
-  });
-  // その他（自由入力）オプション
-  const other = document.createElement('option');
-  other.value = 'その他'; other.textContent = 'その他（自由入力）';
-  sel.appendChild(other);
-  // 以前の選択値を維持
-  if (current) sel.value = current;
+  updateFilterCategorySelect();
+}
+
+// ==================== 導線文字列 ⇔ 業種＋導線名 変換ヘルパー ====================
+// 【重要】スプレッドシートの「導線」列は1列のままで、これまでと同じ
+// "<導線名> (物販)" / "<導線名> (AI)" という形式の文字列として保存する。
+// こうすることで、過去1500件以上の既存データやGAS側の業種判定ロジック（文字列に
+// "(物販)"/"(AI)" が含まれるかで判定）をまったく変更せずに済む。
+
+// 業種(business)と導線名(name)から、保存用の導線文字列を組み立てる
+// ・業種未選択：導線名だけを返す（従来の自由入力・空欄と同じ扱い）
+// ・業種選択・導線名あり：「導線名 (業種)」
+// ・業種選択・導線名なし："未設定 (業種)"（"(物販)"のような不格好な表記を避けるため）
+function composeCategoryText(business, name) {
+  const n = (name || '').trim();
+  if (!business) return n;
+  return `${n || '未設定'} (${business})`;
+}
+
+// 導線文字列から「末尾の (物販)/(AI) 表記」と「導線名」を分解する。
+// 全角（）・半角()どちらにも対応。末尾が物販/AIでない（＝業種を判定できない）場合は
+// 業種='' 、導線名=元の文字列全体を返す（データを勝手に書き換えないため）。
+function parseCategoryText(category) {
+  const c = (category || '').trim();
+  if (!c) return { business: '', name: '' };
+  const m = c.match(/^(.*?)[\s　]*[（(](物販|AI)[）)]\s*$/);
+  if (!m) return { business: '', name: c };
+  const name = m[1].trim();
+  // composeCategoryTextが「未設定」を補完したケースの逆変換（空欄に戻す）
+  return { business: m[2], name: name === '未設定' ? '' : name };
+}
+
+// 既存の売上レコードを編集フォームへ表示する際に使う分解関数。
+// 業種は「実際に集計で使われている値」を優先して表示したいので、
+// s.business（明示保存された業種。無ければ未設定）を最優先し、無い場合のみ
+// 導線文字列からの判定にフォールバックする（過去データの分類を壊さないため）。
+function splitCategoryForEdit(sale) {
+  const parsed = parseCategoryText(sale && sale.category);
+  const business = (sale && sale.business) ? sale.business : parsed.business;
+  return { business, name: parsed.name };
 }
 
 // ==================== SALES ====================
@@ -3264,6 +3297,7 @@ function addSale() {
   const payment   = parseInt(document.getElementById('sale-payment').value) || 0;
   const paymentDate = document.getElementById('sale-payment-date').value || (payment > 0 ? date : '');
   const category  = getSaleCategory();
+  const business  = getSaleBusiness(); // 選んだ業種('物販'/'AI'/未選択なら'')。集計で文字列判定に頼らず済むよう明示的に保存する
   const lineName  = document.getElementById('sale-linename').value.trim();
   const result    = document.getElementById('sale-result').value;
   // 商品：「その他」選択時は自由入力欄の値を使う
@@ -3303,7 +3337,7 @@ function addSale() {
     customerInfo.customerMemo = customerInfo.firstNote; // 後方互換：GAS側がスプレッドシートのT列(備考／所感)にcustomerMemoしか書き込まないため、未成約系でもここに所感を複製しておかないと他端末で所感が空になって消えてしまう
   }
 
-  data.sales.push({ id, date, time, memberId, amount, payment, paymentDate, category, result, note: lineName, memo: note, product, recording, source: 'local', customerInfo, additionalAmount, ...(rowType ? { rowType } : {}) });
+  data.sales.push({ id, date, time, memberId, amount, payment, paymentDate, category, business, result, note: lineName, memo: note, product, recording, source: 'local', customerInfo, additionalAmount, ...(rowType ? { rowType } : {}) });
   data.sales.sort((a,b) => b.date.localeCompare(a.date));
   saveData();
 
@@ -3743,7 +3777,11 @@ function prepareInstallment(id) {
   const s = data.sales.find(s => String(s.id) === String(id));
   if (!s) return;
   document.getElementById('sale-member').value = s.memberId;
-  document.getElementById('sale-category').value = s.category || '';
+  // 導線（業種＋導線名）を元の売上と同じ内容でフォームへ反映する
+  const instCat = splitCategoryForEdit(s);
+  document.getElementById('sale-category').value = instCat.business;
+  const instCatCustom = document.getElementById('sale-category-custom');
+  if (instCatCustom) instCatCustom.value = instCat.name;
   document.getElementById('sale-linename').value = s.note || '';
   document.getElementById('sale-result').value = '追加決済';
   // 商品を元の売上と同じものに自動選択
@@ -3860,31 +3898,16 @@ function openSaleDetailModal(id, event) {
     `<option value="${m.id}" ${m.id === s.memberId ? 'selected' : ''}>${esc(m.name)}</option>`
   ).join('');
 
-  // 導線セレクトを動的に生成（data.routes から）
-  const catSel = document.getElementById('sd-category');
-  catSel.innerHTML = '<option value="">なし</option>';
-  const routeGroups = {};
-  (data.routes || []).forEach(r => {
-    if (!routeGroups[r.group]) routeGroups[r.group] = [];
-    routeGroups[r.group].push(r.name);
-  });
-  Object.entries(routeGroups).forEach(([grp, names]) => {
-    const og = document.createElement('optgroup');
-    og.label = '── ' + grp + ' ──';
-    names.forEach(n => {
-      const o = document.createElement('option');
-      o.value = n; o.textContent = n;
-      if (n === s.category) o.selected = true;
-      og.appendChild(o);
-    });
-    catSel.appendChild(og);
-  });
-  // 選択中の導線がリストになければ直接セット
-  if (s.category && catSel.value !== s.category) {
-    const opt = document.createElement('option');
-    opt.value = s.category; opt.textContent = s.category; opt.selected = true;
-    catSel.appendChild(opt);
-  }
+  // 導線（業種＋導線名）をフォームへ反映
+  // 【変更】以前はdata.routesから作った導線名一覧のプルダウンだったが、
+  // 「業種(物販/AI)を選ぶ」＋「導線名は自由記入」の方式に変更した。
+  // 業種はs.business（明示保存された値）を優先し、無い場合のみ導線文字列から判定する
+  // （splitCategoryForEdit）。判定できない古いデータは業種=未選択、導線名=元の文字列全体になる。
+  const catParts = splitCategoryForEdit(s);
+  const bizSel = document.getElementById('sd-business');
+  if (bizSel) bizSel.value = catParts.business;
+  const catCustomEl = document.getElementById('sd-category-custom');
+  if (catCustomEl) catCustomEl.value = catParts.name;
 
   // 商品セレクトを動的に生成（data.products から、グループ別optgroup）
   const prodSel = document.getElementById('sd-product');
@@ -3956,7 +3979,10 @@ function saveSaleDetail() {
   // フォームから値を取得
   const lineName    = document.getElementById('sd-linename').value.trim();
   const memberId    = document.getElementById('sd-member').value;
-  const category    = document.getElementById('sd-category').value;
+  // 業種＋導線名の自由記入欄から、保存用の導線文字列を組み立てる
+  const business    = document.getElementById('sd-business')?.value || '';
+  const categoryName = document.getElementById('sd-category-custom')?.value.trim() || '';
+  const category    = composeCategoryText(business, categoryName);
   const date        = document.getElementById('sd-date').value;
   const result      = document.getElementById('sd-result').value;
   const product     = document.getElementById('sd-product').value;
@@ -4001,6 +4027,7 @@ function saveSaleDetail() {
   s.note        = lineName;
   s.memberId    = memberId;
   s.category    = category;
+  s.business    = business; // 選んだ業種を明示保存（文字列判定に頼らず確実に集計へ反映させるため）
   s.date        = date;
   s.result      = result;
   s.product     = product;
@@ -5779,7 +5806,7 @@ function renderDashboard() {
       const cCoolingAmt = cCoolingOff.reduce((a,s) => a+Math.abs(s.payment||0), 0);
       const isTotal = cat === '合計';
       return `<tr style="${isTotal ? 'font-weight:700;background:var(--bg);' : ''}">
-        <td>${cat}</td>
+        <td>${esc(cat)}</td>
         <td>${cApo}</td>
         <td>${cMendan}</td>
         <td style="color:var(--success)">${cKeiyaku}</td>
@@ -7585,7 +7612,7 @@ function renderSeminarPage() {
   }
 
   const prevValue = select.value;
-  select.innerHTML = seminarKeys.map(k => `<option value="${k}" ${prevValue===k?'selected':''}>${normalizedMap[k]}</option>`).join('');
+  select.innerHTML = seminarKeys.map(k => `<option value="${esc(k)}" ${prevValue===k?'selected':''}>${esc(normalizedMap[k])}</option>`).join('');
   
   const selectedKey = select.value || seminarKeys[0];
 
@@ -7741,21 +7768,23 @@ function deleteCategory(name) {
   updateCategorySelects();
 }
 
-function toggleCategoryCustom() {
-  const sel = document.getElementById('sale-category');
-  const custom = document.getElementById('sale-category-custom');
-  if (!sel || !custom) return;
-  custom.style.display = sel.value === 'その他' ? 'block' : 'none';
-  if (sel.value !== 'その他') custom.value = '';
+// 【変更】導線名の自由記入欄は常時表示になったため、「その他」選択時だけ表示/非表示を
+// 切り替えるこの関数は不要になった（呼び出し箇所も削除済み）。念のため関数自体は
+// 何もしないダミーとして残し、どこかから呼ばれてもエラーにならないようにしておく。
+function toggleCategoryCustom() {}
+
+// 入力フォームの業種プルダウン（''/'物販'/'AI'）の値を返す
+function getSaleBusiness() {
+  return document.getElementById('sale-category')?.value || '';
 }
 
+// 業種＋導線名の自由記入欄から、保存・送信用の導線文字列を組み立てて返す
+// （composeCategoryTextで "導線名 (業種)" 形式に組み立てる。過去の呼び出し元の
+//  期待どおり「導線の表示文字列」を返す関数として名前はそのまま維持している）
 function getSaleCategory() {
-  const sel = document.getElementById('sale-category');
-  if (!sel) return '';
-  if (sel.value === 'その他') {
-    return document.getElementById('sale-category-custom')?.value.trim() || 'その他';
-  }
-  return sel.value;
+  const business = getSaleBusiness();
+  const name = document.getElementById('sale-category-custom')?.value.trim() || '';
+  return composeCategoryText(business, name);
 }
 
 function updateCategorySelects() {
@@ -8143,7 +8172,7 @@ function renderProductsList() {
   const grpSel = document.getElementById('new-product-group');
   if (grpSel) {
     const groups = [...new Set((data.products || []).map(p => p.group))];
-    grpSel.innerHTML = groups.map(g => `<option value="${g}">${g}</option>`).join('') + '<option value="__new__">＋ 新しいグループ</option>';
+    grpSel.innerHTML = groups.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join('') + '<option value="__new__">＋ 新しいグループ</option>';
     grpSel.onchange = () => {
       const custom = document.getElementById('new-product-group-custom');
       if (custom) custom.style.display = grpSel.value === '__new__' ? '' : 'none';
@@ -8158,12 +8187,12 @@ function renderProductsList() {
   el.innerHTML = Object.entries(groups).map(([grp, items], grpIdx) => `
     <div style="margin-bottom:16px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;padding:4px 8px;background:#f8fafc;border-radius:6px;">
-        <span id="product-grp-name-${grpIdx}" style="font-size:12px;font-weight:700;color:var(--text-muted);">${grp}</span>
+        <span id="product-grp-name-${grpIdx}" style="font-size:12px;font-weight:700;color:var(--text-muted);">${esc(grp)}</span>
         <button id="product-grp-btn-${grpIdx}" onclick="startEditProductGroup(${grpIdx})" style="background:none;border:1px solid #94a3b8;color:#64748b;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px;">グループ名修正</button>
       </div>
       ${items.map(item => `
         <div id="product-row-${item.idx}" style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);">
-          <span id="product-name-${item.idx}" style="font-size:14px;flex:1;">${item.name}</span>
+          <span id="product-name-${item.idx}" style="font-size:14px;flex:1;">${esc(item.name)}</span>
           <div style="display:flex;gap:6px;margin-left:8px;flex-shrink:0;">
             <button id="product-edit-btn-${item.idx}" onclick="startEditProduct(${item.idx})" style="background:none;border:1px solid var(--primary);color:var(--primary);border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;">修正</button>
             <button onclick="deleteProduct(${item.idx})" style="background:none;border:1px solid #ef4444;color:#ef4444;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;">削除</button>
@@ -8286,7 +8315,7 @@ function renderRoutesList() {
   const grpSel = document.getElementById('new-route-group');
   if (grpSel) {
     const groups = [...new Set((data.routes || []).map(r => r.group))];
-    grpSel.innerHTML = groups.map(g => `<option value="${g}">${g}</option>`).join('') + '<option value="__new__">＋ 新しいグループ</option>';
+    grpSel.innerHTML = groups.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join('') + '<option value="__new__">＋ 新しいグループ</option>';
     grpSel.onchange = () => {
       const custom = document.getElementById('new-route-group-custom');
       if (custom) custom.style.display = grpSel.value === '__new__' ? '' : 'none';
@@ -8301,12 +8330,12 @@ function renderRoutesList() {
   el.innerHTML = Object.entries(groups).map(([grp, items], grpIdx) => `
     <div style="margin-bottom:16px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;padding:4px 8px;background:#f8fafc;border-radius:6px;">
-        <span id="route-grp-name-${grpIdx}" style="font-size:12px;font-weight:700;color:var(--text-muted);">${grp}</span>
+        <span id="route-grp-name-${grpIdx}" style="font-size:12px;font-weight:700;color:var(--text-muted);">${esc(grp)}</span>
         <button id="route-grp-btn-${grpIdx}" onclick="startEditRouteGroup(${grpIdx})" style="background:none;border:1px solid #94a3b8;color:#64748b;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px;">グループ名修正</button>
       </div>
       ${items.map(item => `
         <div id="route-row-${item.idx}" style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);">
-          <span id="route-name-${item.idx}" style="font-size:14px;flex:1;">${item.name}</span>
+          <span id="route-name-${item.idx}" style="font-size:14px;flex:1;">${esc(item.name)}</span>
           <div style="display:flex;gap:6px;margin-left:8px;flex-shrink:0;">
             <button id="route-edit-btn-${item.idx}" onclick="startEditRoute(${item.idx})" style="background:none;border:1px solid var(--primary);color:var(--primary);border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;">修正</button>
             <button onclick="deleteRoute(${item.idx})" style="background:none;border:1px solid #ef4444;color:#ef4444;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;">削除</button>
