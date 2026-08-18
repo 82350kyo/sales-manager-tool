@@ -973,10 +973,21 @@
       <div class="card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:12px;">
           <div class="card-title" style="margin-bottom:0;">売上一覧</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <select id="filter-month" style="font-size:13px;padding:6px 10px;border-radius:6px;border:1.5px solid var(--border);" onchange="renderSalesList()">
-              <option value="">全期間</option>
-            </select>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+            <!-- 面談日ベースの月フィルタ（既存・挙動は変更しない）。ラベルを付けて「面談月」基準だと分かるようにした -->
+            <div style="display:flex;flex-direction:column;gap:2px;">
+              <label style="font-size:10px;color:var(--text-muted);font-weight:700;">面談月</label>
+              <select id="filter-month" style="font-size:13px;padding:6px 10px;border-radius:6px;border:1.5px solid var(--border);" onchange="renderSalesList()">
+                <option value="">全期間</option>
+              </select>
+            </div>
+            <!-- 【新規】着金日ベースの月フィルタ。面談日フィルタとは独立でAND併用できる -->
+            <div style="display:flex;flex-direction:column;gap:2px;">
+              <label style="font-size:10px;color:var(--text-muted);font-weight:700;">着金月</label>
+              <select id="filter-payment-month" style="font-size:13px;padding:6px 10px;border-radius:6px;border:1.5px solid var(--border);" onchange="renderSalesList()">
+                <option value="">着金月: 全期間</option>
+              </select>
+            </div>
             <select id="filter-member" style="font-size:13px;padding:6px 10px;border-radius:6px;border:1.5px solid var(--border);" onchange="renderSalesList()">
               <option value="">全員</option>
             </select>
@@ -1000,6 +1011,8 @@
             <option value="クーリングオフ">クーリングオフ</option>
           </select>
         </div>
+        <!-- 【新規】着金月フィルタが選択されている時だけ、その月の着金合計を表示する -->
+        <div id="payment-month-summary" style="display:none;margin-bottom:12px;padding:8px 12px;background:#eff6ff;border-radius:8px;font-size:13px;font-weight:700;color:#1d4ed8;"></div>
         <div class="table-wrap" id="sales-list"></div>
       </div>
     </div>
@@ -2798,6 +2811,31 @@ function paymentAllTime(s) {
   return (s.payment || 0) + (s.payment2 || 0) + (s.payment3 || 0);
 }
 
+// 【着金月フィルタ用】レコードsの着金イベントのうち「本当に着金情報があるもの」だけを返す。
+// paymentEventsOf()の1回目イベント(d1)は、paymentDateが未入力のときに面談日(s.date)を代用する
+// 後方互換ロジックが入っている。これはpaymentDate・payment金額とも未入力の「未成約（一度も着金していない）」
+// レコードにも常に発生してしまうため（sale-payment-dateは金額>0のときしか自動入力されない仕様のため実際に起こる）、
+// 「イベントの有無」で絞り込む着金月フィルタにそのまま使うと、着金していないレコードまで
+// 面談月＝着金月として表示・選択肢化されてしまう不具合になる。
+// そこで1回目イベントについては「paymentDateが明示入力されている」または「paymentが0以外（マイナスも含む）」
+// のどちらかを満たす場合のみ「本物の着金イベント」として扱う（＝金額0円のみを理由に除外することはしない）。
+// 2回目・3回目イベントはpaymentEventsOf()側で既に「金額かつ日付が両方揃っている時だけ」しか生成されないため、
+// この判定を追加せずそのまま使ってよい。
+// ※既存のpaymentInMonth()等（金額の合計を出す用途）は挙動を変えたくないため触らず、
+//   着金月フィルタ専用の新しいヘルパーとして用意している。
+function realPaymentEventsOf(s) {
+  return paymentEventsOf(s).filter((e, idx) => {
+    if (idx === 0 && !s.paymentDate && !s.payment) return false; // 1回目の後方互換フォールバックのみで、実際の着金情報が無いケースは除外
+    return true;
+  });
+}
+
+// レコードsが、月キーmkに「本当に着金イベントがあった」かどうかを判定する（着金月フィルタの絞り込みに使用）
+function hasPaymentEventInMonth(s, mk) {
+  if (!mk) return false;
+  return realPaymentEventsOf(s).some(e => e.date && String(e.date).startsWith(mk));
+}
+
 // =====================================================
 // 【目標管理ページ：メンバー別KPI「実績」共通ヘルパー】
 // 当月の実績も先月の実績（参考表示）も、必ずこの関数を通して計算する。
@@ -3460,11 +3498,36 @@ function quickFillReport(title, time, ownerName) {
 function updateMonthFilter() {
   const el = document.getElementById('filter-month');
   if (!el) return;
+  // 再描画（データ再読み込み・自動同期後など）で選択中の月が勝手にリセットされないよう、
+  // 一旦現在の選択値を退避しておき、選択肢を作り直した後に同じ値があれば復元する
+  const prevMonthValue = el.value;
   const months = [...new Set(data.sales.map(s => s.date.slice(0,7)))].sort().reverse();
   el.innerHTML = '<option value="">全期間</option>' + months.map(m => {
     const [y,mo] = m.split('-');
     return `<option value="${m}">${y}年${parseInt(mo)}月</option>`;
   }).join('');
+  if (months.includes(prevMonthValue)) el.value = prevMonthValue;
+
+  // 【着金月フィルタ】面談日フィルタと同じタイミングで、着金月フィルタの選択肢も作る。
+  // s.paymentDate（1回目）だけを見ると2回目・3回目の着金月が選択肢に出てこないため、
+  // 必ず realPaymentEventsOf() が返す「本当に着金情報がある着金イベント単位」で月を集計する
+  // （paymentEventsOf()をそのまま使うと、未着金レコードの面談月まで選択肢に混じってしまうため）。
+  const payEl = document.getElementById('filter-payment-month');
+  if (payEl) {
+    const prevPayValue = payEl.value;
+    const payMonthsSet = new Set();
+    data.sales.forEach(s => {
+      realPaymentEventsOf(s).forEach(ev => {
+        if (ev.date) payMonthsSet.add(String(ev.date).slice(0, 7));
+      });
+    });
+    const payMonths = [...payMonthsSet].sort().reverse();
+    payEl.innerHTML = '<option value="">着金月: 全期間</option>' + payMonths.map(m => {
+      const [y, mo] = m.split('-');
+      return `<option value="${m}">${y}年${parseInt(mo)}月</option>`;
+    }).join('');
+    if (payMonths.includes(prevPayValue)) payEl.value = prevPayValue;
+  }
 }
 
 const RESULT_COLORS = {
@@ -3486,6 +3549,8 @@ function resultBadge(result) {
 
 function renderSalesList() {
   const monthFilter = document.getElementById('filter-month')?.value;
+  // 【着金月フィルタ】面談日フィルタとは別に、着金日ベースで絞り込むための値
+  const paymentMonthFilter = document.getElementById('filter-payment-month')?.value;
   const memberFilter = document.getElementById('filter-member')?.value;
   // 追加フィルター：LINE名テキスト検索・導線・結果
   const lineNameFilter = document.getElementById('filter-linename')?.value?.trim();
@@ -3495,6 +3560,14 @@ function renderSalesList() {
   let sales = [...data.sales];
 
   if (monthFilter) sales = sales.filter(s => s.date.startsWith(monthFilter));
+  // 着金月フィルタ：paymentInMonth()の「合計金額」ではなく、hasPaymentEventInMonth()の「イベントの有無」で判定する。
+  // 合計金額で判定すると、0円の着金や複数回の着金が相殺されてたまたま合計0円になったケースを
+  // 取りこぼしてしまう（本来はその月に着金イベントがあったのに一覧から消えてしまう）ため。
+  // ※hasPaymentEventInMonth()は、paymentEventsOf()の1回目イベントが「未着金レコードにも常に発生してしまう
+  //   後方互換フォールバック」である問題を踏まえ、実際に着金情報があるレコードだけを対象にしている（詳細は関数コメント参照）
+  if (paymentMonthFilter) {
+    sales = sales.filter(s => hasPaymentEventInMonth(s, paymentMonthFilter));
+  }
   if (memberFilter) sales = sales.filter(s => s.memberId === memberFilter);
   // LINE名フィルター（s.note フィールドを対象に「含む」で絞り込み）
   if (lineNameFilter) sales = sales.filter(s => (s.note || '').includes(lineNameFilter));
@@ -3502,6 +3575,20 @@ function renderSalesList() {
   if (categoryFilter) sales = sales.filter(s => s.category === categoryFilter);
   // 結果フィルター（完全一致）
   if (resultFilter) sales = sales.filter(s => s.result === resultFilter);
+
+  // 【着金月フィルタ】選択中の着金月について、絞り込み後の一覧の着金合計を上部に表示する
+  const paymentSummaryEl = document.getElementById('payment-month-summary');
+  if (paymentSummaryEl) {
+    if (paymentMonthFilter) {
+      const total = sales.reduce((a, s) => a + paymentInMonth(s, paymentMonthFilter), 0);
+      const [y, mo] = paymentMonthFilter.split('-');
+      paymentSummaryEl.style.display = '';
+      paymentSummaryEl.textContent = `💰 ${y}年${parseInt(mo)}月の着金合計: ${fmt(total)}（該当${sales.length}件）`;
+    } else {
+      paymentSummaryEl.style.display = 'none';
+      paymentSummaryEl.textContent = '';
+    }
+  }
 
   const groups = {};
   const firstDates = {};
@@ -3594,6 +3681,13 @@ function renderSalesList() {
       const sPaymentTotal = paymentAllTime(s);
       const hasPayment = Math.abs(sPaymentTotal) > 0;
       const sReminder  = s.customerInfo?.nextApproachDate || '';
+      // 【着金月フィルタ追加】行に着金日が表示されていなかったため、着金イベントの日付を「M/D」形式で追記する。
+      // 2回目・3回目の着金がある場合は「・」区切りで複数表示し、着金月フィルタで絞り込んだ際にどの着金がヒットしたか分かるようにする。
+      // realPaymentEventsOf()を使い、未着金レコード（後方互換フォールバックのみ）には着金日を出さないようにする
+      const sPaymentDates = realPaymentEventsOf(s)
+        .filter(e => e.date)
+        .map(e => { const parts = String(e.date).split('-'); return parts.length === 3 ? `${parseInt(parts[1])}/${parseInt(parts[2])}` : e.date; });
+      const sPaymentDatesStr = sPaymentDates.length ? `（${esc(sPaymentDates.join('・'))}）` : '';
       return `
         <div id="sale-row-${s.id}"
           style="display:flex;align-items:center;justify-content:space-between;padding:9px 4px;border-bottom:1px solid var(--border);cursor:pointer;border-radius:8px;transition:background 0.15s;"
@@ -3603,7 +3697,7 @@ function renderSalesList() {
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1;min-width:0;">
             <span style="font-size:12px;color:var(--text-muted);white-space:nowrap;min-width:82px;">${esc(s.date)}</span>
             <span style="font-size:13px;font-weight:700;color:${hasAmount?'#065f46':'var(--text-muted)'};white-space:nowrap;">${hasAmount?'💰 ':''}${fmt(s.amount||0)}</span>
-            <span style="font-size:12px;color:${hasPayment?'#1d4ed8':'var(--text-muted)'};white-space:nowrap;">${hasPayment?'✅ 着金: '+fmt(Math.abs(sPaymentTotal)):'着金: -'}</span>
+            <span style="font-size:12px;color:${hasPayment?'#1d4ed8':'var(--text-muted)'};white-space:nowrap;">${hasPayment?'✅ 着金: '+fmt(Math.abs(sPaymentTotal)):'着金: -'}${sPaymentDatesStr}</span>
             <div id="result-cell-${s.id}" style="display:flex;align-items:center;gap:6px;">${resultBadge(s.result)}</div>
             ${sReminder ? `<span title="次回: ${esc(sReminder)}" style="font-size:13px;">🔔</span>` : ''}
           </div>
