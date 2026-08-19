@@ -4154,6 +4154,12 @@ function saveSaleDetail() {
   s.payment3      = payment3;
   s.paymentDate3  = paymentDate3;
   s.recording   = recording;
+  // 【修正3】このレコードは今まさにユーザーが手で編集した「ローカルの最新情報」なので、
+  // source を 'local' に明示する（saveResultChange()の既存パターンと同じ）。
+  // これをしないと、シート由来（source:'sheet'）のレコードを編集しても source が
+  // 'sheet' のままになり、次回同期時にsyncFromSheet()の「スプシ由来データを全削除して再構築」
+  // (data.sales = data.sales.filter(s => s.source !== 'sheet')) で今の編集内容が消えてしまう。
+  s.source      = 'local';
   if (!s.customerInfo) s.customerInfo = {};
   s.customerInfo.upsell          = upsell;
   s.customerInfo.rejection       = rejection;
@@ -7363,7 +7369,11 @@ function syncFromSheet(onRetry) {
       // スプシ由来データを全削除して再構築
       data.sales = data.sales.filter(s => s.source !== 'sheet');
       let addedSales = 0, addedMembers = 0;
-      const localSales2 = data.sales.filter(s => s.source === 'local');
+      // 【修正2】ここは「今まさにdata.salesに残っている（＝sheet由来ではない）行」を候補にすべきなのに、
+      // s.source === 'local' の完全一致にしていたため、source未設定（sourceフィールド導入より前に
+      // 作られた古いレコード・インポート由来のレコード）が候補から漏れ、毎回100%重複する原因になっていた。
+      // 上の行の除外条件（s.source !== 'sheet'）と揃えることで、undefinedのレコードも救済する。
+      const localSales2 = data.sales.filter(s => s.source !== 'sheet');
       const stripR2 = n => n.replace(/[（(][^）)]*[）)]/g, '').trim();
 
       // UTC ISO文字列をJST(+9h)に補正してYYYY-MM-DD形式で返すヘルパー
@@ -7395,19 +7405,40 @@ function syncFromSheet(onRetry) {
         const result = row['結果'] || '';
 
         if (!name) return;
+
+        // 【修正1】シート行からIDを抽出する処理を、重複判定（下のexistingLocal）より前に移動した。
+        // 以前はこのID抽出処理が「一致した“後”に上書きするため」にしか使われておらず、
+        // 肝心の重複判定はIDを一切使わず「顧客名＋導線＋担当者」の完全一致だけで行っていたのが
+        // 今回の“同じ人が2件に増える”不具合の原因（導線の表記ゆれ1文字でも照合に失敗していた）。
+        const rowVals = Object.values(row).map(v => String(v || ""));
+        const foundSaleId = rowVals.reduce((found, v) => {
+          if (found) return found;
+          const m = v.match(/(?:sale|import)-[a-z0-9.]+/i);
+          return m ? m[0] : null;
+        }, null);
+        const rawId = String(row['ID'] || '').trim();
+        // 既存ローカル行とのマージ時に使う「本物のID」。ID列も見つからない場合はタイムスタンプまで
+        // フォールバックする（ここは従来のマージ処理と全く同じ挙動にしてあり、変更していない）。
+        const realId = foundSaleId || rawId || row['タイムスタンプ'];
+        // 新規追加時に保存するID。ID列もタイムスタンプも取れない場合は行インデックスで補う
+        // （ここも従来の新規追加処理と全く同じ挙動にしてあり、変更していない）。
+        const saleId = foundSaleId || (rawId ? rawId : null) || ('sheet-row-' + row['_rowIdx']);
+        const idCandidate = realId ? String(realId).trim() : '';
+
         // ローカル入力済みの行はスキップ（重複防止）しつつ、スプシ側で割り当てられたIDがあれば上書きする
-        const existingLocal = localSales2.find(s => {
-          const sName = stripR2(data.members.find(m => m.id === s.memberId)?.name || '');
-          return s.note === String(note).trim() && s.category === String(row['導線']||'').trim() && sName === name;
-        });
+        // 【修正1】まず「id」で照合する（ローカルとシートは同じ 'sale-<作成時刻>' のIDを持つはずなので、
+        // 導線の表記ゆれ（全角/半角カッコ・カッコ前スペースなど）があっても確実に一致させられる）。
+        // idで一致しなかった場合のみ、従来の「顧客名＋導線＋担当者」の3点照合にフォールバックする。
+        // フォールバック側は表記ゆれを吸収するため normCategoryForFilter() で正規化してから比較する。
+        const existingLocal = (idCandidate && localSales2.find(s => s.id && String(s.id).trim() === idCandidate))
+          || localSales2.find(s => {
+            const sName = stripR2(data.members.find(m => m.id === s.memberId)?.name || '');
+            return String(s.note || '').trim() === String(note).trim()
+                && normCategoryForFilter(s.category) === normCategoryForFilter(category)
+                && sName === name;
+          });
         if (existingLocal) {
           // すでに入力済みのものがあれば、スプシ側の本物のIDで上書きする
-          const rowVals = Object.values(row).map(v => String(v || ""));
-          const realId = rowVals.reduce((found, v) => {
-            if (found) return found;
-            const m = v.match(/(?:sale|import)-[a-z0-9.]+/i);
-            return m ? m[0] : null;
-          }, null) || String(row['ID'] || '').trim() || row['タイムスタンプ'];
           if (realId) existingLocal.id = String(realId);
           existingLocal.history = row['履歴'] || '';
           // 録画URLをスプシから補完（ローカルに未設定の場合）
@@ -7484,16 +7515,8 @@ function syncFromSheet(onRetry) {
         const paymentDateField2 = parsePaymentDateCol(row['2回目着金日'] || '');
         const paymentDateField3 = parsePaymentDateCol(row['3回目着金日'] || '');
 
-        // ID取得の強化：どの列にあっても 'sale-' を含む文字列があればIDとして抜き出す
-        const allVals = Object.values(row).map(v => String(v || ""));
-        const foundSaleId = allVals.reduce((found, v) => {
-          if (found) return found;
-          const m = v.match(/(?:sale|import)-[a-z0-9.]+/i);
-          return m ? m[0] : null;
-        }, null);
-        // IDをそのまま使う（import-0001など文字列IDも正しく保持）
-        const rawId = String(row['ID'] || '').trim();
-        const saleId = foundSaleId || (rawId ? rawId : null) || ('sheet-row-' + row['_rowIdx']);
+        // 【修正1】ID取得（foundSaleId/rawId/saleId）は、重複判定より前（existingLocalの直前）に
+        // 移動済みのため、ここでは再計算しない。上で計算済みの saleId をそのまま使う。
         // 着金日を読み込む（UTC ISO対応）
         const payDateRaw = row['着金日'] || '';
         let paymentDate = '';
@@ -7540,6 +7563,95 @@ function syncFromSheet(onRetry) {
         data.sales.forEach(s => { if (s.memberId === dupId) s.memberId = keepId; });
       });
       data.members = data.members.filter(m => !toRemove.includes(m.id));
+
+      // 【修正4（qa-agent指摘により改修）】既にデータ内に発生してしまっている「同じidのレコードが
+      // 複数件ある」状態を、この同期処理（＝ページ再読み込み後の自動同期）だけで1件に自動で解消する。
+      // idが同じ＝(修正1により)確実に同一レコードなので、正当な別データを誤って消す心配はない。
+      // 【重要】当初は「片方を丸ごと残し、もう片方を丸ごと捨てる」実装だったが、
+      // 「source:'local'側にはない、スプレッドシートを直接編集して入れた次回アプローチ予定日・
+      // アップセル見込みなどの付帯情報がsource:'sheet'側にだけ残っている」ケースで、
+      // 捨てられる側の情報が丸ごと失われてしまう問題があった（qa-agent指摘）。
+      // そのため「片方を捨てる」のではなく「ベース側の空欄だけをもう片方の値で補完するマージ」に変更する。
+      // 【ベースの選び方】source:'local'（ユーザーが手入力・編集した最新情報）を優先してベースにする。
+      // 同種同士（例：sheet由来同士）が重複した場合は、配列の並び順で先に見つかった方をベースにする。
+      // 【金額系（amount/payment/payment2/payment3と各着金日）】は絶対に合算しない
+      // （合算してしまうと今回のバグ本体である「着金が2倍になる」を再現してしまうため）。
+      // ベース側に値（0以外）が既にあればそれをそのまま使い、ベース側が未設定（0/空）の時だけ
+      // もう片方の値で補完する、という「上書きしない・合算しない」方針にする。
+      // id が空文字列/undefined のレコードは一切対象にせず、そのまま全件残す（別データをまとめない）。
+      {
+        // ベースの空欄だけを、もう片方(other)の値で補完してマージした新しいオブジェクトを返す。
+        // base自身は変更せず、常に新しいオブジェクトを返す（意図しない副作用を防ぐため）。
+        const mergeSaleRecords = (base, other) => {
+          const merged = { ...base };
+
+          // customerInfo はオブジェクトなので丸ごと上書きせず、中の各項目単位で
+          // baseが空（未設定/空文字）のものだけotherの値で補完する
+          const baseCi = base.customerInfo || {};
+          const otherCi = other.customerInfo || {};
+          const mergedCi = { ...baseCi };
+          Object.keys(otherCi).forEach(k => {
+            if (mergedCi[k] === undefined || mergedCi[k] === null || mergedCi[k] === '') {
+              mergedCi[k] = otherCi[k];
+            }
+          });
+          if (Object.keys(mergedCi).length > 0) merged.customerInfo = mergedCi;
+
+          // 片方にしか入っていない可能性がある文字列・区分系フィールド：
+          // baseが空（未設定/空文字/0）ならotherの値で補完する（baseに値があれば触らない＝上書きしない）
+          ['history', 'recording', 'memo', 'product', 'result', 'category', 'note', 'business', 'rowType', 'date', 'additionalAmount']
+            .forEach(k => {
+              if ((merged[k] === undefined || merged[k] === null || merged[k] === '') && other[k]) {
+                merged[k] = other[k];
+              }
+            });
+
+          // 金額系：合算は絶対にしない。baseに値（0以外）があればそれを使い、
+          // baseが未設定（0/空）の時だけotherの値で補完する。
+          // 【qa-agent指摘・重要】金額(payment)と着金日(paymentDate)は必ず「同じ側」からセットで
+          // 補完する。以前は金額と日付を別々に「空なら補完」していたため、
+          // 「baseのpayment(300000)は残したまま、paymentDateだけotherの(250000に対応する)日付で
+          // 上書きされる」といった、金額と日付が別レコード由来で混ざる不整合が起こり得た
+          // （＝正しい金額が誤った月に計上される、月別集計を狂わせるバグになる）。
+          // 判定基準は「金額をotherから補完するかどうか」の1点に絞り、補完する時は日付も必ず
+          // 同じ側(other)からペアで持ってくる（baseの金額を採用する時は日付もbase自身のものを
+          // そのまま使う＝触らない）。
+          if (!merged.amount && other.amount) merged.amount = other.amount; // amountには対応する日付が無いので従来通り単独補完
+          [['payment', 'paymentDate'], ['payment2', 'paymentDate2'], ['payment3', 'paymentDate3']]
+            .forEach(([amtKey, dateKey]) => {
+              if (!merged[amtKey] && other[amtKey]) {
+                // 金額をotherから補完する場合のみ、対応する着金日もotherの値で丸ごと差し替える
+                // （baseの金額を採用する場合はこのif自体に入らないため、日付はbase自身の値のまま＝混ざらない）
+                merged[amtKey] = other[amtKey];
+                merged[dateKey] = other[dateKey];
+              }
+            });
+
+          return merged;
+        };
+
+        const byId = new Map();
+        data.sales.forEach(s => {
+          const key = s.id ? String(s.id) : '';
+          if (!key) return; // idが無いレコードは畳み込みの対象外（後でそのまま戻す）
+          const kept = byId.get(key);
+          if (!kept) { byId.set(key, s); return; }
+          // すでに残っている方が 'local' でなく、今回のsが 'local' ならsをベースに昇格してマージ。
+          // それ以外（keptが既にlocal、または双方同じsource）はkeptをベースのままマージする。
+          if (kept.source !== 'local' && s.source === 'local') {
+            byId.set(key, mergeSaleRecords(s, kept));
+          } else {
+            byId.set(key, mergeSaleRecords(kept, s));
+          }
+        });
+        const idLessSales = data.sales.filter(s => !s.id);
+        const dedupedSales = Array.from(byId.values());
+        const removedCount = data.sales.length - (dedupedSales.length + idLessSales.length);
+        if (removedCount > 0) {
+          console.log(`[syncFromSheet] 同一ID重複レコードを${removedCount}件、1件にマージ統合しました`);
+        }
+        data.sales = dedupedSales.concat(idLessSales);
+      }
 
       data.sales.sort((a, b) => b.date.localeCompare(a.date));
       saveData();
