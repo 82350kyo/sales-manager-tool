@@ -3017,6 +3017,11 @@ function updateMemberSelects() {
 }
 
 // 売上一覧フィルターの「導線」セレクトを data.routes から生成する
+// 【修正】"個別相談(物販)"（スペース無し・旧来からの主流表記）と
+// "個別相談 (物販)"（スペース有り・修正前のcomposeCategoryTextが作っていた新形式）のような
+// 表記ゆれが選択肢として2つ並んでしまい、どちらを選んでも片方しか絞り込めない不具合があった。
+// normCategoryForFilter()で正規化した文字列を選択肢のvalue・表示テキストの両方に使うことで、
+// 表記ゆれを1つの選択肢に統合する（renderSalesList側の絞り込みも同じ正規化で比較する）。
 function updateFilterCategorySelect() {
   const sel = document.getElementById('filter-category');
   if (!sel) return;
@@ -3026,14 +3031,20 @@ function updateFilterCategorySelect() {
   const routeNames = (data.routes || []).map(r => r.name);
   // 既存の売上データにある導線で routes に含まれていないものも追加
   const usedCats = [...new Set(data.sales.map(s => s.category).filter(Boolean))];
-  const allCats = [...new Set([...routeNames, ...usedCats])].sort();
+  // 正規化した文字列でユニーク化（表記ゆれを1項目に統合）
+  const normSet = new Set();
+  [...routeNames, ...usedCats].forEach(name => {
+    const norm = normCategoryForFilter(name);
+    if (norm) normSet.add(norm);
+  });
+  const allCats = [...normSet].sort();
   allCats.forEach(name => {
     const o = document.createElement('option');
     o.value = name; o.textContent = name;
     sel.appendChild(o);
   });
-  // 以前の選択値を維持
-  if (current) sel.value = current;
+  // 以前の選択値を維持（選択値も同じ正規化を通して比較する）
+  if (current) sel.value = normCategoryForFilter(current);
 }
 
 // ==================== 商品セレクト更新 ====================
@@ -3111,12 +3122,25 @@ function updateRouteSelect() {
 
 // 業種(business)と導線名(name)から、保存用の導線文字列を組み立てる
 // ・業種未選択：導線名だけを返す（従来の自由入力・空欄と同じ扱い）
-// ・業種選択・導線名あり：「導線名 (業種)」
-// ・業種選択・導線名なし："未設定 (業種)"（"(物販)"のような不格好な表記を避けるため）
+// ・業種選択・導線名あり：「導線名(業種)」
+// ・業種選択・導線名なし："未設定(業種)"（"(物販)"のような不格好な表記を避けるため）
+// 【修正】カッコの前にスペースを入れない形式に統一。既存データ（例："個別相談(物販)"）の
+// 主流表記がスペース無しのため、ここでスペースを入れてしまうと同じ導線なのに
+// "個別相談(物販)" と "個別相談 (物販)" の2種類の文字列が併存してしまい、
+// 売上一覧の導線フィルタ（完全一致）で選択肢が分裂する不具合の原因になっていた。
 function composeCategoryText(business, name) {
   const n = (name || '').trim();
   if (!business) return n;
-  return `${n || '未設定'} (${business})`;
+  return `${n || '未設定'}(${business})`;
+}
+
+// 【修正】導線文字列の表記ゆれ（全角/半角スペース・全角/半角カッコ・カッコ直前の余分な
+// スペース）を吸収して同じ文字列に揃えるための正規化関数。
+// ダッシュボードの導線別集計（renderDashboard内のnormCatStr）と同じ正規化ルールにしてある。
+// 【用途を限定】この関数は「売上一覧の導線フィルタ（選択肢の生成／絞り込み）」専用。
+// 金額集計やスプレッドシートへの保存データそのものには一切使わない（表示・絞り込みのみに影響）。
+function normCategoryForFilter(c) {
+  return String(c || '').trim().replace(/　/g, ' ').replace(/（/g, '(').replace(/）/g, ')').replace(/\s*\(/g, '(');
 }
 
 // 導線文字列から「末尾の (物販)/(AI) 表記」と「導線名」を分解する。
@@ -3606,8 +3630,12 @@ function renderSalesList() {
   if (memberFilter) sales = sales.filter(s => s.memberId === memberFilter);
   // LINE名フィルター（s.note フィールドを対象に「含む」で絞り込み）
   if (lineNameFilter) sales = sales.filter(s => (s.note || '').includes(lineNameFilter));
-  // 導線フィルター（完全一致）
-  if (categoryFilter) sales = sales.filter(s => s.category === categoryFilter);
+  // 導線フィルター（正規化した文字列同士で完全一致）
+  // 【修正】categoryFilterはupdateFilterCategorySelect()で正規化済みの値が入っているため、
+  // s.category側も同じnormCategoryForFilter()を通してから比較する。これにより
+  // "個別相談(物販)"（スペース無し）と"個別相談 (物販)"（スペース有り）のような
+  // 表記ゆれのデータも同じ選択肢で一緒に絞り込める（保存データ自体は書き換えない）。
+  if (categoryFilter) sales = sales.filter(s => normCategoryForFilter(s.category) === categoryFilter);
   // 結果フィルター（完全一致）
   if (resultFilter) sales = sales.filter(s => s.result === resultFilter);
 
