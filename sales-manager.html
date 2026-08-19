@@ -108,6 +108,17 @@
     .progress-fill.warn { background: var(--warning); }
     .progress-fill.bad { background: var(--danger); }
 
+    /* 共有データ容量の警告バナー（画面上部・全ページ共通で「必ず目に入る場所」に表示） */
+    /* 【固定表示対応】.main（overflow-y:autoのスクロールコンテナ）の先頭子要素なので、
+       position: sticky; top: 0; を付けて下にスクロールしても常に見える位置に留める。
+       非表示時（display:none）はstickyの影響を受けずレイアウトにも一切スペースを取らない。 */
+    .shared-size-banner { display: none; padding: 10px 20px; font-size: 13px; font-weight: 600; text-align: center; box-sizing: border-box; line-height: 1.5; position: sticky; top: 0; z-index: 50; }
+    .shared-size-banner.show { display: block; }
+    /* 【重なり対策】sticky固定時に下のコンテンツが透けないよう、半透明(rgba)ではなく不透明色にしている */
+    .shared-size-banner.level-warn   { background: #fef3c7; color: #92400e; border-bottom: 1px solid var(--warning); }
+    .shared-size-banner.level-danger { background: #fee2e2; color: #991b1b; border-bottom: 1px solid var(--danger); }
+    @media (max-width: 768px) { .shared-size-banner { padding: 8px 12px; font-size: 12px; } }
+
     /* Badge */
     .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
     .badge-success { background: #d1fae5; color: #065f46; }
@@ -642,6 +653,9 @@
 
   <!-- Main -->
   <main class="main">
+    <!-- 【共有データ容量の警告バナー】どのページを見ていても必ず目に入るよう、.pageの外（常に表示される場所）に置く。
+         警告ライン(40,000文字)を超えたときだけJSでshowクラスが付く。中身はupdateSharedDataSizeUI()が設定する。 -->
+    <div id="shared-data-size-alert-banner" class="shared-size-banner"></div>
     <!-- Dashboard -->
     <div id="page-dashboard" class="page active">
       <div class="page-header">
@@ -1280,6 +1294,18 @@
           <button class="btn btn-outline" onclick="syncRecordingsFromGAS()">🎥 録画URL同期</button>
         </div>
         <div id="sync-status" style="margin-top:12px;font-size:13px;color:var(--text-muted);"></div>
+
+        <!-- 【共有データ容量表示】チーム共有シートのA1セル1つに全員のプロジェクト・目標・
+             アクションプラン等をJSONで保存しているため、セル上限(50,000文字)に近づいていないかを
+             ここで常時確認できるようにする。数値はupdateSharedDataSizeUI()がJSで更新する。 -->
+        <div id="shared-data-size-info" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px;">
+            <span style="font-size:13px;font-weight:600;color:var(--text-muted);">共有データの容量（チーム共有シート）</span>
+            <span id="shared-data-size-text" style="font-size:13px;font-weight:700;"></span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill good" id="shared-data-size-fill" style="width:0%;"></div></div>
+          <div id="shared-data-size-breakdown" style="margin-top:8px;font-size:12px;color:var(--text-muted);"></div>
+        </div>
       </div>
 
       <div class="card" style="margin-bottom:24px;">
@@ -6502,6 +6528,113 @@ async function gasPostJSONWithRetry(payloadObj, timeoutMs, onRetry) {
 // 共有対象のキー一覧
 const SHARED_KEYS = ['ptProjects', 'routes', 'products', 'members', 'goals', 'teamtasks', 'projects', 'knowledge', 'actionPlans'];
 
+// ==================== 共有データサイズ監視（セル容量対策） ====================
+// 【背景】共有データは「ツール共有データ」シートのA1セル1つにJSON文字列として丸ごと保存している。
+// Googleスプレッドシートの1セル上限は50,000文字で、実測は既に上限の7割を超えている。
+// このまま増え続けると、ある日突然A1への保存が失敗し、しかも通常pushは結果を確認しない
+// 投げっぱなし(no-cors)のため「画面には何も出ないまま、チーム全員の共有データが
+// 保存されなくなる／最悪JSONが壊れて空に見える」事故になりかねない。
+// 【今フェーズの方針】容量そのものは増やさない（A1セル1本保存のままにする）。その代わり、
+//   ① 警告ラインを超えたら画面に見えるよう知らせる
+//   ② 停止ラインを超えたら「セルを壊す前に」GASへの送信自体を中止する（ローカル保存は継続）
+// という安全網だけを入れる。容量の根本解決（複数セルへの分割保存など）は次フェーズで
+// sales-manager-gas.js 側を改修して対応する予定。分割保存に切り替わったら、このしきい値
+// （特にSHARED_DATA_STOP_CHARS）は引き上げてよい。
+const SHARED_DATA_CELL_LIMIT_CHARS = 50000; // Googleスプレッドシート1セルの実際の上限文字数
+const SHARED_DATA_WARN_CHARS = 40000; // 警告ライン（上限の80%）。超えたら画面に警告表示を出す
+const SHARED_DATA_STOP_CHARS = 48000; // 送信停止ライン（上限の96%）。超えたらGASへの送信自体を中止する
+
+// 同じセッション内で「送信停止」のアラート(alert())を何度も出して操作不能にならないようにするためのフラグ。
+// 一度出したら以降は画面表示（バナー・設定ページ）だけで知らせる。
+let _sharedDataStopAlertShown = false;
+// 直近に実測した共有データサイズ（文字数）。他の画面（設定ページ表示など）から参照できるよう保持しておく。
+let _lastSharedDataSizeChars = 0;
+
+// GASのsaveSharedData()が実際にA1セルへ書き込む文字列と、寸分違わず同じものを測るヘルパー。
+// 【重要】sales-manager-gas.js の saveSharedData() は保存直前に
+//   const toSave = Object.assign({}, d); delete toSave.authConfig;
+//   sheet.getRange('A1').setValue(JSON.stringify(toSave));
+// という処理をしている（authConfigの実体はScriptProperties側にあり、A1には含めない）。
+// ここでも全く同じ手順（authConfigを除いてJSON化）で文字数を測ることで、
+// 画面に出す数値がサーバー側の実態とズレないようにしている。
+function measureSharedDataChars(sharedLikeObj) {
+  const toSave = Object.assign({}, sharedLikeObj || {});
+  delete toSave.authConfig;
+  return JSON.stringify(toSave).length;
+}
+
+// pushSharedDataToGAS()が送信する「shared」オブジェクトと同じ形を、ローカルのdataだけから組み立てる。
+// 設定ページの容量表示や、通信を伴わずに今すぐサイズを知りたい場面で使う。
+// 【注意】実際に送信する直前はリモートとマージした後の値で再計測するため、この関数の結果は
+// あくまで目安（ローカルにまだ取り込んでいないリモート側の増分は反映されない）。
+function buildLocalSharedDataSnapshot() {
+  const shared = {};
+  SHARED_KEYS.forEach(k => { shared[k] = data[k] || []; });
+  SHARED_KEYS.forEach(k => { shared[`_deleted_${k}`] = data[`_deleted_${k}`] || []; });
+  return shared;
+}
+
+// 今のローカルデータだけから見積もった共有データサイズ（文字数）を返す。
+function getCurrentSharedDataSizeChars() {
+  return measureSharedDataChars(buildLocalSharedDataSnapshot());
+}
+
+// キーごとのおおよそのサイズ内訳を返す（次フェーズでの分割保存設計の判断材料用）。
+// 【注意】各キーを個別にJSON.stringifyした長さの単純合計であり、実際にオブジェクト全体を
+// まとめてJSON化したときのカンマ・キー名等を含む正確な内訳ではない「目安」の値。
+function getSharedDataSizeBreakdown() {
+  const parts = SHARED_KEYS.map(k => ({
+    key: k,
+    chars: JSON.stringify(data[k] || (k === 'goals' ? {} : [])).length
+  }));
+  let deletedTotal = 0;
+  SHARED_KEYS.forEach(k => { deletedTotal += JSON.stringify(data[`_deleted_${k}`] || []).length; });
+  parts.push({ key: '削除済みID(_deleted_*)', chars: deletedTotal });
+  parts.sort((a, b) => b.chars - a.chars);
+  return parts;
+}
+
+// 共有データサイズの表示をまとめて更新する（設定ページの数値・内訳、および画面上部の警告バナー）。
+// 【重要】どのページを見ていてもDOM要素自体は常に存在する（1ページ完結アプリで.pageをCSSで
+// 出し分けているだけのため）ので、現在どのページを表示中かに関わらずこの1関数で全て更新できる。
+function updateSharedDataSizeUI(chars) {
+  _lastSharedDataSizeChars = chars;
+  const percent = Math.round((chars / SHARED_DATA_CELL_LIMIT_CHARS) * 100);
+  const level = chars >= SHARED_DATA_STOP_CHARS ? 'danger' : (chars >= SHARED_DATA_WARN_CHARS ? 'warn' : 'good');
+
+  // ---- 設定ページ：常時、現在値を表示する ----
+  const textEl = document.getElementById('shared-data-size-text');
+  if (textEl) {
+    textEl.textContent = `共有データ: ${chars.toLocaleString()} / ${SHARED_DATA_CELL_LIMIT_CHARS.toLocaleString()} 文字 (${percent}%)`;
+    textEl.style.color = level === 'danger' ? 'var(--danger)' : (level === 'warn' ? 'var(--warning)' : 'var(--text)');
+  }
+  const fillEl = document.getElementById('shared-data-size-fill');
+  if (fillEl) {
+    fillEl.className = 'progress-fill ' + (level === 'danger' ? 'bad' : level === 'warn' ? 'warn' : 'good');
+    fillEl.style.width = Math.min(percent, 100) + '%';
+  }
+  const breakdownEl = document.getElementById('shared-data-size-breakdown');
+  if (breakdownEl) {
+    const parts = getSharedDataSizeBreakdown();
+    breakdownEl.innerHTML = '内訳(目安): ' + parts.map(p => `${esc(p.key)} ${p.chars.toLocaleString()}字`).join(' ／ ');
+  }
+
+  // ---- 画面上部バナー：警告ラインを超えたときだけ、設定ページを見ないメンバーにも気づかせる ----
+  const banner = document.getElementById('shared-data-size-alert-banner');
+  if (banner) {
+    if (level === 'danger') {
+      banner.className = 'shared-size-banner show level-danger';
+      banner.textContent = `⚠️ 共有データが上限に近づいたため、チームへの同期を停止しています（${chars.toLocaleString()}/${SHARED_DATA_CELL_LIMIT_CHARS.toLocaleString()}文字・${percent}%）。入力内容はこの端末には保存されています。至急、管理者に連絡してください。`;
+    } else if (level === 'warn') {
+      banner.className = 'shared-size-banner show level-warn';
+      banner.textContent = `⚠️ 共有データの容量が増えています（${chars.toLocaleString()}/${SHARED_DATA_CELL_LIMIT_CHARS.toLocaleString()}文字・${percent}%）。上限に近づくとチーム共有が止まりますので、管理者に相談してください。`;
+    } else {
+      banner.className = 'shared-size-banner';
+      banner.textContent = '';
+    }
+  }
+}
+
 // ==================== goals ディープマージ ヘルパー ====================
 
 // フラットオブジェクト（teamGoal/memberGoals/teamKPI等の1階層）をマージする
@@ -6816,7 +6949,29 @@ async function pushSharedDataToGAS(opts) {
   const ts = Date.now();
   shared._updatedAt = ts;
   data._sharedUpdatedAt = ts;
+  // 【最優先】ローカル保存はここで必ず行う。この後の容量ガードでGASへの送信を中止しても、
+  // 入力内容はこの端末（localStorage）には残る＝失われることはない。
   localStorage.setItem('sales-manager-data', JSON.stringify(data));
+
+  // ---- 【容量ガード】送信直前に、GASが実際にA1へ書き込む文字列と同じもので実測する ----
+  const sizeChars = measureSharedDataChars(shared);
+  updateSharedDataSizeUI(sizeChars); // 設定ページの数値・内訳、および画面上部の警告バナーを更新
+
+  if (sizeChars >= SHARED_DATA_STOP_CHARS) {
+    // 【最重要】セル上限(50,000文字)を超えて保存に失敗し、A1のJSONが壊れて
+    // チーム全員の共有データが消えたように見える事故を防ぐため、ここで送信自体を中止する。
+    // ローカル保存は既に完了済みなので、この端末の入力内容が失われることはない。
+    console.error(`共有データが送信停止ライン(${SHARED_DATA_STOP_CHARS}文字)を超えたため、GASへの同期を中止しました（現在${sizeChars}文字）。`);
+    const statusEl = document.getElementById('sync-status');
+    if (statusEl) statusEl.textContent = `⚠️ 共有データが上限に近づいたため、チームへの同期を停止しました（${sizeChars.toLocaleString()}/${SHARED_DATA_CELL_LIMIT_CHARS.toLocaleString()}文字）。入力内容はこの端末に保存されています。管理者に連絡してください。`;
+    // 同じセッション中にalert()が何度も出て操作不能にならないよう、最初の1回だけ知らせる。
+    // 2回目以降は上記の画面表示（設定ページ・上部バナー）のみで気づける状態にする。
+    if (!_sharedDataStopAlertShown) {
+      _sharedDataStopAlertShown = true;
+      alert('共有データの容量が上限に近づいたため、チームへの同期を停止しました。\n\n入力内容はこの端末（ブラウザ）には保存されています。データが消えることはありませんが、他のメンバーとは共有されていない状態です。\n\n至急、管理者に連絡してください。');
+    }
+    return false; // 送信していないため失敗として返す（opts.readResultの呼び出し元にも一貫した結果を返す）
+  }
 
   // 修正A: 書き込み時のauthHashは常に「今の(最新の)ローカルハッシュ」を使う。
   // サーバー側は修正Aのゲート緩和により、authHashが不一致でもadminHashが正しければ許可する。
@@ -6828,11 +6983,26 @@ async function pushSharedDataToGAS(opts) {
 
   const body = { type: 'saveSharedData', data: shared, authHash: authHashForWrite, adminHash: adminHashParam };
 
-  if (opts.readResult) {
+  // 【容量対策】通常は投げっぱなし(no-cors)で結果を確認しないが、容量が警告ライン(40,000文字)を
+  // 超えている間だけは、保存が実際に成功したかを毎回確認する。上限に近い状況では
+  // 「保存できたつもりが実は失敗していた」を早期に検知したいため。警告ライン未満の通常時は
+  // 今まで通り軽量なno-corsのままにして、無駄な負荷（結果待ち通信）を増やさない。
+  // opts.readResultが明示指定された場合（パスワード変更等）は容量に関わらず従来通り必ず確認する。
+  const shouldConfirmResult = !!opts.readResult || sizeChars >= SHARED_DATA_WARN_CHARS;
+
+  if (shouldConfirmResult) {
     // 修正A: パスワード変更等、結果を確実に確認したい場合はno-corsを使わずレスポンスを読み取る
     try {
       const res = await gasPostJSON(body, 10000);
-      return !!(res && res.ok === true);
+      const ok = !!(res && res.ok === true);
+      if (!ok) {
+        // 【容量対策】結果確認付き送信で失敗を検知できた場合は、画面にも分かるように出す
+        // （通常のno-cors経路では検知できなかった「黙って保存失敗」をここで拾えるようにする）。
+        console.error('pushSharedDataToGAS: 共有データの保存に失敗しました', res);
+        const statusEl = document.getElementById('sync-status');
+        if (statusEl) statusEl.textContent = '⚠️ 共有データの保存に失敗しました。入力内容はこの端末には保存されています。時間をおいて再度お試しいただくか、管理者に連絡してください。';
+      }
+      return ok;
     } catch (e) {
       return false;
     }
@@ -6949,6 +7119,9 @@ function pullSharedDataFromGAS(onRetry) {
       // 【入力消失バグ対策】直接renderGoalsPage()を呼ぶと入力中の値が消えるため、
       // 自動同期専用のラッパー(renderGoalsPageFromSync)経由で呼び、入力中は再描画を保留する
       if (document.getElementById('page-goals')?.classList.contains('active')) renderGoalsPageFromSync();
+      // 他端末からの取り込みでデータ量が変わった場合に備え、容量表示もここで更新しておく
+      // （次のpush（最大2秒後）を待たず、プル直後の状態を画面に反映するため）
+      updateSharedDataSizeUI(getCurrentSharedDataSizeChars());
       const el = document.getElementById('sync-status');
       if (el) el.textContent = '共有データ同期: ' + new Date().toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' });
       return { ok: true, changed: true };
@@ -7830,6 +8003,9 @@ function saveVision() {
 function renderSettings() {
   const visionInput = document.getElementById('vision-input');
   if (visionInput) visionInput.value = data.teamVision || '';
+  // 設定ページを開くたびに、ローカルデータから見積もった最新の共有データ容量を表示する
+  // （早期returnより前に呼ぶことで、カテゴリが0件のときでも必ず表示されるようにする）
+  updateSharedDataSizeUI(getCurrentSharedDataSizeChars());
   const el = document.getElementById('category-list');
   if (!data.categories.length) { el.innerHTML = '<p style="color:var(--text-muted);font-size:14px;">カテゴリがありません</p>'; return; }
   el.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;">${data.categories.map(c =>
@@ -8166,6 +8342,10 @@ function startAuthenticatedInit() {
   // 売上シート取得はsyncFromSheet()一箇所に集約し、二重取得・レースが起きないようにする。
   renderDashboard();
   document.getElementById('loading-overlay').style.display = 'none';
+
+  // 起動直後、GASへの通信を待たずローカルデータだけで共有データ容量の目安を表示しておく
+  // （設定ページを開かないメンバーにも、上限に近い場合は上部バナーで即座に気づいてもらうため）
+  updateSharedDataSizeUI(getCurrentSharedDataSizeChars());
 
   // 5分ごとに自動同期（売上 + 共有データ）
   setInterval(() => { syncFromSheet(); pullSharedDataFromGAS(); }, 5 * 60 * 1000);
