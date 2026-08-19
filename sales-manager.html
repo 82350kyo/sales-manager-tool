@@ -49,7 +49,15 @@
     .nav-item.active { background: rgba(255,255,255,0.2); }
     .nav-icon { font-size: 18px; width: 24px; text-align: center; }
     .main { flex: 1; overflow-y: auto; }
-    .page { display: none; padding: 32px; max-width: 1200px; }
+    /* 【横幅対応】PC表示を前提に、「画面幅いっぱいに使いたい」というユーザー要望に合わせ、
+       .page自体にはmax-widthを設けない（以前は1200px→1600pxで上限を設けていたが、
+       2000px級の画面でもまだ右側に余白が残ってしまうため撤廃した）。
+       左右の余白はpaddingのみで確保し、画面幅が広がった分はそのままコンテンツ領域として使う。
+       なお、当初は間延び防止のため各グリッドの1トラックに最大幅(minmax(x,固定px))を設けていたが、
+       auto-fitはデフォルトでjustify-content:startのため、画面が広いほど行全体が左詰めになり
+       右側に大きな空白が残ってしまう問題が発生した。空白を残さないことを優先し、
+       .form-grid / .stat-grid / .project-grid 等は minmax(x, 1fr) に戻し、伸びて幅を埋める形にしている。 */
+    .page { display: none; padding: 32px; }
     .page.active { display: block; }
 
     /* Header */
@@ -60,8 +68,18 @@
     /* Cards */
     .card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 24px; }
     .card-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; color: var(--text); }
-    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
-    .stat-card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px; }
+    /* 【横幅対応・再修正】auto-fit + minmax(200px,1fr)のCSS Gridは「列数×行数」が固定枚数の
+       カード群（ヒーロー3枚＋区切り線＋KPI9枚のような構成）だと、列数に対して端数が出た行に
+       大きな空白ができてしまう（実測: 1920px幅でKPI最終行に1166pxの空白）。
+       これを解消するため、Flexboxのwrapに変更。各行の最後まで到達したカードたちが
+       flex-growで伸びて必ず行幅を埋める（行ごとに独立してレイアウトされるため端数行も空白が出ない）。
+       flex-basisは160px。サイドバー分の幅(実測240px)を差し引いた実際のコンテンツ幅で
+       Playwright実測しながら調整した値（2000px幅→実コンテンツ幅1696px、1920px→1616px、
+       1440px→1136px）。9枚のKPIカードがこの3幅すべてで「1枚だけの行」にならないことを確認済み
+       （160pxだと2000px=9列/1920px=9列/1440px=6列になり、9枚が9枚/9枚/6+3に分かれる。
+       230pxだと1440px幅で4+4+1に割れ、最後の1枚が横幅いっぱい(1136px)に間延びしてしまうため避けた）。 */
+    .stat-grid { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 24px; }
+    .stat-card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px; flex: 1 1 160px; }
     .stat-label { font-size: 13px; color: var(--text-muted); font-weight: 500; }
     .stat-value { font-size: 28px; font-weight: 700; margin-top: 4px; }
     .stat-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
@@ -70,9 +88,18 @@
     .stat-change.down { color: var(--danger); }
 
     /* Forms */
+    /* 【横幅対応】1トラックに固定px上限(320px)を設けていたところ、画面が広いほど入力欄の行が
+       左詰めになり右側に空白が残る問題が出たため、minmax(200px,1fr)に戻して伸びて幅を埋める。
+       （.form-group.fullは従来どおりgrid-column:1/-1で全幅を使う） */
     .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
     .form-group { display: flex; flex-direction: column; gap: 6px; }
     .form-group.full { grid-column: 1 / -1; }
+    /* 【メンバー管理限定の対応】「メンバーを追加」フォームは名前・役職・カラーの3項目だけの
+       短い入力フォームなのに、共通の.form-gridがminmax(200px,1fr)で伸びる仕様のため
+       画面が広いと3項目とも539pxまで伸びてしまい、特にカラー欄は40px角のスウォッチ1つに対して
+       約500pxの余白ができて不自然だった。他ページの.form-gridには一切影響を与えないよう、
+       このフォームにだけ.form-grid-compactクラスを併用し列幅を抑える（カラー欄は特に狭く）。 */
+    .form-grid.form-grid-compact { grid-template-columns: minmax(180px, 320px) minmax(180px, 320px) minmax(90px, 130px); }
     label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
     input, select, textarea { border: 1.5px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 14px; color: var(--text); background: var(--surface); transition: border-color 0.15s; }
     input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); }
@@ -96,7 +123,10 @@
     /* Tables */
     .table-wrap { overflow-x: auto; margin-top: 16px; }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th { text-align: left; padding: 10px 12px; background: var(--surface2); color: var(--text-muted); font-weight: 600; font-size: 13px; border-bottom: 1px solid var(--border); }
+    /* 【横幅対応】表の見出し（th）は「アポ数」「面談数」のように短い単語だが、カードの幅が狭いと
+       1文字ずつ縦積みで折り返されてしまうことがあるため、常に1行で表示されるようにする。
+       はみ出す場合は親の.table-wrap側のoverflow-x:autoで横スクロールする（既存の挙動を利用） */
+    th { text-align: left; padding: 10px 12px; background: var(--surface2); color: var(--text-muted); font-weight: 600; font-size: 13px; border-bottom: 1px solid var(--border); white-space: nowrap; }
     td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
     tr:last-child td { border-bottom: none; }
     tr:hover td { background: var(--surface2); }
@@ -131,7 +161,12 @@
     .member-name-cell { display: flex; align-items: center; }
 
     /* Charts */
-    .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 24px; margin-bottom: 24px; }
+    /* 【横幅対応】.chart-gridは現状ダッシュボードの「メンバー別売上（グラフ）」と
+       「売上ランキングTOP5（9列の表）」の2枚だけに使われている。均等な1fr/1frのままだと
+       列数が多いランキング表側が窮屈になり見出しが縦積みになってしまうため、
+       ランキング表側（2つ目のカード）に多めに幅を配分する（1 : 1.6の比率）。
+       画面が狭い場合はmax-width:768pxのメディアクエリで従来どおり1列に戻る（モバイルは影響なし）。 */
+    .chart-grid { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(420px, 1.6fr); gap: 24px; margin-bottom: 24px; }
     .chart-card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 24px; }
     .chart-card canvas { max-height: 300px; }
 
@@ -172,6 +207,11 @@
     .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 20px; }
     .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
 
+    /* 【横幅対応】ダッシュボードの「売上ランキング TOP5」表は列数が多い(9列)ため、
+       「536.2万円」のような金額がセル内で途中改行されないよう明示的にnowrapにする。
+       名前セル(.member-name-cell)はflex表示のままdisplay:flexを維持しつつnowrapを効かせる。 */
+    #dashboard-ranking-table td { white-space: nowrap; }
+
     /* Ranking */
     .ranking-period-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; }
     .period-btn { padding: 8px 18px; border-radius: 999px; border: 1.5px solid var(--border); background: var(--surface); font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; color: var(--text-muted); }
@@ -192,6 +232,8 @@
     .ranking-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
     /* Project cards */
+    /* 【横幅対応】1トラックに固定px上限(380px)を設けていたところ、画面が広いほどカード行が
+       左詰めになり右側に空白が残る問題が出たため、minmax(300px,1fr)に戻して伸びて幅を埋める。 */
     .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
     .project-card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px; cursor: pointer; transition: box-shadow 0.15s, transform 0.15s; border-left: 4px solid var(--border); }
     .project-card:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); }
@@ -296,9 +338,15 @@
       .card { padding: 16px; margin-bottom: 12px; }
       .card-title { font-size: 14px; }
 
-      /* 統計グリッド：2列 */
-      .stat-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px; }
-      .stat-card { padding: 14px; }
+      /* 統計グリッド：2列
+         【Flexbox化対応】.stat-gridがgrid→flexになったため、grid-template-columnsは効かない。
+         flex-basis: calc(50% - 5px)で2列を再現。flex-grow: 0にして、9枚のように奇数個で
+         最後の1枚だけ余った行になっても、そのカードが行いっぱいに伸びず元の2列グリッドと同じく
+         右側が空白のまま（半分幅）になるようにする（従来のCSS Gridの見た目を維持するため）。
+         ヒーローカード（今月の総着金）はinlineでflex-grow:2を指定しているためこの上書きの
+         影響を受けず、モバイルでも1枚だけで行を専有し伸びて全幅になる（従来通り）。 */
+      .stat-grid { gap: 10px; margin-bottom: 16px; }
+      .stat-card { flex: 0 1 calc(50% - 5px); padding: 14px; }
       .stat-value { font-size: 20px; }
       .stat-label { font-size: 12px; }
 
@@ -321,6 +369,9 @@
 
       /* フォーム */
       .form-grid { grid-template-columns: 1fr; }
+      /* .form-grid-compact（メンバー管理限定）は.form-gridよりセレクタの詳細度が高いため、
+         このモバイル上書きがないとPC用の3列指定が効いたままになってしまう。従来通り1列に戻す。 */
+      .form-grid.form-grid-compact { grid-template-columns: 1fr; }
 
       /* モーダル */
       .modal { margin: 12px; max-width: calc(100% - 24px); }
@@ -1048,7 +1099,7 @@
       <div class="card" style="margin-bottom:24px;">
         <div class="card-title">メンバーを追加</div>
         <div id="member-alert"></div>
-        <div class="form-grid">
+        <div class="form-grid form-grid-compact">
           <div class="form-group">
             <label>名前 *</label>
             <input type="text" id="member-name" placeholder="山田 太郎">
@@ -4552,6 +4603,8 @@ function renderGoalsPage() {
           </div>
           ${mGoal > 0 ? `<div style="margin-top:8px;"><div class="progress-bar"><div class="progress-fill ${goalAch>=100?'good':goalAch>=70?'warn':'bad'}" style="width:${Math.min(goalAch,100)}%"></div></div></div>` : ''}
         </div>
+        <!-- 【横幅対応】画面が広いほど右側に空白が残ってしまうため、1fr（伸びて埋まる）に統一。
+             （auto-fitのままなので、狭い画面では今まで通り自動で列数が減る＝モバイル対応に影響なし） -->
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:12px;">
           ${mKpiDefs.map(kpi => {
             const target = mKPI[kpi.key] || 0;
@@ -5699,7 +5752,7 @@ function renderDashboard() {
       <div class="stat-value" style="font-size:24px;color:var(--warning)">${fmt(flowInPayment)}</div>
       <div class="stat-sub" style="color:var(--warning)">先月以前に面談した分の着金</div>
     </div>
-    <div class="stat-card" style="grid-column: span 2;">
+    <div class="stat-card" style="flex: 2 1 340px;">
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <div>
           <div class="stat-label">今月の総着金</div>
@@ -5712,7 +5765,7 @@ function renderDashboard() {
         </div>
       </div>
     </div>
-    <div style="grid-column: 1 / -1; height: 1px; background: var(--border); margin: 8px 0;"></div>
+    <div style="flex-basis: 100%; height: 1px; background: var(--border); margin: 8px 0;"></div>
     <div class="stat-card">
       <div class="stat-label">アポ数</div>
       <div class="stat-value">${apoCnt}</div>
