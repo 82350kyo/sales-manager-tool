@@ -654,7 +654,7 @@
   <!-- Main -->
   <main class="main">
     <!-- 【共有データ容量の警告バナー】どのページを見ていても必ず目に入るよう、.pageの外（常に表示される場所）に置く。
-         警告ライン(40,000文字)を超えたときだけJSでshowクラスが付く。中身はupdateSharedDataSizeUI()が設定する。 -->
+         警告ライン(SHARED_DATA_WARN_CHARS＝200,000文字)を超えたときだけJSでshowクラスが付く。中身はupdateSharedDataSizeUI()が設定する。 -->
     <div id="shared-data-size-alert-banner" class="shared-size-banner"></div>
     <!-- Dashboard -->
     <div id="page-dashboard" class="page active">
@@ -1295,15 +1295,21 @@
         </div>
         <div id="sync-status" style="margin-top:12px;font-size:13px;color:var(--text-muted);"></div>
 
-        <!-- 【共有データ容量表示】チーム共有シートのA1セル1つに全員のプロジェクト・目標・
-             アクションプラン等をJSONで保存しているため、セル上限(50,000文字)に近づいていないかを
-             ここで常時確認できるようにする。数値はupdateSharedDataSizeUI()がJSで更新する。 -->
+        <!-- 【共有データ容量表示】チーム共有シートに全員のプロジェクト・目標・アクションプラン等を
+             JSONで保存している。2026年8月の改修で、1つのセルに収まらない分は自動的に複数セルへ
+             分割して保存する方式（チャンク分割保存）に切り替わり、保存できる容量が大幅に拡張された。
+             ここでは現在の使用量と、異常な肥大化がないかを常時確認できるようにする。
+             数値はupdateSharedDataSizeUI()がJSで更新する。 -->
         <div id="shared-data-size-info" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px;">
             <span style="font-size:13px;font-weight:600;color:var(--text-muted);">共有データの容量（チーム共有シート）</span>
             <span id="shared-data-size-text" style="font-size:13px;font-weight:700;"></span>
           </div>
           <div class="progress-bar"><div class="progress-fill good" id="shared-data-size-fill" style="width:0%;"></div></div>
+          <!-- 【QAレビュー指摘・修正A】数値表示(◯◯/9,000,000)とバーの塗り具合の基準が異なる
+               （バーは異常検知のための停止ラインを基準に塗っている）ため、混乱しないよう一言添える。 -->
+          <div style="margin-top:4px;font-size:10.5px;color:var(--text-muted);opacity:0.85;">※バーは「停止ライン(500,000文字)」を基準に表示しています。上の数値（GASの保存可能な上限に対する割合）とは基準が異なります。</div>
+          <div style="margin-top:6px;font-size:11px;color:var(--text-muted);">※データは複数セルに自動で分割して保存されるようになったため、以前よりも大きな容量まで保存できます。</div>
           <div id="shared-data-size-breakdown" style="margin-top:8px;font-size:12px;color:var(--text-muted);"></div>
         </div>
       </div>
@@ -6528,21 +6534,28 @@ async function gasPostJSONWithRetry(payloadObj, timeoutMs, onRetry) {
 // 共有対象のキー一覧
 const SHARED_KEYS = ['ptProjects', 'routes', 'products', 'members', 'goals', 'teamtasks', 'projects', 'knowledge', 'actionPlans'];
 
-// ==================== 共有データサイズ監視（セル容量対策） ====================
-// 【背景】共有データは「ツール共有データ」シートのA1セル1つにJSON文字列として丸ごと保存している。
-// Googleスプレッドシートの1セル上限は50,000文字で、実測は既に上限の7割を超えている。
-// このまま増え続けると、ある日突然A1への保存が失敗し、しかも通常pushは結果を確認しない
-// 投げっぱなし(no-cors)のため「画面には何も出ないまま、チーム全員の共有データが
-// 保存されなくなる／最悪JSONが壊れて空に見える」事故になりかねない。
-// 【今フェーズの方針】容量そのものは増やさない（A1セル1本保存のままにする）。その代わり、
+// ==================== 共有データサイズ監視（容量対策） ====================
+// 【背景・旧仕様】もともと共有データは「ツール共有データ」シートのA1セル1つにJSON文字列として
+// 丸ごと保存していた。Googleスプレッドシートの1セル上限は50,000文字で、2026年8月時点の
+// 実測は約44,813文字と、旧上限のかなり近くまで迫っていた。このまま増え続けると、ある日突然
+// A1への保存が失敗し、しかも通常pushは結果を確認しない投げっぱなし(no-cors)のため
+// 「画面には何も出ないまま、チーム全員の共有データが保存されなくなる／最悪JSONが壊れて
+// 空に見える」事故になりかねない状態だった。
+// 【改修済み・2026年8月】上記を受けて sales-manager-gas.js 側を改修し、A1セル1本ではなく
+// 「1セルあたり最大45,000文字（SHARED_DATA_CHUNK_SIZE）× 最大200セル（SHARED_DATA_MAX_CHUNKS）」
+// に分割して保存する方式に切り替え済み（本番デプロイ済み）。これにより保存できる容量は
+// 45,000 × 200 = 9,000,000文字まで拡張された。
+// 【この安全網の役割】容量の心配自体は上記の分割保存でほぼ解消したが、「仕組みが壊れていないか」
+// 「想定外にデータが暴走的に膨れていないか」に気づけるよう、以下の安全網は引き続き維持する。
 //   ① 警告ラインを超えたら画面に見えるよう知らせる
-//   ② 停止ラインを超えたら「セルを壊す前に」GASへの送信自体を中止する（ローカル保存は継続）
-// という安全網だけを入れる。容量の根本解決（複数セルへの分割保存など）は次フェーズで
-// sales-manager-gas.js 側を改修して対応する予定。分割保存に切り替わったら、このしきい値
-// （特にSHARED_DATA_STOP_CHARS）は引き上げてよい。
-const SHARED_DATA_CELL_LIMIT_CHARS = 50000; // Googleスプレッドシート1セルの実際の上限文字数
-const SHARED_DATA_WARN_CHARS = 40000; // 警告ライン（上限の80%）。超えたら画面に警告表示を出す
-const SHARED_DATA_STOP_CHARS = 48000; // 送信停止ライン（上限の96%）。超えたらGASへの送信自体を中止する
+//   ② 停止ラインを超えたら「実害が出る前に」GASへの送信自体を中止する（ローカル保存は継続）
+// 数値の考え方：現在の実測値（約44,813文字、月あたり約1万文字ペースで増加）に対して、
+// 通常の運用ペースでは長期間まず引っかからない水準まで余裕を持たせつつ、バグ等による
+// 急激なデータ肥大化（暴走）だけは早めに検知できるよう、GASの実上限9,000,000文字よりは
+// かなり小さい値にあえて設定している（上限ぴったりまで許容すると「異常」に気づけなくなるため）。
+const SHARED_DATA_CELL_LIMIT_CHARS = 9000000; // GAS側の実際の保存上限（45,000文字×200セル。SHARED_DATA_CHUNK_SIZE × SHARED_DATA_MAX_CHUNKS と一致させている）
+const SHARED_DATA_WARN_CHARS = 200000; // 警告ライン。現在の実測値(約44,813文字)の約4.5倍。通常ペースなら1年以上先だが、異常な急増があれば数ヶ月で検知できる水準
+const SHARED_DATA_STOP_CHARS = 500000; // 送信停止ライン。GASの実上限(9,000,000文字)の約5.5%に留め、大きな安全マージンを確保しつつ、暴走的なデータ肥大化からGASへの送信自体を中止して守る最終防衛ライン
 
 // 同じセッション内で「送信停止」のアラート(alert())を何度も出して操作不能にならないようにするためのフラグ。
 // 一度出したら以降は画面表示（バナー・設定ページ）だけで知らせる。
@@ -6550,12 +6563,24 @@ let _sharedDataStopAlertShown = false;
 // 直近に実測した共有データサイズ（文字数）。他の画面（設定ページ表示など）から参照できるよう保持しておく。
 let _lastSharedDataSizeChars = 0;
 
-// GASのsaveSharedData()が実際にA1セルへ書き込む文字列と、寸分違わず同じものを測るヘルパー。
+// 【QAレビュー指摘・修正B】pushSharedDataToGAS()が何回呼ばれたかを数えるカウンタ（この端末・この
+// タブを開いてからの累積）。容量が警告ライン未満の間は通常"投げっぱなし(no-cors)"送信で結果を
+// 確認しないため、GAS側の保存が黙って失敗しても誰も気づけない。特に今回はGAS側を
+// 分割保存（チャンク書き込み）方式に切り替えた直後で、本番で初めてその処理が動くタイミングのため、
+// 容量に関わらず「ページを開いて最初の1回」と「それ以降は10回に1回」は必ず結果を確認しにいく
+// ことで、失敗が長期間見逃されないようにする（詳細はpushSharedDataToGAS内のコメント参照）。
+let _pushSharedDataAttemptCount = 0;
+const SHARED_DATA_PERIODIC_CONFIRM_EVERY_N = 10; // 何回に1回、必ず結果確認するか
+
+// GASのsaveSharedData()が実際に書き込む文字列（分割保存する前の、JSON化した元の1本の文字列）と、
+// 寸分違わず同じものを測るヘルパー。
 // 【重要】sales-manager-gas.js の saveSharedData() は保存直前に
 //   const toSave = Object.assign({}, d); delete toSave.authConfig;
-//   sheet.getRange('A1').setValue(JSON.stringify(toSave));
-// という処理をしている（authConfigの実体はScriptProperties側にあり、A1には含めない）。
-// ここでも全く同じ手順（authConfigを除いてJSON化）で文字数を測ることで、
+//   const str = JSON.stringify(toSave);
+// という処理をした上で、strを45,000文字（SHARED_DATA_CHUNK_SIZE）ごとに区切って
+// 複数セル（最大200セル＝SHARED_DATA_MAX_CHUNKS）に分割保存している
+// （authConfigの実体はScriptProperties側にあり、共有データ本体には含めない）。
+// ここでも全く同じ手順（authConfigを除いてJSON化）で分割前の文字数を測ることで、
 // 画面に出す数値がサーバー側の実態とズレないようにしている。
 function measureSharedDataChars(sharedLikeObj) {
   const toSave = Object.assign({}, sharedLikeObj || {});
@@ -6579,7 +6604,7 @@ function getCurrentSharedDataSizeChars() {
   return measureSharedDataChars(buildLocalSharedDataSnapshot());
 }
 
-// キーごとのおおよそのサイズ内訳を返す（次フェーズでの分割保存設計の判断材料用）。
+// キーごとのおおよそのサイズ内訳を返す（どの項目が容量を圧迫しているか把握するための目安用）。
 // 【注意】各キーを個別にJSON.stringifyした長さの単純合計であり、実際にオブジェクト全体を
 // まとめてJSON化したときのカンマ・キー名等を含む正確な内訳ではない「目安」の値。
 function getSharedDataSizeBreakdown() {
@@ -6599,8 +6624,13 @@ function getSharedDataSizeBreakdown() {
 // 出し分けているだけのため）ので、現在どのページを表示中かに関わらずこの1関数で全て更新できる。
 function updateSharedDataSizeUI(chars) {
   _lastSharedDataSizeChars = chars;
+  // 設定ページの数値表示は「GASが実際に保存できる本当の上限（9,000,000文字）」に対する割合。
+  // 通常運用ではごく小さいパーセントのまま推移するのが正常（＝まだ十分に余裕がある）ということ。
   const percent = Math.round((chars / SHARED_DATA_CELL_LIMIT_CHARS) * 100);
   const level = chars >= SHARED_DATA_STOP_CHARS ? 'danger' : (chars >= SHARED_DATA_WARN_CHARS ? 'warn' : 'good');
+  // 進捗バーの見た目は、本当の上限(9,000,000文字)ではなく「停止ライン」を100%とした割合で表示する。
+  // 本当の上限を基準にすると、停止ラインに達してもバーがほぼ空のままで異常に気づきにくいため。
+  const barPercent = Math.round((chars / SHARED_DATA_STOP_CHARS) * 100);
 
   // ---- 設定ページ：常時、現在値を表示する ----
   const textEl = document.getElementById('shared-data-size-text');
@@ -6611,7 +6641,7 @@ function updateSharedDataSizeUI(chars) {
   const fillEl = document.getElementById('shared-data-size-fill');
   if (fillEl) {
     fillEl.className = 'progress-fill ' + (level === 'danger' ? 'bad' : level === 'warn' ? 'warn' : 'good');
-    fillEl.style.width = Math.min(percent, 100) + '%';
+    fillEl.style.width = Math.min(barPercent, 100) + '%';
   }
   const breakdownEl = document.getElementById('shared-data-size-breakdown');
   if (breakdownEl) {
@@ -6620,14 +6650,16 @@ function updateSharedDataSizeUI(chars) {
   }
 
   // ---- 画面上部バナー：警告ラインを超えたときだけ、設定ページを見ないメンバーにも気づかせる ----
+  // 【重要】ここで言う「上限」は、GASが実際に保存できる本当の上限(9,000,000文字)ではなく、
+  // 異常なデータ肥大化にいち早く気づくために内部で設定している警告・停止のしきい値のこと。
   const banner = document.getElementById('shared-data-size-alert-banner');
   if (banner) {
     if (level === 'danger') {
       banner.className = 'shared-size-banner show level-danger';
-      banner.textContent = `⚠️ 共有データが上限に近づいたため、チームへの同期を停止しています（${chars.toLocaleString()}/${SHARED_DATA_CELL_LIMIT_CHARS.toLocaleString()}文字・${percent}%）。入力内容はこの端末には保存されています。至急、管理者に連絡してください。`;
+      banner.textContent = `⚠️ 共有データの容量が想定より大きく増えたため、安全のためチームへの同期を一時停止しています（${chars.toLocaleString()}文字／停止ライン${SHARED_DATA_STOP_CHARS.toLocaleString()}文字）。入力内容はこの端末には保存されています。至急、管理者に連絡してください。`;
     } else if (level === 'warn') {
       banner.className = 'shared-size-banner show level-warn';
-      banner.textContent = `⚠️ 共有データの容量が増えています（${chars.toLocaleString()}/${SHARED_DATA_CELL_LIMIT_CHARS.toLocaleString()}文字・${percent}%）。上限に近づくとチーム共有が止まりますので、管理者に相談してください。`;
+      banner.textContent = `⚠️ 共有データの容量が増えています（${chars.toLocaleString()}文字）。増加のペースが早い場合は内容に異常がないか、管理者に相談してください。`;
     } else {
       banner.className = 'shared-size-banner';
       banner.textContent = '';
@@ -6958,17 +6990,20 @@ async function pushSharedDataToGAS(opts) {
   updateSharedDataSizeUI(sizeChars); // 設定ページの数値・内訳、および画面上部の警告バナーを更新
 
   if (sizeChars >= SHARED_DATA_STOP_CHARS) {
-    // 【最重要】セル上限(50,000文字)を超えて保存に失敗し、A1のJSONが壊れて
-    // チーム全員の共有データが消えたように見える事故を防ぐため、ここで送信自体を中止する。
-    // ローカル保存は既に完了済みなので、この端末の入力内容が失われることはない。
+    // 【最重要】想定外にデータが急激に膨れ上がっている（バグ等による異常な肥大化の可能性がある）
+    // ときに、気づかないまま送信し続けて実害が広がることを防ぐため、ここで送信自体を中止する。
+    // GAS側は分割保存（45,000文字×最大200セル＝9,000,000文字）に対応済みで、この停止ライン
+    // (SHARED_DATA_STOP_CHARS＝500,000文字)自体はその実上限よりかなり小さい「早期警戒ライン」
+    // であり、通常の運用ペースで到達することは想定していない。ローカル保存は既に完了済みなので、
+    // この端末の入力内容が失われることはない。
     console.error(`共有データが送信停止ライン(${SHARED_DATA_STOP_CHARS}文字)を超えたため、GASへの同期を中止しました（現在${sizeChars}文字）。`);
     const statusEl = document.getElementById('sync-status');
-    if (statusEl) statusEl.textContent = `⚠️ 共有データが上限に近づいたため、チームへの同期を停止しました（${sizeChars.toLocaleString()}/${SHARED_DATA_CELL_LIMIT_CHARS.toLocaleString()}文字）。入力内容はこの端末に保存されています。管理者に連絡してください。`;
+    if (statusEl) statusEl.textContent = `⚠️ 共有データの容量が想定より大きく増えたため、安全のため同期を一時停止しました（${sizeChars.toLocaleString()}文字／停止ライン${SHARED_DATA_STOP_CHARS.toLocaleString()}文字）。入力内容はこの端末に保存されています。管理者に連絡してください。`;
     // 同じセッション中にalert()が何度も出て操作不能にならないよう、最初の1回だけ知らせる。
     // 2回目以降は上記の画面表示（設定ページ・上部バナー）のみで気づける状態にする。
     if (!_sharedDataStopAlertShown) {
       _sharedDataStopAlertShown = true;
-      alert('共有データの容量が上限に近づいたため、チームへの同期を停止しました。\n\n入力内容はこの端末（ブラウザ）には保存されています。データが消えることはありませんが、他のメンバーとは共有されていない状態です。\n\n至急、管理者に連絡してください。');
+      alert('共有データの容量が想定より大きく増えたため、安全のためチームへの同期を一時停止しました。\n\n入力内容はこの端末（ブラウザ）には保存されています。データが消えることはありませんが、他のメンバーとは共有されていない状態です。\n\n至急、管理者に連絡してください。');
     }
     return false; // 送信していないため失敗として返す（opts.readResultの呼び出し元にも一貫した結果を返す）
   }
@@ -6983,12 +7018,25 @@ async function pushSharedDataToGAS(opts) {
 
   const body = { type: 'saveSharedData', data: shared, authHash: authHashForWrite, adminHash: adminHashParam };
 
-  // 【容量対策】通常は投げっぱなし(no-cors)で結果を確認しないが、容量が警告ライン(40,000文字)を
-  // 超えている間だけは、保存が実際に成功したかを毎回確認する。上限に近い状況では
-  // 「保存できたつもりが実は失敗していた」を早期に検知したいため。警告ライン未満の通常時は
+  // 【容量対策】通常は投げっぱなし(no-cors)で結果を確認しないが、容量が警告ライン
+  // (SHARED_DATA_WARN_CHARS＝200,000文字)を超えている間だけは、保存が実際に成功したかを
+  // 毎回確認する。容量が想定より増えている状況では「保存できたつもりが実は失敗していた」を
+  // 早期に検知したいため。警告ライン未満の通常時は
   // 今まで通り軽量なno-corsのままにして、無駄な負荷（結果待ち通信）を増やさない。
   // opts.readResultが明示指定された場合（パスワード変更等）は容量に関わらず従来通り必ず確認する。
-  const shouldConfirmResult = !!opts.readResult || sizeChars >= SHARED_DATA_WARN_CHARS;
+  //
+  // 【QAレビュー指摘・修正B】上記の「容量が警告ラインを超えたときだけ確認する」だけだと、
+  // 閾値を引き上げた今は普段の容量(4万数千文字)がずっと警告ライン(20万文字)未満のままになり、
+  // 投げっぱなし送信しか行われず「保存が黙って失敗しても誰も気づけない」期間が長く続いてしまう。
+  // 特に今回はGAS側を分割保存（チャンク書き込み）方式に切り替えた直後で、本番で初めてその
+  // 処理が実際に走るタイミングのため、容量に関わらず定期的に結果確認を挟む必要がある。
+  // そこで「このタブを開いてから最初の1回」と「それ以降は10回に1回
+  // (SHARED_DATA_PERIODIC_CONFIRM_EVERY_N)」は、容量に関係なく必ず結果を確認しにいく。
+  // 毎回確認すると通信量・負荷が増えるため、あくまで間引いた頻度に留めている。
+  _pushSharedDataAttemptCount++;
+  const isPeriodicConfirmTurn = _pushSharedDataAttemptCount === 1
+    || (_pushSharedDataAttemptCount % SHARED_DATA_PERIODIC_CONFIRM_EVERY_N === 0);
+  const shouldConfirmResult = !!opts.readResult || sizeChars >= SHARED_DATA_WARN_CHARS || isPeriodicConfirmTurn;
 
   if (shouldConfirmResult) {
     // 修正A: パスワード変更等、結果を確実に確認したい場合はno-corsを使わずレスポンスを読み取る
