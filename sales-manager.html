@@ -681,8 +681,11 @@
           <canvas id="chart-member-bar"></canvas>
         </div>
         <div class="chart-card">
-          <div class="card-title">目標達成率</div>
-          <canvas id="chart-achievement"></canvas>
+          <!-- 【売上ランキングTOP5】旧「目標達成率」ドーナツグラフは何を示しているか分かりにくいという
+               フィードバックにより廃止し、代わりにその月の着金額ランキング上位5名を表で表示する。
+               タイトルと表の中身は renderDashboard() 内で組み立てる（表示中の月を含めるため）。 -->
+          <div class="card-title" id="dashboard-ranking-title">今月の売上ランキング TOP5（総合）</div>
+          <div class="table-wrap" id="dashboard-ranking-table"></div>
         </div>
       </div>
       <div class="card">
@@ -5594,7 +5597,7 @@ function deleteActionPlan(id) {
 // ==================== END ACTION PLANS ====================
 
 // ==================== DASHBOARD ====================
-let chartMemberBar, chartAchievement, chartMonthlyTrend;
+let chartMemberBar, chartMonthlyTrend;
 
 function renderDashboard() {
   const mk = getMonthKey(currentViewMonth);
@@ -5780,20 +5783,63 @@ function renderDashboard() {
     options: { responsive: true, plugins: { legend: { position: 'bottom' } }, scales: { y: { ticks: { callback: v => v>=10000 ? (v/10000)+'万' : v } } } }
   });
 
-  // Achievement doughnut
-  if (chartAchievement) chartAchievement.destroy();
-  const ctx2 = document.getElementById('chart-achievement').getContext('2d');
-  const achData = memberData.filter(m => m.goal > 0).map(m => Math.min(m.total / m.goal * 100, 100));
-  const achLabels = memberData.filter(m => m.goal > 0).map(m => m.name);
-  const achColors = memberData.filter(m => m.goal > 0).map(m => m.color);
-  chartAchievement = new Chart(ctx2, {
-    type: 'doughnut',
-    data: {
-      labels: achLabels.length ? achLabels : ['データなし'],
-      datasets: [{ data: achLabels.length ? achData : [100], backgroundColor: achColors.length ? achColors : ['#e2e8f0'], borderWidth: 0 }]
-    },
-    options: { responsive: true, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: c => ` ${c.label}: ${c.raw.toFixed(1)}%` } } } }
-  });
+  // 【今月の売上ランキング TOP5（総合）】
+  // 旧「目標達成率」ドーナツグラフに代わり、当月の着金額が多いメンバー上位5名を表で表示する。
+  // ・「総合」＝業種タブ(合計/物販/AI)の選択に関わらず、常に物販+AI合計で計算する
+  //   （ユーザー要望により、ダッシュボード上部の業種タブの影響を受けないようにする）
+  // ・数値の算出は目標管理ページ(renderGoalsPage)と同じ共通ヘルパー calcMemberKpiActuals() を使う。
+  //   独自に計算式を書くと目標管理ページの数字とズレる事故につながるため、必ずこの関数を通す。
+  document.getElementById('dashboard-ranking-title').textContent = `${formatMonth(currentViewMonth)}の売上ランキング TOP5（総合）`;
+  const rankingTableEl = document.getElementById('dashboard-ranking-table');
+  if (!data.members.length) {
+    rankingTableEl.innerHTML = '<div class="empty-state"><div class="icon">🏆</div><p>メンバーを登録してください</p></div>';
+  } else {
+    // メンバーごとにsalesを毎回全走査しないよう、Mapに事前グループ化してからcalcMemberKpiActuals()に渡す
+    // （groupSalesByMemberId・calcMemberKpiActualsは目標管理ページと共通のヘルパー関数）
+    const rankMonthSalesByMember = groupSalesByMemberId(monthSales);
+    const rankAllSalesByMember = groupSalesByMemberId(data.sales);
+    const rankingRows = data.members.map(m => {
+      const kpi = calcMemberKpiActuals(m.id, mk, rankMonthSalesByMember, rankAllSalesByMember);
+      const mGoal = (goal.memberGoals && goal.memberGoals[m.id]) || 0;
+      // 目標未設定のメンバーは達成率を計算せず null（表示は「-」）にする。0%と表示すると
+      // 「目標に対して未達」と誤解されるため区別する。
+      const goalAch = mGoal > 0 ? (kpi.payment / mGoal * 100) : null;
+      return { member: m, ...kpi, goalAch };
+    });
+    // 並び順：着金額の合計が多い順（降順）。同額の場合は契約数が多い順、それでも同じ場合は
+    // 名前の五十音（辞書）順で並べることで、順位が毎回ばらつかず安定するようにする。
+    rankingRows.sort((a, b) => {
+      if (b.payment !== a.payment) return b.payment - a.payment;
+      if (b.keiyaku !== a.keiyaku) return b.keiyaku - a.keiyaku;
+      return a.member.name.localeCompare(b.member.name, 'ja');
+    });
+    const top5 = rankingRows.slice(0, 5);
+    const medals = ['🥇', '🥈', '🥉'];
+    rankingTableEl.innerHTML = `<table>
+      <thead><tr>
+        <th>順位</th><th>担当者</th><th>着金額</th><th>アポ数</th><th>面談数</th>
+        <th>契約数</th><th>成約率</th><th>成約単価</th><th>目標達成率</th>
+      </tr></thead>
+      <tbody>${top5.map((row, i) => {
+        const rank = i + 1;
+        const rankLabel = medals[i] || `${rank}位`;
+        // 1〜3位は行を薄い色で強調し、ひと目で分かるようにする（既存の合計行強調と同じ考え方）
+        const rowStyle = rank <= 3 ? 'font-weight:700;background:var(--bg);' : '';
+        const achColor = row.goalAch === null ? 'var(--text-muted)' : row.goalAch >= 100 ? 'var(--success)' : row.goalAch >= 70 ? 'var(--warning)' : 'var(--danger)';
+        return `<tr style="${rowStyle}">
+          <td>${rankLabel}</td>
+          <td class="member-name-cell"><span class="member-dot" style="background:${row.member.color}"></span>${esc(row.member.name)}</td>
+          <td>${fmt(row.payment)}</td>
+          <td>${row.apo}</td>
+          <td>${row.mendan}</td>
+          <td style="color:var(--success)">${row.keiyaku}</td>
+          <td>${row.seiyakuRate !== null ? row.seiyakuRate.toFixed(1)+'%' : '-'}</td>
+          <td>${row.tanka !== null ? fmt(row.tanka) : '-'}</td>
+          <td style="color:${achColor}">${row.goalAch !== null ? row.goalAch.toFixed(1)+'%' : '-'}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`;
+  }
 
   // Monthly trend
   // 【最終着金額】月次着金トレンドも着金イベント単位(1〜3回目)で各月分を合計する
