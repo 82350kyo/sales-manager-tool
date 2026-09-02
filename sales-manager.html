@@ -1223,9 +1223,31 @@
         <div class="page-desc">売上データを分析・エクスポートします</div>
       </div>
       <div class="tabs">
+        <div class="tab" onclick="showTab('daily')">日次レポート</div>
         <div class="tab active" onclick="showTab('monthly')">月次レポート</div>
         <div class="tab" onclick="showTab('member')">メンバー別</div>
         <div class="tab" onclick="showTab('export')">エクスポート</div>
+      </div>
+      <!-- 【日次レポート】導線区分（広告/SNS/上記以外/全体）別に「着金・面談数・成約数・成約率」を
+           テキストの日報形式で表示するタブ。メンバー・月を選ぶと該当分の集計が出る。
+           集計ロジックは既存の calcMemberKpiActuals（目標管理ページの実績計算）をそのまま流用しており、
+           このタブ独自の計算式は一切書いていない（絞り込み済みのsales配列を渡しているだけ）。 -->
+      <div id="tab-daily" class="tab-content">
+        <div class="card" style="margin-bottom:24px;">
+          <div class="card-title">日次レポート</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px;">
+            <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+              <select id="daily-report-member" onchange="renderDailyReport()" style="font-size:13px;padding:8px 12px;border-radius:8px;border:1.5px solid var(--border);min-width:140px;"></select>
+              <div class="month-nav">
+                <button class="btn btn-outline btn-sm" onclick="changeDailyReportMonth(-1)">◀</button>
+                <span id="daily-report-month-label"></span>
+                <button class="btn btn-outline btn-sm" onclick="changeDailyReportMonth(1)">▶</button>
+              </div>
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="copyDailyReport()">📋 コピー</button>
+          </div>
+          <div id="daily-report-text" style="background:#e9f5ee;border-radius:16px;padding:16px;font-size:14px;line-height:1.9;white-space:pre-wrap;min-height:260px;font-family:'SF Mono',Menlo,Consolas,monospace;color:#1a1a1a;border:1px solid #c3e6cb;"></div>
+        </div>
       </div>
       <div id="tab-monthly" class="tab-content active">
         <div class="card" style="margin-bottom:24px;">
@@ -2860,6 +2882,7 @@ function showTab(tab) {
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
   document.getElementById('tab-' + tab).classList.add('active');
   event.currentTarget.classList.add('active');
+  if (tab === 'daily') renderDailyReport();
   if (tab === 'monthly') renderMonthlySummary();
   if (tab === 'member') renderMemberReport();
 }
@@ -3010,6 +3033,119 @@ function formatMonth(d) {
   return `${d.getFullYear()}年${d.getMonth()+1}月`;
 }
 
+// =====================================================
+// 【日次レポート（レポートページの「日次レポート」タブ）】
+// 導線区分（routeType：広告／SNS／上記以外／セミナー）別に
+// 「着金・面談数・成約数・成約率」をテキストの日報形式でまとめる機能。
+//
+// ★重要：計算式は一切ここで書き直さず、既存の calcMemberKpiActuals（目標管理ページの
+// 実績計算と全く同じ関数）をそのまま呼び出す。calcMemberKpiActuals自体は
+// 「memberIdごとにグループ化したMapから該当メンバーの配列を取り出して集計する」だけの
+// 作りになっているため、事前に「メンバー・導線区分で絞り込み済みのsales配列」を
+// ダミーの1キーだけのMapに詰めて渡せば、引数を増やさずに区分別集計が実現できる。
+// これにより、ダッシュボード・目標管理・売上ランキングTOP5など既存の呼び出し箇所の
+// 計算結果・数値には一切影響しない（calcMemberKpiActuals本体を変更していないため）。
+// =====================================================
+
+let dailyReportViewMonth = new Date(); // 日次レポートタブで表示中の対象月
+
+function changeDailyReportMonth(dir) {
+  dailyReportViewMonth = new Date(dailyReportViewMonth.getFullYear(), dailyReportViewMonth.getMonth() + dir, 1);
+  renderDailyReport();
+}
+
+// 【QAレビュー指摘対応】導線区分(routeType)の前後の空白（半角・全角スペース）を吸収する正規化関数。
+// スプレッドシートに手入力される運用があり、" 広告"や"広告　"のように前後に空白が紛れ込むことが
+// 現実的にありうる。trimしないまま比較すると、その行だけ「広告」にも「上記以外」にも一致せず、
+// 「全体」（trimせず全件を素通しする箇所）とだけ数が合ってしまい、「全体」と「区分別合計」が
+// ズレる不具合になる。normCategoryForFilter()（売上一覧の導線フィルタ用）と同じ考え方で、
+// 保存データそのものは書き換えず、比較の直前（表示・集計用）にのみ正規化を適用する。
+// ※あえてsyncFromSheet側（保存時）ではなくここ（比較時）でtrimしている。理由は、
+//   ローカル入力・JSONインポート・過去に同期済みで既に前後空白付きで保存されているデータなど
+//   syncFromSheetを通らない経路もtrimの対象に含めたいため（保存経路を1箇所直すだけでは救えない）。
+function normRouteType(rt) {
+  return String(rt || '').replace(/　/g, ' ').trim(); // 全角スペース→半角に寄せてからtrim
+}
+
+// 導線区分(routeType)で絞り込んだ売上配列を返す。
+// category: '広告' | 'SNS' | '上記以外' | '全体'
+// ・セミナー(routeType==='セミナー'、前後空白は無視)は「全体」を含むすべての集計から除外する。
+// ・「上記以外」はrouteTypeが'上記以外'のものに加えて、未設定（空欄・空白のみを含む）のものも含める
+//   （2026年8月以前のデータは導線区分が未入力のため。ユーザー確定仕様）。
+function filterSalesByRouteCategory(salesArr, category) {
+  return salesArr.filter(s => {
+    const rt = normRouteType(s.routeType); // 前後の空白を除去してから判定する（trimしないと「全体」とだけズレる原因になる）
+    if (rt === 'セミナー') return false; // セミナーは常に除外
+    if (category === '全体') return true; // セミナー以外は全部含む（広告+SNS+上記以外の合計と一致）
+    if (category === '上記以外') return rt === '上記以外' || rt === ''; // trimの結果、空文字になったものは「未設定」として上記以外に含める（仕様どおり）
+    return rt === category; // '広告' or 'SNS'
+  });
+}
+
+const DAILY_REPORT_CALC_KEY = '__daily_report__'; // 実在のmemberIdと衝突しない固定のダミーキー（Map用）
+
+// 対象月(mk)・メンバー(memberId。空文字なら全員合計)・導線区分(category)のKPIを、
+// 既存のcalcMemberKpiActualsに丸投げして計算する。
+function calcDailyReportKpi(mk, memberId, category) {
+  let sales = memberId ? data.sales.filter(s => s.memberId === memberId) : data.sales; // メンバー未選択＝全員合計
+  sales = filterSalesByRouteCategory(sales, category);
+  const monthSales = sales.filter(s => s.date && s.date.startsWith(mk)); // 件数は面談日(date)ベース
+  const monthMap = new Map([[DAILY_REPORT_CALC_KEY, monthSales]]);
+  const allMap = new Map([[DAILY_REPORT_CALC_KEY, sales]]); // 着金は着金日ベース（calcMemberKpiActuals内でpaymentInMonthを使うため全期間を渡す）
+  return calcMemberKpiActuals(DAILY_REPORT_CALC_KEY, mk, monthMap, allMap);
+}
+
+// 【日報】テキストを組み立てる（コピー機能でもこの文字列をそのまま使う）
+function buildDailyReportText(mk, memberId) {
+  const cats = [
+    { key: '広告', label: '◼️広告' },
+    { key: 'SNS', label: '◼️SNS' },
+    { key: '上記以外', label: '◼️上記以外（セミナーは除く）' },
+    { key: '全体', label: '◼️全体（セミナーは除く）' }, // 広告＋SNS＋上記以外の合計（＝セミナーを除いた全件）
+  ];
+  const lines = ['【日報】', ''];
+  cats.forEach((c, idx) => {
+    const kpi = calcDailyReportKpi(mk, memberId, c.key);
+    lines.push(c.label);
+    lines.push(`着金：${fmt(kpi.payment)}`);
+    lines.push(`面談数：${kpi.mendan}`);
+    lines.push(`成約数：${kpi.keiyaku}`);
+    lines.push(`成約率：${kpi.seiyakuRate !== null ? kpi.seiyakuRate.toFixed(1) + '%' : '-'}`);
+    if (idx < cats.length - 1) lines.push('');
+  });
+  return lines.join('\n');
+}
+
+function renderDailyReport() {
+  const monthLabelEl = document.getElementById('daily-report-month-label');
+  if (monthLabelEl) monthLabelEl.textContent = formatMonth(dailyReportViewMonth);
+  const memberSel = document.getElementById('daily-report-member');
+  // メンバー選択肢がまだ空（初回表示時にupdateMemberSelectsより先に描画された等）なら、その場で作る
+  if (memberSel && memberSel.options.length === 0) {
+    memberSel.innerHTML = '<option value="">全員</option>' + data.members.map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
+  }
+  const mk = getMonthKey(dailyReportViewMonth);
+  const memberId = memberSel ? memberSel.value : '';
+  const textEl = document.getElementById('daily-report-text');
+  if (textEl) textEl.textContent = buildDailyReportText(mk, memberId);
+}
+
+// 日報テキストをクリップボードへコピーする（既存のcopySaleReport()と同じ方式で統一）
+function copyDailyReport() {
+  const text = document.getElementById('daily-report-text')?.textContent || '';
+  const fallback = () => {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+  };
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(() => showSuccessToast('コピーしました！', '日報をそのまま貼り付けられます 📋')).catch(fallback);
+  } else {
+    fallback();
+    showSuccessToast('コピーしました！', '日報をそのまま貼り付けられます 📋');
+  }
+}
+
 function changeMonth(dir) {
   currentViewMonth = new Date(currentViewMonth.getFullYear(), currentViewMonth.getMonth() + dir, 1);
   renderDashboard();
@@ -3116,11 +3252,16 @@ function renderMemberList() {
 }
 
 function updateMemberSelects() {
-  ['sale-member', 'filter-member'].forEach(id => {
+  // 【日次レポート】daily-report-memberも他のメンバーセレクトと同じ仕組みで生成する。
+  // ただしこのセレクトだけは、同期等でメンバーリストが更新されても選択中の担当者が
+  // 勝手に「全員」へ戻ってしまわないよう、直前に選ばれていた値を復元する。
+  ['sale-member', 'filter-member', 'daily-report-member'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
-    const firstOpt = id === 'filter-member' ? '<option value="">全員</option>' : '<option value="">選択してください</option>';
+    const prevValue = el.value;
+    const firstOpt = (id === 'filter-member' || id === 'daily-report-member') ? '<option value="">全員</option>' : '<option value="">選択してください</option>';
     el.innerHTML = firstOpt + data.members.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
+    if (id === 'daily-report-member' && data.members.some(m => m.id === prevValue)) el.value = prevValue;
   });
   // メンバーセレクト更新のついでに商品・動線セレクトも更新
   updateProductSelect();
