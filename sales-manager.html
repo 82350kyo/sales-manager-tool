@@ -1223,8 +1223,8 @@
         <div class="page-desc">売上データを分析・エクスポートします</div>
       </div>
       <div class="tabs">
-        <div class="tab" onclick="showTab('daily')">日次レポート</div>
-        <div class="tab active" onclick="showTab('monthly')">月次レポート</div>
+        <div class="tab active" onclick="showTab('daily')">日次レポート</div>
+        <div class="tab" onclick="showTab('monthly')">月次レポート</div>
         <div class="tab" onclick="showTab('member')">メンバー別</div>
         <div class="tab" onclick="showTab('export')">エクスポート</div>
       </div>
@@ -1232,7 +1232,7 @@
            テキストの日報形式で表示するタブ。メンバー・月を選ぶと該当分の集計が出る。
            集計ロジックは既存の calcMemberKpiActuals（目標管理ページの実績計算）をそのまま流用しており、
            このタブ独自の計算式は一切書いていない（絞り込み済みのsales配列を渡しているだけ）。 -->
-      <div id="tab-daily" class="tab-content">
+      <div id="tab-daily" class="tab-content active">
         <div class="card" style="margin-bottom:24px;">
           <div class="card-title">日次レポート</div>
           <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px;">
@@ -1249,7 +1249,7 @@
           <div id="daily-report-text" style="background:#e9f5ee;border-radius:16px;padding:16px;font-size:14px;line-height:1.9;white-space:pre-wrap;min-height:260px;font-family:'SF Mono',Menlo,Consolas,monospace;color:#1a1a1a;border:1px solid #c3e6cb;"></div>
         </div>
       </div>
-      <div id="tab-monthly" class="tab-content active">
+      <div id="tab-monthly" class="tab-content">
         <div class="card" style="margin-bottom:24px;">
           <div class="card-title">月次サマリー</div>
           <div id="monthly-summary"></div>
@@ -3146,8 +3146,6 @@ function buildDailyReportText(mk, memberId) {
       lines.push(`面談数：${kpi.mendan}件 / 目標 ${g.mendan > 0 ? g.mendan + '件' : '未設定'}${mendanAch !== null ? `（${mendanAch.toFixed(1)}%）` : ''}`);
       lines.push(`成約数：${kpi.keiyaku}件 / 目標 ${g.keiyaku > 0 ? g.keiyaku + '件' : '未設定'}${keiyakuAch !== null ? `（${keiyakuAch.toFixed(1)}%）` : ''}`);
       lines.push(`成約率：${kpi.seiyakuRate !== null ? kpi.seiyakuRate.toFixed(1) + '%' : '-'} / 目標 ${g.seiyakuRate > 0 ? g.seiyakuRate.toFixed(1) + '%' : '未設定'}${rateAch !== null ? `（${rateAch.toFixed(1)}%）` : ''}`);
-      // 目標管理ページの実績（セミナー込み）とはズレる点をここで明示する（ユーザー確定の注記文言）
-      lines.push('※セミナーを除いた実績です。目標管理の実績とは差が出ます');
     } else {
       lines.push(`着金：${fmt(kpi.payment)}`);
       lines.push(`面談数：${kpi.mendan}`);
@@ -6765,6 +6763,7 @@ function closeProjectDetail() {
 
 // ==================== REPORTS ====================
 function renderReports() {
+  renderDailyReport(); // 【初期表示】レポートページを開いた直後は日次レポートタブが表示されるため、先に中身を描画しておく
   renderMonthlySummary();
 }
 
