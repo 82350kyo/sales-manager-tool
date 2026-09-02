@@ -3095,6 +3095,33 @@ function calcDailyReportKpi(mk, memberId, category) {
   return calcMemberKpiActuals(DAILY_REPORT_CALC_KEY, mk, monthMap, allMap);
 }
 
+// =====================================================
+// 【日次レポート「全体」セクション専用】目標管理ページで設定した目標値を取得するヘルパー。
+// ・メンバーを選択しているとき　　→ そのメンバー個人の目標（memberGoals / memberKPI）
+// ・メンバー未選択（＝全員合計）のとき → チーム全体の目標（teamGoal / teamKPI）
+// を返す。目標未入力の項目は 0 を返す（呼び出し側で「未設定」表示に変換する）。
+// ※「広告」「SNS」「上記以外」の3区分には目標管理側に対応する設定欄が無いため、
+//   この関数は「全体」セクションからのみ呼び出す。
+// =====================================================
+function getDailyReportGoalTargets(mk, memberId) {
+  const goal = getGoal(mk); // 目標管理ページと同じ data.goals[mk] を参照する（既存のgetGoal()をそのまま利用）
+  if (memberId) {
+    const mGoal = (goal.memberGoals && goal.memberGoals[memberId]) || 0;
+    const mKPI = (goal.memberKPI && goal.memberKPI[memberId]) || {};
+    return { payment: mGoal, mendan: mKPI.mendan || 0, keiyaku: mKPI.keiyaku || 0, seiyakuRate: mKPI.seiyakuRate || 0 };
+  }
+  const teamKPI = goal.teamKPI || {};
+  return { payment: goal.teamGoal || 0, mendan: teamKPI.mendan || 0, keiyaku: teamKPI.keiyaku || 0, seiyakuRate: teamKPI.seiyakuRate || 0 };
+}
+
+// 達成率を計算する。目標管理ページ(renderGoalsPage)の計算式「実績÷目標×100」と完全に一致させ、
+// 上限も同じく999%でクリップする（既存のteamAch/goalAch/ach計算と同じ式）。
+// 目標が未設定（0以下）、または実績データが無い（null）ときはnullを返す（呼び出し側で「-」表示にする）。
+function calcDailyReportAch(actual, target) {
+  if (!(target > 0) || actual == null) return null;
+  return Math.min((actual / target) * 100, 999);
+}
+
 // 【日報】テキストを組み立てる（コピー機能でもこの文字列をそのまま使う）
 function buildDailyReportText(mk, memberId) {
   const cats = [
@@ -3107,10 +3134,26 @@ function buildDailyReportText(mk, memberId) {
   cats.forEach((c, idx) => {
     const kpi = calcDailyReportKpi(mk, memberId, c.key);
     lines.push(c.label);
-    lines.push(`着金：${fmt(kpi.payment)}`);
-    lines.push(`面談数：${kpi.mendan}`);
-    lines.push(`成約数：${kpi.keiyaku}`);
-    lines.push(`成約率：${kpi.seiyakuRate !== null ? kpi.seiyakuRate.toFixed(1) + '%' : '-'}`);
+    if (c.key === '全体') {
+      // 【全体セクションのみ】目標管理で設定した目標値・達成率を追記する。
+      // 広告／SNS／上記以外の3区分には目標管理側に区分別の設定欄が無いため、ここでは足さない。
+      const g = getDailyReportGoalTargets(mk, memberId);
+      const paymentAch = calcDailyReportAch(kpi.payment, g.payment);
+      const mendanAch = calcDailyReportAch(kpi.mendan, g.mendan);
+      const keiyakuAch = calcDailyReportAch(kpi.keiyaku, g.keiyaku);
+      const rateAch = calcDailyReportAch(kpi.seiyakuRate, g.seiyakuRate);
+      lines.push(`着金：${fmt(kpi.payment)} / 目標 ${g.payment > 0 ? fmt(g.payment) : '未設定'}${paymentAch !== null ? `（${paymentAch.toFixed(1)}%）` : ''}`);
+      lines.push(`面談数：${kpi.mendan}件 / 目標 ${g.mendan > 0 ? g.mendan + '件' : '未設定'}${mendanAch !== null ? `（${mendanAch.toFixed(1)}%）` : ''}`);
+      lines.push(`成約数：${kpi.keiyaku}件 / 目標 ${g.keiyaku > 0 ? g.keiyaku + '件' : '未設定'}${keiyakuAch !== null ? `（${keiyakuAch.toFixed(1)}%）` : ''}`);
+      lines.push(`成約率：${kpi.seiyakuRate !== null ? kpi.seiyakuRate.toFixed(1) + '%' : '-'} / 目標 ${g.seiyakuRate > 0 ? g.seiyakuRate.toFixed(1) + '%' : '未設定'}${rateAch !== null ? `（${rateAch.toFixed(1)}%）` : ''}`);
+      // 目標管理ページの実績（セミナー込み）とはズレる点をここで明示する（ユーザー確定の注記文言）
+      lines.push('※セミナーを除いた実績です。目標管理の実績とは差が出ます');
+    } else {
+      lines.push(`着金：${fmt(kpi.payment)}`);
+      lines.push(`面談数：${kpi.mendan}`);
+      lines.push(`成約数：${kpi.keiyaku}`);
+      lines.push(`成約率：${kpi.seiyakuRate !== null ? kpi.seiyakuRate.toFixed(1) + '%' : '-'}`);
+    }
     if (idx < cats.length - 1) lines.push('');
   });
   return lines.join('\n');
