@@ -860,6 +860,18 @@
               </select>
               <input type="text" id="sale-category-custom" placeholder="導線を入力...（例：個別相談、広告 など）" style="margin-top:6px;" oninput="previewSaleReport()">
               <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">↑全動線報告に提出するものと同じ。カレンダーからコピペしてください</div>
+              <!-- 【追加】導線区分（広告/SNS/セミナー/上記以外）。上の「導線」自由記入欄とは別項目で、
+                   集計用にざっくり4分類だけ選んでもらうためのプルダウン。未選択のままでも保存できる。 -->
+              <select id="sale-route-type" onchange="previewSaleReport()" style="margin-top:6px;">
+                <option value="">導線区分を選択（未選択でも保存できます）</option>
+                <option value="広告">広告</option>
+                <option value="SNS">SNS</option>
+                <option value="セミナー">セミナー</option>
+                <option value="上記以外">上記以外</option>
+              </select>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+                ↑SNS…コンサル生、なまいきくん等の協業／セミナー…各種セミナーはこれ／上記以外…上記以外は全てこれ。オプチャ募集、個別相談、架電など
+              </div>
             </div>
             <div class="form-group">
               <label>LINE名（顧客名）</label>
@@ -1858,6 +1870,21 @@
           <option value="">未選択</option>
           <option value="物販">物販</option>
           <option value="AI">AI</option>
+        </select>
+      </div>
+
+      <!-- 導線区分（広告/SNS/セミナー/上記以外）。入力フォームと同じ4択。
+           注意書き（SNS/セミナー/上記以外の定義）は新規入力フォーム側に掲載済みで、
+           このモーダルは「入力済みデータの修正」用途のため、画面が縦に長くなり過ぎないよう
+           注意書き文言はここでは繰り返し表示していない -->
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);">導線区分</label>
+        <select id="sd-route-type" style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;background:var(--surface);">
+          <option value="">未選択</option>
+          <option value="広告">広告</option>
+          <option value="SNS">SNS</option>
+          <option value="セミナー">セミナー</option>
+          <option value="上記以外">上記以外</option>
         </select>
       </div>
 
@@ -3409,6 +3436,8 @@ function addSale() {
   const paymentDate = document.getElementById('sale-payment-date').value || (payment > 0 ? date : '');
   const category  = getSaleCategory();
   const business  = getSaleBusiness(); // 選んだ業種('物販'/'AI'/未選択なら'')。集計で文字列判定に頼らず済むよう明示的に保存する
+  // 導線区分('広告'/'SNS'/'セミナー'/'上記以外'/未選択なら'')。既存の「導線」自由記入欄とは別物。
+  const routeType = document.getElementById('sale-route-type')?.value || '';
   const lineName  = document.getElementById('sale-linename').value.trim();
   const result    = document.getElementById('sale-result').value;
   // 商品：「その他」選択時は自由入力欄の値を使う
@@ -3448,7 +3477,7 @@ function addSale() {
     customerInfo.customerMemo = customerInfo.firstNote; // 後方互換：GAS側がスプレッドシートのT列(備考／所感)にcustomerMemoしか書き込まないため、未成約系でもここに所感を複製しておかないと他端末で所感が空になって消えてしまう
   }
 
-  data.sales.push({ id, date, time, memberId, amount, payment, paymentDate, category, business, result, note: lineName, memo: note, product, recording, source: 'local', customerInfo, additionalAmount, ...(rowType ? { rowType } : {}) });
+  data.sales.push({ id, date, time, memberId, amount, payment, paymentDate, category, business, routeType, result, note: lineName, memo: note, product, recording, source: 'local', customerInfo, additionalAmount, ...(rowType ? { rowType } : {}) });
   data.sales.sort((a,b) => b.date.localeCompare(a.date));
   saveData();
 
@@ -3463,6 +3492,7 @@ function addSale() {
     memberName: member ? member.name.split('(')[0].trim() : '',
     date,
     category,
+    routeType, // 導線区分（広告/SNS/セミナー/上記以外）。GAS側でZ列に書き込む
     lineName,
     result,
     product,
@@ -3504,6 +3534,9 @@ function addSale() {
   document.getElementById('sale-payment-date').value = '';
   document.getElementById('sale-result').value = '未成約';
   document.getElementById('sale-time').value = '';
+  // 【注】業種(sale-category)と同様、導線区分(sale-route-type)も送信後にリセットしない。
+  // 同じ担当者が同じ導線区分の面談を連続で報告することが多いため、既存の業種プルダウンの
+  // 挙動に合わせて選択状態を維持する。
   document.getElementById('sale-preview').textContent = '← 担当者を選択してください';
   // 顧客情報リセット
   ['sale-upsell','sale-approach-months','sale-next-approach','sale-customer-memo',
@@ -3811,11 +3844,17 @@ function renderSalesList() {
     const latestResult   = latestSale?.result   || '-';
     const latestProduct  = latestSale?.product  || '-';
     const latestCategory = latestSale?.category || first.category || '-';
+    // 導線区分（広告/SNS/セミナー/上記以外）。空欄（未設定＝9月運用開始より前のデータ等）は
+    // 「上記以外」と紛らわしくなるため、バッジ自体を出さない（何も表示しない）。
+    const latestRouteType = latestSale?.routeType || first.routeType || '';
     const firstDateStr   = firstSale?.date || '';
     const hasReminder    = !!nextApproachDate;
 
     const catBadge  = latestCategory !== '-'
       ? `<span style="background:#eff6ff;color:#1d4ed8;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;">📍 ${esc(latestCategory)}</span>`
+      : '';
+    const routeTypeBadge = latestRouteType
+      ? `<span style="background:#fef3c7;color:#92400e;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;">🚦 ${esc(latestRouteType)}</span>`
       : '';
     const prodBadge = latestProduct !== '-'
       ? `<span style="background:#f0fdf4;color:#166534;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;">📦 ${esc(latestProduct)}</span>`
@@ -3874,6 +3913,7 @@ function renderSalesList() {
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
           ${catBadge}
+          ${routeTypeBadge}
           ${resultBadge(latestResult)}
           ${prodBadge}
         </div>
@@ -4024,6 +4064,10 @@ function openSaleDetailModal(id, event) {
   const catCustomEl = document.getElementById('sd-category-custom');
   if (catCustomEl) catCustomEl.value = catParts.name;
 
+  // 導線区分（広告/SNS/セミナー/上記以外）を反映。9月運用開始前の既存レコードは空欄のまま。
+  const routeTypeSel = document.getElementById('sd-route-type');
+  if (routeTypeSel) routeTypeSel.value = s.routeType || '';
+
   // 商品セレクトを動的に生成（data.products から、グループ別optgroup）
   const prodSel = document.getElementById('sd-product');
   prodSel.innerHTML = '<option value="">商品を選択</option>';
@@ -4098,6 +4142,8 @@ function saveSaleDetail() {
   const business    = document.getElementById('sd-business')?.value || '';
   const categoryName = document.getElementById('sd-category-custom')?.value.trim() || '';
   const category    = composeCategoryText(business, categoryName);
+  // 導線区分('広告'/'SNS'/'セミナー'/'上記以外'/未選択なら'')。既存の「導線」自由記入欄とは別物。
+  const routeType   = document.getElementById('sd-route-type')?.value || '';
   const date        = document.getElementById('sd-date').value;
   const result      = document.getElementById('sd-result').value;
   const product     = document.getElementById('sd-product').value;
@@ -4143,6 +4189,7 @@ function saveSaleDetail() {
   s.memberId    = memberId;
   s.category    = category;
   s.business    = business; // 選んだ業種を明示保存（文字列判定に頼らず確実に集計へ反映させるため）
+  s.routeType   = routeType; // 導線区分（広告/SNS/セミナー/上記以外）を明示保存
   s.date        = date;
   s.result      = result;
   s.product     = product;
@@ -4182,6 +4229,7 @@ function saveSaleDetail() {
     date,
     lineName,
     category,
+    routeType, // 導線区分（広告/SNS/セミナー/上記以外）。GAS側でZ列に書き込む
     memberName,
     result,
     product,
@@ -7533,6 +7581,10 @@ function syncFromSheet(onRetry) {
         const recording = String(row['録画URL'] || row['録画'] || '').trim();
         // 所感（面談時に入力されたメモ本文）。ヘッダー名変更（メモ→所感）の前後どちらにも対応
         const memo = String(row['所感'] || row['メモ'] || '');
+        // 導線区分（広告/SNS/セミナー/上記以外）。ヘッダー名ベースで読むため列位置がズレても壊れない。
+        // 【重要】9月の運用開始より前のレコードはこの列が空欄のままシートに残っているため、
+        // routeTypeは空文字になる（＝「上記以外」と混同しないよう空文字のまま保持する）。
+        const routeType = row['導線区分'] || '';
         const rowType = (result.includes('追加決済') || result.includes('決済')) && !result.includes('待ち') ? '追加決済' : undefined;
         // スプシの顧客情報列をcustomerInfoにマッピング
         const ciFromSheet = {
@@ -7544,7 +7596,7 @@ function syncFromSheet(onRetry) {
           barrier:          String(row['行動の障壁'] || ''),
           firstNote:        String(row['備考／所感'] || row['備考/所感'] || ''),
         };
-        data.sales.push({ id: saleId, date: dateStr, memberId: member.id, amount, payment: payment1Num, paymentDate, payment2: paymentField2, paymentDate2: paymentDateField2, payment3: paymentField3, paymentDate3: paymentDateField3, product, category, business, result, note, recording, memo, source: 'sheet', rowType, history, customerInfo: ciFromSheet });
+        data.sales.push({ id: saleId, date: dateStr, memberId: member.id, amount, payment: payment1Num, paymentDate, payment2: paymentField2, paymentDate2: paymentDateField2, payment3: paymentField3, paymentDate3: paymentDateField3, product, category, business, routeType, result, note, recording, memo, source: 'sheet', rowType, history, customerInfo: ciFromSheet });
         addedSales++;
       });
 
@@ -7599,7 +7651,7 @@ function syncFromSheet(onRetry) {
 
           // 片方にしか入っていない可能性がある文字列・区分系フィールド：
           // baseが空（未設定/空文字/0）ならotherの値で補完する（baseに値があれば触らない＝上書きしない）
-          ['history', 'recording', 'memo', 'product', 'result', 'category', 'note', 'business', 'rowType', 'date', 'additionalAmount']
+          ['history', 'recording', 'memo', 'product', 'result', 'category', 'note', 'business', 'routeType', 'rowType', 'date', 'additionalAmount']
             .forEach(k => {
               if ((merged[k] === undefined || merged[k] === null || merged[k] === '') && other[k]) {
                 merged[k] = other[k];
