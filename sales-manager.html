@@ -1228,7 +1228,7 @@
         <div class="tab" onclick="showTab('member')">メンバー別</div>
         <div class="tab" onclick="showTab('export')">エクスポート</div>
       </div>
-      <!-- 【日次レポート】導線区分（広告/SNS/上記以外/全体）別に「着金・面談数・成約数・成約率」を
+      <!-- 【日次レポート】導線区分（広告/SNS/上記以外/セミナー/全体）別に「着金・面談数・成約数・成約率」を
            テキストの日報形式で表示するタブ。メンバー・月を選ぶと該当分の集計が出る。
            集計ロジックは既存の calcMemberKpiActuals（目標管理ページの実績計算）をそのまま流用しており、
            このタブ独自の計算式は一切書いていない（絞り込み済みのsales配列を渡しているだけ）。 -->
@@ -3068,14 +3068,18 @@ function normRouteType(rt) {
 }
 
 // 導線区分(routeType)で絞り込んだ売上配列を返す。
-// category: '広告' | 'SNS' | '上記以外' | '全体'
-// ・セミナー(routeType==='セミナー'、前後空白は無視)は「全体」を含むすべての集計から除外する。
+// category: '広告' | 'SNS' | '上記以外' | 'セミナー' | '全体'
+// ・セミナー(routeType==='セミナー'、前後空白は無視)は「全体」を含む他のすべての集計から除外する
+//   （＝セミナーはこの関数の中でのみ集計され、広告/SNS/上記以外/全体には一切混ざらない）。
 // ・「上記以外」はrouteTypeが'上記以外'のものに加えて、未設定（空欄・空白のみを含む）のものも含める
 //   （2026年8月以前のデータは導線区分が未入力のため。ユーザー確定仕様）。
+// 【2026年9月追加】セミナーの件数も集計するようになったため、category==='セミナー'の分岐を追加。
+// ★既存の判定順序・他区分のロジックには一切手を加えていない（セミナー用の分岐を1行足しただけ）。
 function filterSalesByRouteCategory(salesArr, category) {
   return salesArr.filter(s => {
     const rt = normRouteType(s.routeType); // 前後の空白を除去してから判定する（trimしないと「全体」とだけズレる原因になる）
-    if (rt === 'セミナー') return false; // セミナーは常に除外
+    if (category === 'セミナー') return rt === 'セミナー'; // セミナー単体を取り出す（他の区分とは独立して集計）
+    if (rt === 'セミナー') return false; // セミナーは広告/SNS/上記以外/全体からは常に除外
     if (category === '全体') return true; // セミナー以外は全部含む（広告+SNS+上記以外の合計と一致）
     if (category === '上記以外') return rt === '上記以外' || rt === ''; // trimの結果、空文字になったものは「未設定」として上記以外に含める（仕様どおり）
     return rt === category; // '広告' or 'SNS'
@@ -3127,7 +3131,8 @@ function buildDailyReportText(mk, memberId) {
   const cats = [
     { key: '広告', label: '◼️広告' },
     { key: 'SNS', label: '◼️SNS' },
-    { key: '上記以外', label: '◼️上記以外（セミナーは除く）' },
+    { key: '上記以外', label: '◼️上記以外' }, // 【2026年9月変更】セミナーを別区分として独立集計するようになったため「（セミナーは除く）」の注記を削除
+    { key: 'セミナー', label: '◼️セミナー' }, // 【2026年9月追加】セミナーの件数も集計する。目標・達成率は無し（他の区分別セクションと同じ表示形式）
     { key: '全体', label: '◼️全体（セミナーは除く）' }, // 広告＋SNS＋上記以外の合計（＝セミナーを除いた全件）
   ];
   const lines = ['【日報】', ''];
@@ -3149,9 +3154,11 @@ function buildDailyReportText(mk, memberId) {
       lines.push(`成約数：${kpi.keiyaku}件 / 目標 ${g.keiyaku > 0 ? g.keiyaku + '件' : '未設定'}${keiyakuAch !== null ? `（${keiyakuAch.toFixed(1)}%）` : ''}`);
       lines.push(`成約率：${kpi.seiyakuRate !== null ? kpi.seiyakuRate.toFixed(1) + '%' : '-'} / 目標 ${g.seiyakuRate > 0 ? g.seiyakuRate.toFixed(1) + '%' : '未設定'}`);
     } else {
+      // 【2026年9月変更】広告／SNS／上記以外／セミナーの区分別セクションも、全体セクションと表記を揃えるため
+      // 面談数・成約数に「件」を付ける（従来は数字のみだったのを統一）。
       lines.push(`着金：${fmt(kpi.payment)}`);
-      lines.push(`面談数：${kpi.mendan}`);
-      lines.push(`成約数：${kpi.keiyaku}`);
+      lines.push(`面談数：${kpi.mendan}件`);
+      lines.push(`成約数：${kpi.keiyaku}件`);
       lines.push(`成約率：${kpi.seiyakuRate !== null ? kpi.seiyakuRate.toFixed(1) + '%' : '-'}`);
     }
     if (idx < cats.length - 1) lines.push('');
