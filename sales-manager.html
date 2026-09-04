@@ -3141,11 +3141,13 @@ function buildDailyReportText(mk, memberId) {
       const paymentAch = calcDailyReportAch(kpi.payment, g.payment);
       const mendanAch = calcDailyReportAch(kpi.mendan, g.mendan);
       const keiyakuAch = calcDailyReportAch(kpi.keiyaku, g.keiyaku);
-      const rateAch = calcDailyReportAch(kpi.seiyakuRate, g.seiyakuRate);
+      // 【仕様】成約率の行のみ達成率カッコを表示しない（着金・面談数・成約数の3行は従来どおり表示）。
+      // ※計算式のcalcDailyReportAch自体は他3項目でも使う共通関数なので残すが、成約率分の達成率計算(rateAch)は
+      //   ここでしか使っていなかったため、表示しなくなるのに合わせて計算自体も削除した（不要な計算を残さないため）。
       lines.push(`着金：${fmt(kpi.payment)} / 目標 ${g.payment > 0 ? fmt(g.payment) : '未設定'}${paymentAch !== null ? `（${paymentAch.toFixed(1)}%）` : ''}`);
       lines.push(`面談数：${kpi.mendan}件 / 目標 ${g.mendan > 0 ? g.mendan + '件' : '未設定'}${mendanAch !== null ? `（${mendanAch.toFixed(1)}%）` : ''}`);
       lines.push(`成約数：${kpi.keiyaku}件 / 目標 ${g.keiyaku > 0 ? g.keiyaku + '件' : '未設定'}${keiyakuAch !== null ? `（${keiyakuAch.toFixed(1)}%）` : ''}`);
-      lines.push(`成約率：${kpi.seiyakuRate !== null ? kpi.seiyakuRate.toFixed(1) + '%' : '-'} / 目標 ${g.seiyakuRate > 0 ? g.seiyakuRate.toFixed(1) + '%' : '未設定'}${rateAch !== null ? `（${rateAch.toFixed(1)}%）` : ''}`);
+      lines.push(`成約率：${kpi.seiyakuRate !== null ? kpi.seiyakuRate.toFixed(1) + '%' : '-'} / 目標 ${g.seiyakuRate > 0 ? g.seiyakuRate.toFixed(1) + '%' : '未設定'}`);
     } else {
       lines.push(`着金：${fmt(kpi.payment)}`);
       lines.push(`面談数：${kpi.mendan}`);
