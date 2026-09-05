@@ -138,16 +138,29 @@
     .progress-fill.warn { background: var(--warning); }
     .progress-fill.bad { background: var(--danger); }
 
+    /* 画面上部バナー（新バージョン通知／共有データ容量警告）をまとめるコンテナ。
+       【固定表示対応】.main（overflow-y:autoのスクロールコンテナ）の先頭子要素として
+       position: sticky; top: 0; を付け、下にスクロールしても常に見える位置に留める。
+       【重なり対策】stickyはこの外側コンテナ1つだけに付け、中の各バナーは普通のブロック要素
+       として上から順に積み重なるようにする。こうすることで「新バージョン通知」と「容量警告」が
+       同時に表示されても、2つのsticky要素が同じtop:0を取り合って重なる、という事故が起きない。 */
+    .top-sticky-banners { position: sticky; top: 0; z-index: 50; }
+
     /* 共有データ容量の警告バナー（画面上部・全ページ共通で「必ず目に入る場所」に表示） */
-    /* 【固定表示対応】.main（overflow-y:autoのスクロールコンテナ）の先頭子要素なので、
-       position: sticky; top: 0; を付けて下にスクロールしても常に見える位置に留める。
-       非表示時（display:none）はstickyの影響を受けずレイアウトにも一切スペースを取らない。 */
-    .shared-size-banner { display: none; padding: 10px 20px; font-size: 13px; font-weight: 600; text-align: center; box-sizing: border-box; line-height: 1.5; position: sticky; top: 0; z-index: 50; }
+    /* 非表示時（display:none）はレイアウトにも一切スペースを取らない。 */
+    .shared-size-banner { display: none; padding: 10px 20px; font-size: 13px; font-weight: 600; text-align: center; box-sizing: border-box; line-height: 1.5; }
     .shared-size-banner.show { display: block; }
     /* 【重なり対策】sticky固定時に下のコンテンツが透けないよう、半透明(rgba)ではなく不透明色にしている */
     .shared-size-banner.level-warn   { background: #fef3c7; color: #92400e; border-bottom: 1px solid var(--warning); }
     .shared-size-banner.level-danger { background: #fee2e2; color: #991b1b; border-bottom: 1px solid var(--danger); }
     @media (max-width: 768px) { .shared-size-banner { padding: 8px 12px; font-size: 12px; } }
+
+    /* 新バージョン検知バナー（GitHub Pagesの新しいHTMLを検知したときだけ表示する控えめな通知） */
+    .app-version-banner { display: none; padding: 10px 20px; font-size: 13px; font-weight: 600; text-align: center; box-sizing: border-box; line-height: 1.5; background: #dbeafe; color: #1e40af; border-bottom: 1px solid #93c5fd; }
+    .app-version-banner.show { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; }
+    .app-version-banner-close { background: none; border: none; color: inherit; font-size: 16px; font-weight: 700; line-height: 1; cursor: pointer; padding: 2px 6px; }
+    .app-version-banner-close:hover { opacity: 0.6; }
+    @media (max-width: 768px) { .app-version-banner { padding: 8px 12px; font-size: 12px; } }
 
     /* Badge */
     .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
@@ -704,9 +717,20 @@
 
   <!-- Main -->
   <main class="main">
-    <!-- 【共有データ容量の警告バナー】どのページを見ていても必ず目に入るよう、.pageの外（常に表示される場所）に置く。
-         警告ライン(SHARED_DATA_WARN_CHARS＝200,000文字)を超えたときだけJSでshowクラスが付く。中身はupdateSharedDataSizeUI()が設定する。 -->
-    <div id="shared-data-size-alert-banner" class="shared-size-banner"></div>
+    <!-- 【上部バナーまとめ】新バージョン通知バナーと共有データ容量警告バナーを1つのsticky
+         コンテナにまとめて置く。理由はCSS側の .top-sticky-banners のコメント参照。 -->
+    <div class="top-sticky-banners">
+      <!-- 【新バージョン検知バナー】checkForNewVersion()が新しいAPP_VERSIONを検知したときだけ
+           JSでshowクラスが付く。「今すぐ更新」でキャッシュを回避した再読み込みを行う。 -->
+      <div id="app-version-update-banner" class="app-version-banner">
+        <span>🆕 新しいバージョンがあります</span>
+        <button type="button" class="btn btn-primary btn-sm" onclick="reloadForNewVersion()">今すぐ更新</button>
+        <button type="button" class="app-version-banner-close" onclick="dismissNewVersionBanner()" aria-label="閉じる">×</button>
+      </div>
+      <!-- 【共有データ容量の警告バナー】どのページを見ていても必ず目に入るよう、.pageの外（常に表示される場所）に置く。
+           警告ライン(SHARED_DATA_WARN_CHARS＝200,000文字)を超えたときだけJSでshowクラスが付く。中身はupdateSharedDataSizeUI()が設定する。 -->
+      <div id="shared-data-size-alert-banner" class="shared-size-banner"></div>
+    </div>
     <!-- Dashboard -->
     <div id="page-dashboard" class="page active">
       <div class="page-header">
@@ -2148,6 +2172,20 @@
 </div>
 
 <script>
+// ==================== アプリのバージョン識別子 ====================
+// 【運用ルール・デプロイのたびに必ず更新すること】
+// このツールをsales-manager.htmlとして書き換えて公開（デプロイ）するたびに、
+// 下の文字列を「今日の日付-連番」などに変更してください（値の形式は自由。文字列が変わればOK）。
+// このバージョン識別子は checkForNewVersion() が定期的に自分自身のHTMLを取得して比較するために
+// 使われ、値が変わっていると「新しいバージョンがあります」バナーが表示される仕組みです。
+// 例）デプロイのたびに、値の部分だけを「今日の日付-連番」のように書き換えてください
+// （例：9月6日の1回目なら 2026-09-06-1、同じ日に2回目のデプロイをするなら 2026-09-06-2）。
+// 【QA指摘対応・重要】このコメント内には「const APP_VERSION = '...'」という形の文字列を
+// 絶対に書かないこと。checkForNewVersion()側の抽出は行頭アンカー付き正規表現で本物の定義行
+// だけを拾うよう修正済みだが、万一の二重の保険として、コメント側にも紛らわしい書き方をしない
+// ようにしている（過去に例文がコメント内の古い値を誤って拾ってしまう不具合があったため）。
+const APP_VERSION = '2026-09-06-1';
+
 // ==================== 2段階パスワード認証（管理者ログイン） ====================
 // 【重要】認証設定(authConfig)は SHARED_KEYS の汎用配列マージには絶対に含めない。
 // SHARED_KEYSのループはid付き配列が前提のため、id無しのオブジェクトを載せると
@@ -7965,8 +8003,44 @@ window.addEventListener('resize', () => {
   if (btn && !btn.disabled) btn.textContent = _refreshBtnLabel('idle');
 });
 
+// 【未保存入力の保護】目標管理ページでまだ保存していない入力（オレンジ枠表示）が残っている場合、
+// そのままリロードすると入力内容が消えてしまうため、必ず確認を挟む。
+// サイドバーの更新ボタン・新バージョン通知バナーの「今すぐ更新」の両方から共通で使う。
+// 【QA指摘対応】_goalsDirtyFieldsはページを切り替えても（showPage()では）クリアされないため、
+// 目標管理ページを見ていない状態でこの確認を呼んだ場合にも出ることがある。
+// どの入力のことか分からず戸惑わないよう、文言に「目標管理ページ」と場所を明記しておく。
+// 戻り値: trueならリロードして良い、falseならキャンセルされたのでリロードしない。
+function _confirmReloadIfUnsavedGoalInputs() {
+  if (typeof _goalsDirtyFields !== 'undefined' && _goalsDirtyFields.size > 0) {
+    return confirm('目標管理ページに保存していない入力があります。更新するとその入力内容は失われます。よろしいですか？');
+  }
+  return true;
+}
+
+// 【キャッシュを回避して確実に最新のHTMLを取得し直すリロード処理】
+// GitHub PagesはHTMLを数分〜10分程度キャッシュするため、ただのlocation.reload()だと
+// 古いキャッシュがそのまま再表示されてしまうことがある。
+// そこで、今のURLの「パス部分」に毎回変わるクエリ（?_r=現在時刻）を付け直したURLへ
+// location.replace()で移動する。ブラウザやCDNはクエリ文字列が変わると別のURL扱いになるため、
+// 必ずサーバー（GitHub Pages）まで新しいHTMLを取りに行く。
+// 【URLが汚れない工夫】
+//  - 毎回「location.pathname（クエリ・ハッシュを含まない素のパス）」を起点に組み立て直すため、
+//    ボタンを何度押してもクエリが増殖することはない（常に「?_r=数字」ひとつだけが付く）。
+//  - location.replace()を使い、履歴に新しいエントリを残さない（「戻る」でこの一時的な
+//    クエリ付きURLが履歴に残らない）。ブックマークやチームに共有しているURL本体
+//    （sales-manager.html）自体は一切書き換えないため、共有リンクへの影響はない。
+// 【ログイン状態が保持されることについて】
+//  - ログイン済みフラグはsessionStorageに保存されており、これは「クエリ文字列」ではなく
+//    「オリジン（https://82350kyo.github.io）」単位で保持される。クエリを変えてリロードしても
+//    同じオリジン・同じタブでの遷移（location.replace）であるため、sessionStorageは消えず
+//    ログイン状態は維持される（実測確認済み。詳細は報告参照）。
+function _reloadWithCacheBust() {
+  const bustUrl = location.pathname + '?_r=' + Date.now() + location.hash;
+  location.replace(bustUrl);
+}
+
 // サイドバーの「🔄 最新の状態に更新」ボタンから呼ばれる処理。
-// 「更新＝ページをリロードするだけ」というシンプルな仕様にしている。
+// 「更新＝キャッシュを回避してページをリロードするだけ」というシンプルな仕様にしている。
 // リロードすると起動時の初期化処理（startAuthenticatedInit）が自動的に
 // syncFromSheet()・pullSharedDataFromGAS()を実行してくれるため、最新のスプレッドシート／
 // 共有データが自然に反映される（このボタンから直接これらの関数を呼ぶ必要はない）。
@@ -7974,16 +8048,8 @@ function manualRefreshAll() {
   const btn = document.getElementById('sidebar-refresh-btn');
   if (!btn || btn.disabled) return; // 連打防止（念のため二重ガード）
 
-  // 【未保存入力の保護】目標管理ページでまだ保存していない入力（オレンジ枠表示）が残っている場合、
-  // そのままリロードすると入力内容が消えてしまうため、必ず確認を挟む。
-  // 【QA指摘対応】_goalsDirtyFieldsはページを切り替えても（showPage()では）クリアされないため、
-  // 目標管理ページを見ていない状態でこのボタンを押した場合にも確認が出ることがある。
-  // どの入力のことか分からず戸惑わないよう、文言に「目標管理ページ」と場所を明記しておく。
   // キャンセルされたらリロードせずそのまま処理を終える。
-  if (typeof _goalsDirtyFields !== 'undefined' && _goalsDirtyFields.size > 0) {
-    const okToReload = confirm('目標管理ページに保存していない入力があります。更新するとその入力内容は失われます。よろしいですか？');
-    if (!okToReload) return;
-  }
+  if (!_confirmReloadIfUnsavedGoalInputs()) return;
 
   // 押したことが分かるように、ボタンをdisabledにして文言を「更新中」に変える。
   // リロードで画面ごと作り直されるため、元の文言に戻す処理は不要（新しいページ読み込み時に
@@ -7993,7 +8059,151 @@ function manualRefreshAll() {
   const statusEl = document.getElementById('sidebar-refresh-status');
   if (statusEl) statusEl.textContent = _isMobileSidebarView() ? '更新中…' : '更新しています…';
 
-  location.reload();
+  _reloadWithCacheBust();
+}
+
+// ==================== 新バージョン検知（GitHub Pagesのキャッシュ対策） ====================
+// GitHub Pagesはデプロイ後もしばらく古いHTMLをキャッシュで返すことがあるため、
+// 「今開いている画面」と「サーバー上の最新HTML」が食い違っている状態が起こりうる。
+// これを定期的に検知して、控えめなバナーで「今すぐ更新」を促す仕組み。
+//
+// 【検知方式・主】HEADリクエストでETag（無ければLast-Modified）だけを取得して比較する。
+// GitHub Pagesは実際にETag/Last-Modifiedヘッダを返しており、HTML本体（約560KB）を毎回
+// 取得する必要がなく、通信量が数百バイト程度で済む。しかも「デプロイでファイルの中身が
+// 1バイトでも変わればETagも必ず変わる」ため、下のAPP_VERSION定数を書き換え忘れても
+// 新バージョンを検知できる（運用ミスに強い）。
+// 【検知方式・フォールバック】ETag・Last-Modifiedのどちらのヘッダも取得できなかった場合
+// （ヘッダを返さないホスティング環境や、何らかの理由でHEADリクエスト自体に失敗した場合）は、
+// 従来どおりHTML本体を取得し、埋め込まれたAPP_VERSION定数を正規表現で読み取って比較する
+// （このときだけAPP_VERSIONの書き換えを忘れると検知できない）。
+let _versionCheckBaseline = null;   // { type: 'etag'|'lastmod'|'appversion', value: string } … 起動直後に記録する「今表示している版」の基準値
+let _newVersionDetectedId  = null;  // 現在検知している「新しい版」の識別子（無ければnull）
+let _dismissedVersionId    = null;  // ×で閉じた版の識別子。この値と同じ版は再表示しない
+const APP_VERSION_CHECK_INTERVAL_MS = 10 * 60 * 1000; // 10分に1回チェック（理由は下記コメント）
+// 【10分間隔にした理由】GitHub PagesのHTMLキャッシュはおよそ10分程度で入れ替わるため、
+// それより極端に短い間隔でチェックしても「まだキャッシュが切り替わっていない」ことが多く、
+// 通信の割に検知が早まらない。逆にあまり長いと更新に気づくのが遅れる。HEADリクエスト中心の
+// 軽量な確認になったため、この間隔でも通信負荷は小さい。
+
+// 【QA指摘対応】ETagには「弱いETag」（先頭に W/ が付く。例: W/"abc"）と
+// 「強いETag」（例: "abc"）の2種類の表記があり、同じ内容でもAccept-Encoding
+// （gzip/br/identity等）の違いによってCDNが返すETagの表記が変わることがある。
+// これを文字列のまま単純比較すると「中身は同じなのに新バージョンと誤検知してしまう」
+// おそれがあるため、比較する前に正規化する。
+// 【正規化の内容】
+//  1. 前後の空白を除去する
+//  2. 先頭の弱いETagマーカー「W/」を除去する
+//  3. 前後を囲む二重引用符を除去する（本来ETagの値は引用符付きが仕様だが、
+//     引用符の有無でも表記が割れる可能性をゼロにするため、念のため剥がしておく）
+// 【Last-Modifiedについて】
+//  RFC 1123形式の固定フォーマットの日時文字列で、W/や引用符のような表記揺れの
+//  心配は無いため、前後の空白除去のみ行う（同じくこの関数でまとめて処理する）。
+function _normalizeVersionIdentifierValue(type, value) {
+  let v = String(value).trim();
+  if (type === 'etag') {
+    v = v.replace(/^W\//, '');       // 弱いETagの「W/」プレフィックスを除去
+    v = v.replace(/^"(.*)"$/, '$1'); // 前後の二重引用符を除去
+    v = v.trim();
+  }
+  return v;
+}
+
+// 自分自身にHEADリクエストを送り、ETag（無ければLast-Modified）を取得する。
+// 取得できなかった場合はnullを返す（呼び出し側でHTML本体取得のフォールバックに切り替える）。
+function _fetchVersionIdentifierFromHeaders() {
+  return fetch(location.pathname, { method: 'HEAD', cache: 'no-store' })
+    .then(function (res) {
+      if (!res.ok) return null;
+      const etag = res.headers.get('ETag');
+      if (etag) return { type: 'etag', value: _normalizeVersionIdentifierValue('etag', etag) };
+      const lastMod = res.headers.get('Last-Modified');
+      if (lastMod) return { type: 'lastmod', value: _normalizeVersionIdentifierValue('lastmod', lastMod) };
+      return null; // ヘッダが無い環境 → フォールバックへ
+    })
+    .catch(function () { return null; });
+}
+
+// フォールバック：HTML本体を取得し、埋め込まれたAPP_VERSION定数を読み取る。
+// 【QA指摘対応・重要】行頭アンカー(^)＋末尾アンカー($)付き・mフラグの正規表現にすることで、
+// コメント内に書かれた説明文（インデント付きの行）を誤って拾わないようにしている。
+// 過去に「本物の定義より前に出てくるコメント内の例文」を誤って拾ってしまう不具合があったため。
+function _fetchVersionIdentifierFromHtml() {
+  const url = location.pathname + '?_vercheck=' + Date.now();
+  return fetch(url, { cache: 'no-store' })
+    .then(function (res) {
+      if (!res.ok) throw new Error('version check fetch failed');
+      return res.text();
+    })
+    .then(function (html) {
+      const m = html.match(/^const APP_VERSION = '([^']+)';\s*$/m);
+      if (!m) return null; // バージョン識別子が見つからない場合は何もしない（安全側に倒す）
+      return { type: 'appversion', value: m[1] };
+    })
+    .catch(function () { return null; });
+}
+
+// 現在のサーバー側の識別子を取得する（ETag/Last-Modifiedを優先し、取れなければHTML本体で代用）。
+function _fetchCurrentVersionIdentifier() {
+  return _fetchVersionIdentifierFromHeaders().then(function (result) {
+    if (result) return result;
+    return _fetchVersionIdentifierFromHtml();
+  });
+}
+
+// 定期実行される本体。起動直後の1回目は「今の基準値」を記録するだけで比較はしない。
+// 2回目以降、基準値と異なる識別子を検知したら新バージョンバナーを表示する。
+// 【安全設計】file://で開いている場合や、通信・解析に全て失敗した場合は何も起きない
+// （エラー表示やconsole.errorも出さない）。オフラインのメンバーがいても通常利用を妨げない。
+function checkForNewVersion() {
+  if (location.protocol === 'file:') return; // ローカルファイルで開いている場合は対象外
+
+  _fetchCurrentVersionIdentifier().then(function (current) {
+    if (!current) return; // ヘッダ取得・HTML取得のどちらにも失敗＝何もしない
+
+    if (!_versionCheckBaseline) {
+      // 初回：これを「今表示している版」の基準値として記録するだけ（比較はしない）
+      _versionCheckBaseline = current;
+      return;
+    }
+
+    if (current.type !== _versionCheckBaseline.type) {
+      // 検知方式が途中で変わった場合（例：普段はHEADが成功するが、今回だけ一時的に失敗して
+      // HTML本体方式にフォールバックした等）は、方式が異なる値同士を比較しても意味が無いため、
+      // 誤検知を避けて今回は判定を保留する（何もしない）。
+      return;
+    }
+
+    const isSame = current.value === _versionCheckBaseline.value;
+    const banner = document.getElementById('app-version-update-banner');
+    if (isSame) {
+      // 基準値と同じ＝新しいバージョンは無い（何らかの理由で元に戻った場合も含めてバナーを消す）
+      _newVersionDetectedId = null;
+      if (banner) banner.classList.remove('show');
+      return;
+    }
+
+    // 基準値と異なる＝サーバーに新しいバージョンがある
+    _newVersionDetectedId = current.value;
+    if (_dismissedVersionId === current.value) return; // この版は既に閉じられている→再表示しない
+    if (banner) banner.classList.add('show');
+  });
+}
+
+// バナーの「×」ボタンから呼ばれる。「今検知している版」を記憶しておき、次に同じ版を
+// 検知したときは再表示しない（10分おきに同じ通知が出て煩わしくならないように）。
+// 【QA指摘対応】ただし、それとは別のさらに新しい版が出てきた場合は、閉じたまま古い版を
+// 使い続けるリスクを避けるため、checkForNewVersion()側の判定で改めてバナーを出し直す。
+function dismissNewVersionBanner() {
+  const banner = document.getElementById('app-version-update-banner');
+  if (banner) banner.classList.remove('show');
+  _dismissedVersionId = _newVersionDetectedId;
+}
+
+// バナーの「今すぐ更新」ボタンから呼ばれる。サイドバーの更新ボタンと全く同じ
+// 「未保存入力の確認 → キャッシュ回避リロード」を行う。
+function reloadForNewVersion() {
+  if (!_confirmReloadIfUnsavedGoalInputs()) return;
+  _reloadWithCacheBust();
 }
 
 // ==================== RANKING ====================
@@ -8858,6 +9068,12 @@ function startAuthenticatedInit() {
   // 最新の共有データ・売上データが反映される）
   syncFromSheet();
   pullSharedDataFromGAS();
+
+  // 【新バージョン検知】GitHub Pagesのキャッシュにより古いHTMLが表示され続けることがあるため、
+  // 起動直後に1回、以後は10分おきに自分自身の最新HTMLと今のバージョンを比較する。
+  // file://で開いている場合や通信失敗時はcheckForNewVersion()の中で安全に何もしない仕様。
+  checkForNewVersion();
+  setInterval(checkForNewVersion, APP_VERSION_CHECK_INTERVAL_MS);
 }
 // ==================== END startAuthenticatedInit ====================
 
