@@ -2685,6 +2685,58 @@ function saveData() {
   saveData._timer = setTimeout(pushSharedDataToGAS, 2000);
 }
 
+// ==================== 「その他」担当者（未登録名の売上の受け皿） ====================
+// 【背景・修正B/C/D】以前はスプレッドシート同期時、シート上の担当者名がdata.membersの
+// どれとも一致しない場合に自動で新規メンバーを作成してしまっていた（「唐一民」「アンノーン」が
+// 独立した1人の「メンバー」として売上ランキング等に積み上がっていた不具合の原因）。
+// 今後はメンバーを自動作成せず、該当の売上は仮想メンバー「その他」として集計する。
+// 【重要】「その他」はdata.membersには絶対に追加しない。
+// ・メンバー一覧（追加/編集/削除の画面）や売上入力・フィルターのプルダウン(updateMemberSelects等)には出さない。
+// ・ランキング／ダッシュボード／レポート／グラフなど「メンバー別の数字」を表示する画面でのみ、
+//   表示・集計用の特別な1枠として扱う（IDが共有データに紛れ込まないよう、あくまでローカルの
+//   表示ロジック上だけの存在にする）。
+const OTHER_MEMBER_ID = '__other__';
+const OTHER_MEMBER = Object.freeze({ id: OTHER_MEMBER_ID, name: 'その他', role: '', color: '#9ca3af' });
+
+// 読み仮名(カッコ書き)を除いた名前を返す（メンバー名の表記ゆれ吸収。他の箇所にある同種のstripReading系
+// 関数と同じロジックだが、グローバルで共通利用するためここに切り出した）
+function stripReadingForMatch(n) {
+  return String(n || '').replace(/[（(][^）)]*[）)]/g, '').trim();
+}
+
+// 【D対応】売上レコードsが実際にどのメンバーに属するかを解決する。
+// 1) s.memberId が現存メンバー(data.members)のidと一致すれば、そのメンバーを返す。
+// 2) 一致しない場合でも、売上に保存されている「元の担当者名」(s.memberName)が現存メンバーの
+//    名前と一致すれば、そのメンバーを返す。
+//    ＝メンバーが削除された後、同じ名前で再登録された場合に、過去の売上が自動的にそのメンバーへ
+//    再び紐づき直す（メンバーIDそのものは書き換えないので、履歴を壊さない）。
+// 3) どちらにも一致しなければ null を返す（＝「その他」扱い）。
+function resolveSaleMember(s) {
+  if (!s) return null;
+  let m = data.members.find(mm => mm.id === s.memberId);
+  if (m) return m;
+  if (s.memberName) {
+    m = data.members.find(mm => stripReadingForMatch(mm.name) === stripReadingForMatch(s.memberName));
+    if (m) return m;
+  }
+  return null;
+}
+
+// 表示・集計用: resolveSaleMemberの結果がnullなら仮想メンバー「その他」を返す
+function getEffectiveMember(s) {
+  return resolveSaleMember(s) || OTHER_MEMBER;
+}
+
+// 売上レコードsがメンバーmに属するかどうかを判定する（ランキング等で1メンバー分の売上を
+// 絞り込むときに使う）。mが仮想メンバー「その他」の場合は、resolveSaleMemberがnull
+// （＝現存メンバーの誰にも紐づかない）ものだけがヒットする。
+function saleBelongsToMember(s, m) {
+  const resolved = resolveSaleMember(s);
+  if (m.id === OTHER_MEMBER_ID) return !resolved;
+  return !!resolved && resolved.id === m.id;
+}
+// ==================== END 「その他」担当者 ====================
+
 const MEMBER_ORDER = ['岡崎', '廣瀬', '木元', '的場', '西澤', '山本', '円石', '若松', '與田', '大槻', '増井'];
 
 const DEFAULT_MEMBERS = [
@@ -3039,7 +3091,13 @@ function hasPaymentEventInMonth(s, mk) {
 function groupSalesByMemberId(salesArr) {
   const map = new Map();
   salesArr.forEach(s => {
-    const key = s.memberId;
+    // 【D対応・修正B/C】キーは生のs.memberIdではなく「実際に紐づくメンバーのid」を使う。
+    // ・memberIdが現存メンバーと一致すればそのメンバーのid
+    // ・一致しないが元の担当者名(memberName)で現存メンバーと再マッチすればそのメンバーのid
+    // ・どちらにも一致しなければ OTHER_MEMBER_ID（＝「その他」バケット。呼び出し元が
+    //   必要な場合だけ map.get(OTHER_MEMBER_ID) で取り出して集計に使う）
+    const resolved = resolveSaleMember(s);
+    const key = resolved ? resolved.id : OTHER_MEMBER_ID;
     if (!map.has(key)) map.set(key, []);
     map.get(key).push(s);
   });
@@ -3129,7 +3187,8 @@ const DAILY_REPORT_CALC_KEY = '__daily_report__'; // 実在のmemberIdと衝突�
 // 対象月(mk)・メンバー(memberId。空文字なら全員合計)・導線区分(category)のKPIを、
 // 既存のcalcMemberKpiActualsに丸投げして計算する。
 function calcDailyReportKpi(mk, memberId, category) {
-  let sales = memberId ? data.sales.filter(s => s.memberId === memberId) : data.sales; // メンバー未選択＝全員合計
+  // 【D対応】memberId一致だけでなく、名前で再紐づく売上(resolveSaleMember)も対象メンバーの実績に含める
+  let sales = memberId ? data.sales.filter(s => { const rm = resolveSaleMember(s); return rm && rm.id === memberId; }) : data.sales; // メンバー未選択＝全員合計
   sales = filterSalesByRouteCategory(sales, category);
   const monthSales = sales.filter(s => s.date && s.date.startsWith(mk)); // 件数は面談日(date)ベース
   const monthMap = new Map([[DAILY_REPORT_CALC_KEY, monthSales]]);
@@ -3266,9 +3325,19 @@ function addMember() {
 
 function deleteMember(id) {
   const m = data.members.find(m => m.id === id);
-  confirmDelete(`${m.name} を削除しますか？\nスプレッドシート上のこの担当者名は「アンノーン」に変更されます。`, () => {
-    // 修正B: 認証必須化に伴いauthHashを同送する。修正I: URLに残らないPOSTで送信する。
-    gasPostJSON({ type: 'renameMember', oldName: m.name, newName: 'アンノーン', authHash: (authConfig && authConfig.usePasswordHash) || '' }).catch(() => {});
+  confirmDelete(`${m.name} を削除しますか？\n削除後、この人の売上データは削除されず「その他」として集計されます。`, () => {
+    // 【修正A】以前はここでGASへ「renameMember」を送り、スプレッドシート上のこの担当者の名前を
+    // 強制的に「アンノーン」へ書き換えていた。これが、削除するたびにスプレッドシート上の
+    // 名前が「アンノーン」に変わり、次の同期で「アンノーン」という独立したメンバーが
+    // 自動生成されてしまう不具合の原因の1つだった。
+    // メンバー削除はあくまでローカル（チーム共有データ）側の一覧からの除外にとどめ、
+    // スプレッドシート（sales-manager-gas.js側）は一切書き換えない。
+    // 【D対応】削除される前に、このメンバーの売上へ「元の担当者名」を保存しておく。
+    // こうしておくことで、将来同じ名前のメンバーが再登録された場合、resolveSaleMember()が
+    // 名前で自動的に再び紐づけてくれる（＝過去の売上が迷子にならない）。削除直後は、
+    // memberIdが現存メンバーのどれとも一致しなくなるため、resolveSaleMember/saleBelongsToMemberの
+    // 仕組みにより自動的に「その他」として集計される。
+    data.sales.forEach(s => { if (s.memberId === id) s.memberName = m.name; });
     data.members = data.members.filter(mem => mem.id !== id);
     // 削除済みIDをリストに追加（GAS同期時にリモートから復活させないため）
     if (!data._deleted_members) data._deleted_members = [];
@@ -3324,7 +3393,9 @@ function renderMemberList() {
   el.innerHTML = `<div class="table-wrap"><table>
     <thead><tr><th></th><th>名前</th><th>役職</th><th>累計売上</th><th></th></tr></thead>
     <tbody>${data.members.map(m => {
-      const total = data.sales.filter(s => s.memberId === m.id).reduce((a,s) => a + s.amount, 0);
+      // 【D対応】memberIdが一致するものだけでなく、名前で再紐づく売上(resolveSaleMember)も
+      // 合算する。「その他」はここには出さない（メンバー一覧はあくまで実在メンバーのみの画面）。
+      const total = data.sales.filter(s => saleBelongsToMember(s, m)).reduce((a,s) => a + s.amount, 0);
       return `<tr>
         <td><span class="member-dot" style="background:${m.color}"></span></td>
         <td><strong>${esc(m.name)}</strong></td>
@@ -3975,7 +4046,8 @@ function renderSalesList() {
   if (paymentMonthFilter) {
     sales = sales.filter(s => hasPaymentEventInMonth(s, paymentMonthFilter));
   }
-  if (memberFilter) sales = sales.filter(s => s.memberId === memberFilter);
+  // 【D対応】memberId一致だけでなく、名前で再紐づく売上(resolveSaleMember)もこのメンバーの一覧に含める
+  if (memberFilter) sales = sales.filter(s => { const rm = resolveSaleMember(s); return rm && rm.id === memberFilter; });
   // LINE名フィルター（s.note フィールドを対象に「含む」で絞り込み）
   if (lineNameFilter) sales = sales.filter(s => (s.note || '').includes(lineNameFilter));
   // 導線フィルター（正規化した文字列同士で完全一致）
@@ -4004,12 +4076,18 @@ function renderSalesList() {
   const groups = {};
   const firstDates = {};
   sales.forEach(s => {
-    const k = (s.memberId || 'unknown') + '|' + (s.note || '不明');
+    // 【修正C】未登録の担当者名・削除済みメンバーの売上（memberIdが無効なもの）は、
+    // すべて「その他」の同じキーにまとめる（getEffectiveMember(s).id）ことで、
+    // 同じ顧客の履歴が別々のカードに分裂しないようにする
+    const k = getEffectiveMember(s).id + '|' + (s.note || '不明');
     if (!firstDates[k] || s.date < firstDates[k]) firstDates[k] = s.date;
   });
 
   sales.forEach(s => {
-    const k = (s.memberId || 'unknown') + '|' + (s.note || '不明');
+    // 【修正C】未登録の担当者名・削除済みメンバーの売上（memberIdが無効なもの）は、
+    // すべて「その他」の同じキーにまとめる（getEffectiveMember(s).id）ことで、
+    // 同じ顧客の履歴が別々のカードに分裂しないようにする
+    const k = getEffectiveMember(s).id + '|' + (s.note || '不明');
     const key = k + '|' + (firstDates[k] || s.date);
     if (!groups[key]) groups[key] = { sales: [], latestDate: '', totalPayment: 0 };
     groups[key].sales.push(s);
@@ -4032,7 +4110,8 @@ function renderSalesList() {
   el.innerHTML = sortedKeys.map(key => {
     const g = groups[key];
     const first = g.sales[0];
-    const m = data.members.find(mem => mem.id === first.memberId);
+    // 【修正C】未登録の担当者名・削除済みメンバーの売上は「その他」として表示する
+    const m = getEffectiveMember(first);
     const sortedSales = g.sales.sort((a, b) => b.date.localeCompare(a.date));
 
     // アプローチ期日のチェック（最新の顧客情報を使う）
@@ -4278,7 +4357,14 @@ function openSaleDetailModal(id, event) {
 
   // 担当者セレクトを動的に生成
   const memberSel = document.getElementById('sd-member');
-  memberSel.innerHTML = data.members.map(m =>
+  // 【修正B・事故防止】s.memberIdが現存メンバーのどれとも一致しない場合（＝「その他」扱いの売上）、
+  // どのoptionにも selected が付かず、ブラウザが先頭のメンバーを暗黙で選択してしまうことがある。
+  // その状態で保存すると、無関係な実在メンバーへ勝手に付け替わってしまう事故になるため、
+  // 「未登録（その他）」という選択不可のプレースホルダーを選択状態で先頭に入れておく。
+  // 担当者を実在メンバーに変更したい場合は、明示的にプルダウンから選び直してもらう。
+  const hasValidSaleMember = data.members.some(m => m.id === s.memberId);
+  const otherPlaceholderOpt = !hasValidSaleMember ? `<option value="" disabled selected>未登録（その他）</option>` : '';
+  memberSel.innerHTML = otherPlaceholderOpt + data.members.map(m =>
     `<option value="${m.id}" ${m.id === s.memberId ? 'selected' : ''}>${esc(m.name)}</option>`
   ).join('');
 
@@ -6098,10 +6184,14 @@ function renderDashboard() {
 
   // Member bar chart
   // 【最終着金額】メンバー別の実績も着金イベント単位(1〜3回目)で当月分を合計する
-  const memberData = data.members.map(m => ({
+  // 【修正C】未登録の担当者名・削除済みメンバーの売上（＝「その他」）も1本の棒として表示する。
+  // 実績が0円の月は表示してもノイズになるだけなので、その他は実績がある月だけ表示対象に加える。
+  const otherMemberTotal = data.sales.filter(s => saleBelongsToMember(s, OTHER_MEMBER)).reduce((a,s) => a + paymentInMonth(s, mk), 0);
+  const memberBarSource = otherMemberTotal !== 0 ? [...data.members, OTHER_MEMBER] : data.members;
+  const memberData = memberBarSource.map(m => ({
     name: m.name,
     color: m.color,
-    total: data.sales.filter(s => s.memberId === m.id).reduce((a,s) => a + paymentInMonth(s, mk), 0),
+    total: m.id === OTHER_MEMBER_ID ? otherMemberTotal : data.sales.filter(s => saleBelongsToMember(s, m)).reduce((a,s) => a + paymentInMonth(s, mk), 0),
     goal: (goal.memberGoals?.[m.id] || 0)
   }));
 
@@ -6134,7 +6224,12 @@ function renderDashboard() {
     // （groupSalesByMemberId・calcMemberKpiActualsは目標管理ページと共通のヘルパー関数）
     const rankMonthSalesByMember = groupSalesByMemberId(monthSales);
     const rankAllSalesByMember = groupSalesByMemberId(data.sales);
-    const rankingRows = data.members.map(m => {
+    // 【修正C】groupSalesByMemberIdは未登録名・削除済みメンバーの売上をOTHER_MEMBER_IDキーに
+    // 集約しているため、実在メンバーに加えてOTHER_MEMBERも対象に含める（実績が無ければ後段の
+    // フィルタで自然に表から除外される）。
+    const rankTargets = rankAllSalesByMember.has(OTHER_MEMBER_ID) || rankMonthSalesByMember.has(OTHER_MEMBER_ID)
+      ? [...data.members, OTHER_MEMBER] : data.members;
+    const rankingRows = rankTargets.map(m => {
       const kpi = calcMemberKpiActuals(m.id, mk, rankMonthSalesByMember, rankAllSalesByMember);
       const mGoal = (goal.memberGoals && goal.memberGoals[m.id]) || 0;
       // 目標未設定のメンバーは達成率を計算せず null（表示は「-」）にする。0%と表示すると
@@ -6276,14 +6371,19 @@ function renderDashboard() {
   // 【最終着金額】メンバー別の着金合計は、月に関わらず業種で絞った全レコードから
   // 着金イベント単位(1〜3回目)で当月分を集計する（分割着金に対応するため）
   const memberPaymentScopeAll = currentMemberTab === '合計' ? data.sales : data.sales.filter(s => s.business === currentMemberTab);
-  const memberRows = [...data.members].sort((a, b) => {
-    const aTotal = memberPaymentScopeAll.filter(s => s.memberId === a.id).reduce((sum,s) => sum + paymentInMonth(s, mk), 0);
-    const bTotal = memberPaymentScopeAll.filter(s => s.memberId === b.id).reduce((sum,s) => sum + paymentInMonth(s, mk), 0);
+  // 【修正C】未登録の担当者名・削除済みメンバーの売上（＝「その他」）がある場合のみ、
+  // メンバー別テーブルにも1行として加える（実在メンバーのみの一覧には出さない）。
+  const hasOtherInDashboardTable = memberPaymentScopeAll.some(s => saleBelongsToMember(s, OTHER_MEMBER));
+  // 【注意】data.membersを直接sort()すると元の並び順を破壊してしまうため、必ずコピーしてから使う
+  const memberTableSource = hasOtherInDashboardTable ? [...data.members, OTHER_MEMBER] : [...data.members];
+  const memberRows = memberTableSource.sort((a, b) => {
+    const aTotal = memberPaymentScopeAll.filter(s => saleBelongsToMember(s, a)).reduce((sum,s) => sum + paymentInMonth(s, mk), 0);
+    const bTotal = memberPaymentScopeAll.filter(s => saleBelongsToMember(s, b)).reduce((sum,s) => sum + paymentInMonth(s, mk), 0);
     return bTotal - aTotal;
   }).map(m => {
-    const mSales = memberFilteredSales.filter(s => s.memberId === m.id);
-    const mPaymentSales = memberPaymentFilteredSales.filter(s => s.memberId === m.id);
-    const mPaymentScope = memberPaymentScopeAll.filter(s => s.memberId === m.id);
+    const mSales = memberFilteredSales.filter(s => saleBelongsToMember(s, m));
+    const mPaymentSales = memberPaymentFilteredSales.filter(s => saleBelongsToMember(s, m));
+    const mPaymentScope = memberPaymentScopeAll.filter(s => saleBelongsToMember(s, m));
     const mNormal = mSales.filter(s => s.rowType !== '追加決済');
     const mApoSales = mNormal.filter(s => getResult(s) !== '成約（2回目）');
     const mApo = mApoSales.length;
@@ -6848,8 +6948,12 @@ function renderMemberReport() {
     el.innerHTML = '<div class="empty-state"><div class="icon">👥</div><p>メンバーを登録してください</p></div>';
     return;
   }
-  const rows = data.members.map(m => {
-    const mSales = data.sales.filter(s => s.memberId === m.id);
+  // 【修正C】未登録の担当者名・削除済みメンバーの売上（＝「その他」）がある場合のみ、
+  // メンバー別レポートにも1行として加える。
+  const hasOtherInMemberReport = data.sales.some(s => saleBelongsToMember(s, OTHER_MEMBER));
+  const memberReportSource = hasOtherInMemberReport ? [...data.members, OTHER_MEMBER] : data.members;
+  const rows = memberReportSource.map(m => {
+    const mSales = data.sales.filter(s => saleBelongsToMember(s, m));
     // 【最終着金額】メンバー累計は全期間の1〜3回目合計（分割着金の後払い分も含む）
     const totalPayment = mSales.reduce((a,s) => a + paymentAllTime(s), 0);
     const cnt = mSales.filter(s => s.rowType !== '追加決済').length;
@@ -7763,13 +7867,17 @@ function syncFromSheet(onRetry) {
         if (!dateStr && tsDateStr) dateStr = tsDateStr; // 日付が取れない時のみタイムスタンプで補完
         if (!dateStr) return;
 
+        // 【修正B】以前はここで、シートの担当者名がdata.membersのどれとも一致しない場合に
+        // 新規メンバーを自動作成してdata.membersにpushしていた。これが「唐一民」「アンノーン」
+        // のような、削除済み・未登録の名前が独立した「メンバー」として売上ランキング等に
+        // 積み上がってしまう不具合の原因だった。
+        // 今後はメンバーを自動作成しない。一致するメンバーが見つからない場合は member が
+        // undefined のままとなり、直後の data.sales.push で memberId を空にして保存する。
+        // 「アンノーン」という名前も特別扱いせず、単なる「未登録名の一種」として同じ扱いになる。
+        // このレコードは resolveSaleMember/saleBelongsToMember の仕組みにより、集計上は
+        // 自動的に仮想メンバー「その他」として扱われる（renderRanking/renderDashboard等を参照）。
         const stripReading = n => n.replace(/[（(][^）)]*[）)]/g, '').trim();
         let member = data.members.find(m => stripReading(m.name) === name);
-        if (!member) {
-          member = { id: 'member-' + Date.now() + Math.floor(Math.random()*1e9), name, role: '営業担当', color: COLORS[data.members.length % COLORS.length] };
-          data.members.push(member);
-          addedMembers++;
-        }
 
         // 【修正5・QA指摘対応】この変数は「1回目着金」の数値であり、後述の s.payment2（2回目着金）
         // と紛らわしいため payment1Num にリネームした（動作は変更していない）
@@ -7826,7 +7934,13 @@ function syncFromSheet(onRetry) {
           barrier:          String(row['行動の障壁'] || ''),
           firstNote:        String(row['備考／所感'] || row['備考/所感'] || ''),
         };
-        data.sales.push({ id: saleId, date: dateStr, memberId: member.id, amount, payment: payment1Num, paymentDate, payment2: paymentField2, paymentDate2: paymentDateField2, payment3: paymentField3, paymentDate3: paymentDateField3, product, category, business, routeType, result, note, recording, memo, source: 'sheet', rowType, history, customerInfo: ciFromSheet });
+        // 【修正B・D対応】memberが見つからない場合はmemberIdをnullのまま保存し、代わりに
+        // memberName（シート上の元の担当者名）を保存しておく。memberNameがあることで、
+        // ・集計時は「その他」として扱われる（resolveSaleMember/saleBelongsToMember）
+        // ・将来同じ名前のメンバーが登録されたら自動的にそのメンバーへ再度紐づく
+        // memberが見つかった場合もmemberNameを保存しておく（そのメンバーが後で削除されても
+        // 元の名前が売上側に残るようにするため。deleteMember側でも同様にキャッシュしている）
+        data.sales.push({ id: saleId, date: dateStr, memberId: member ? member.id : null, memberName: name, amount, payment: payment1Num, paymentDate, payment2: paymentField2, paymentDate2: paymentDateField2, payment3: paymentField3, paymentDate3: paymentDateField3, product, category, business, routeType, result, note, recording, memo, source: 'sheet', rowType, history, customerInfo: ciFromSheet });
         addedSales++;
       });
 
@@ -8402,8 +8516,11 @@ function renderRanking() {
   }
   const filter = getRankingDateFilter();
   const getResult2 = s => s.result || (s.category||'').split(' ').pop();
-  const ranked = data.members.map(m => {
-    let mSales = data.sales.filter(s => s.memberId === m.id && filter(s));
+  // 【修正C】実在メンバーに加えて、仮想メンバー「その他」（未登録の担当者名・削除済みメンバーの
+  // 売上の受け皿）もランキングの集計対象に含める。0件の場合は後段のfilter(r=>r.cnt>0||r.total>0)で
+  // 自動的に非表示になるため、通常運用時に空の「その他」が表示され続けることはない。
+  const ranked = [...data.members, OTHER_MEMBER].map(m => {
+    let mSales = data.sales.filter(s => saleBelongsToMember(s, m) && filter(s));
     // 業種フィルター（総合以外の場合はカテゴリで絞り込む）
     if (rankingBusiness !== '総合') {
       mSales = mSales.filter(s => getBusinessType(s.category) === rankingBusiness);
@@ -8413,7 +8530,7 @@ function renderRanking() {
     // 「1回目は期間外だが2回目/3回目だけ期間内」のレコードがmSalesから漏れてしまい、
     // ダッシュボードの集計(data.sales全体からイベント単位で拾う方式)とズレる原因になっていた。
     // そのため着金額系だけは、このメンバー(+業種)の全レコードを対象にイベント単位で拾い直す。
-    let moneyScope = data.sales.filter(s => s.memberId === m.id);
+    let moneyScope = data.sales.filter(s => saleBelongsToMember(s, m));
     if (rankingBusiness !== '総合') {
       moneyScope = moneyScope.filter(s => getBusinessType(s.category) === rankingBusiness);
     }
@@ -8545,7 +8662,9 @@ function renderSeminarPage() {
     const map = {};
     salesList.forEach(s => {
       // 日付に依存せず、担当者と顧客名（note）が同じなら1件の「案件」として集計
-      const clientKey = `${s.memberId}_${(s.note || s.id).trim()}`;
+      // 【修正C】担当者の判定はgetEffectiveMember(s).idを使う（未登録名・削除済みメンバーの
+      // 売上は「その他」の同じIDにまとまるため、同一顧客が別カウントに分裂しない）
+      const clientKey = `${getEffectiveMember(s).id}_${(s.note || s.id).trim()}`;
       if (!map[clientKey]) {
         map[clientKey] = { amount: 0, payment: 0, isMendan: false, isKeiyaku: false };
       }
@@ -8597,8 +8716,10 @@ function renderSeminarPage() {
   `;
 
   // メンバー別ランキング算出
-  const memberRankings = data.members.map(m => {
-    const mSales = semSales.filter(s => s.memberId === m.id);
+  // 【修正C】未登録の担当者名・削除済みメンバーのセミナー成約（＝「その他」）も対象に含める
+  // （0件なら後段のfilter(r=>r.mendan>0||r.payment>0)で自然に除外される）
+  const memberRankings = [...data.members, OTHER_MEMBER].map(m => {
+    const mSales = semSales.filter(s => saleBelongsToMember(s, m));
     const mDeals = Object.values(getDealsMap(mSales));
     
     const mAmount = mDeals.reduce((a, d) => a + d.amount, 0);
@@ -8733,8 +8854,9 @@ function renderSettings() {
 function exportCSV() {
   const rows = [['日付','メンバー','金額','カテゴリ','属性']];
   data.sales.forEach(s => {
-    const m = data.members.find(m => m.id === s.memberId);
-    rows.push([s.date, m?.name||'不明', s.amount, s.category||'', s.note||'']);
+    // 【修正C】未登録の担当者名・削除済みメンバーの売上は「その他」としてCSVにも出力する
+    const m = getEffectiveMember(s);
+    rows.push([s.date, m.name, s.amount, s.category||'', s.note||'']);
   });
   const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   download('sales-data.csv', 'text/csv;charset=utf-8;', '\uFEFF' + csv);
