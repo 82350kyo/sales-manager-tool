@@ -1248,6 +1248,7 @@
       </div>
       <div class="tabs">
         <div class="tab active" onclick="showTab('daily')">日次レポート</div>
+        <div class="tab" onclick="showTab('weekly')">週次レポート</div>
         <div class="tab" onclick="showTab('monthly')">月次レポート</div>
         <div class="tab" onclick="showTab('member')">メンバー別</div>
         <div class="tab" onclick="showTab('export')">エクスポート</div>
@@ -1271,6 +1272,30 @@
             <button class="btn btn-outline btn-sm" onclick="copyDailyReport()">📋 コピー</button>
           </div>
           <div id="daily-report-text" style="background:#e9f5ee;border-radius:16px;padding:16px;font-size:14px;line-height:1.9;white-space:pre-wrap;min-height:260px;font-family:'SF Mono',Menlo,Consolas,monospace;color:#1a1a1a;border:1px solid #c3e6cb;"></div>
+        </div>
+      </div>
+      <!-- 【週次レポート】日次レポートと同じ「広告/SNS/上記以外/セミナー/全体」区分の日報形式を、
+           月単位ではなく開始日〜終了日の任意期間で集計して表示するタブ。
+           集計ロジックは日次レポート用のcalcMemberKpiActuals本体から共通処理をcalcKpiFromSalesへ
+           切り出し、期間集計はそれをそのまま呼び出すcalcPeriodReportKpiで行う（新規の計算式は作っていない）。
+           目標管理の目標値は「月」単位でしか設定されておらず、任意の週で按分すると誤解を招くため、
+           週次レポートでは目標・達成率の行は出さない（日次レポートの「全体」セクションのみにある
+           目標比較機能は据え置き、この方針は週次にのみ適用）。 -->
+      <div id="tab-weekly" class="tab-content">
+        <div class="card" style="margin-bottom:24px;">
+          <div class="card-title">週次レポート</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px;">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <select id="weekly-report-member" onchange="renderWeeklyReport()" style="font-size:13px;padding:8px 12px;border-radius:8px;border:1.5px solid var(--border);min-width:140px;"></select>
+              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                <input type="date" id="weekly-report-start" onchange="renderWeeklyReport()" style="font-size:13px;padding:7px 10px;border-radius:8px;border:1.5px solid var(--border);">
+                <span style="color:var(--text-muted);">〜</span>
+                <input type="date" id="weekly-report-end" onchange="renderWeeklyReport()" style="font-size:13px;padding:7px 10px;border-radius:8px;border:1.5px solid var(--border);">
+              </div>
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="copyWeeklyReport()">📋 コピー</button>
+          </div>
+          <div id="weekly-report-text" style="background:#e9f5ee;border-radius:16px;padding:16px;font-size:14px;line-height:1.9;white-space:pre-wrap;min-height:260px;font-family:'SF Mono',Menlo,Consolas,monospace;color:#1a1a1a;border:1px solid #c3e6cb;"></div>
         </div>
       </div>
       <div id="tab-monthly" class="tab-content">
@@ -2973,6 +2998,7 @@ function showTab(tab) {
   document.getElementById('tab-' + tab).classList.add('active');
   event.currentTarget.classList.add('active');
   if (tab === 'daily') renderDailyReport();
+  if (tab === 'weekly') renderWeeklyReport();
   if (tab === 'monthly') renderMonthlySummary();
   if (tab === 'member') renderMemberReport();
 }
@@ -3033,6 +3059,18 @@ function paymentInMonth(s, mk) {
   if (!mk) return 0;
   return paymentEventsOf(s)
     .filter(e => e.date && String(e.date).startsWith(mk))
+    .reduce((a, e) => a + e.amount, 0);
+}
+
+// 【週次レポート用】レコードsのうち、開始日〜終了日(両端含む、'YYYY-MM-DD'文字列)の期間内に
+// 着金したイベントの合計金額を返す。paymentInMonth()と同じ考え方で、月キーの前方一致(startsWith)の
+// 代わりに文字列の範囲比較(>=, <=)を使うだけの違い。日付は'YYYY-MM-DD'形式で保存されているため、
+// 文字列比較のままでも日付の大小関係と一致し、Dateオブジェクトへ変換しないぶんタイムゾーンのズレも起きない
+// （日次レポート側のpaymentInMonth/月キー判定と同じ「文字列のまま比較する」方針に統一している）。
+function paymentInPeriod(s, startDate, endDate) {
+  if (!startDate || !endDate) return 0;
+  return paymentEventsOf(s)
+    .filter(e => e.date && e.date >= startDate && e.date <= endDate)
     .reduce((a, e) => a + e.amount, 0);
 }
 
@@ -3104,25 +3142,36 @@ function groupSalesByMemberId(salesArr) {
   return map;
 }
 
-// monthSalesByMember: 対象月(mk)に面談日があるsalesを memberId ごとにグループ化したMap（groupSalesByMemberIdで作成）
-// allSalesByMember: 全期間のsalesを memberId ごとにグループ化したMap（着金実績の計算に使う。groupSalesByMemberIdで作成）
-function calcMemberKpiActuals(memberId, mk, monthSalesByMember, allSalesByMember) {
+// 【週次レポート対応で共通化】calcMemberKpiActuals本体の計算式そのものを切り出した共通ヘルパー。
+// periodSales: アポ・面談・契約数を数える対象のsales配列（呼び出し元で「面談日が対象期間内」に
+//              絞り込み済みのものを渡す。月次なら対象月、週次なら開始日〜終了日）
+// allSales: 着金実績の集計対象となるsales配列（面談日での絞り込みはせず、着金イベント側で判定する）
+// sumPaymentOf: 1レコードsから対象期間の着金合計を取り出す関数（月次はpaymentInMonth、週次はpaymentInPeriodを渡す）
+// ※中身は元のcalcMemberKpiActuals内にあった計算式をそのまま移しただけで、計算式自体は一切変えていない。
+function calcKpiFromSales(periodSales, allSales, sumPaymentOf) {
   const getResultOf = s => s.result || (s.category||'').split(' ').pop();
 
-  // 面談日(date)が対象月のレコードのみ抽出（アポ・面談・契約数はこちらの月で数える）
-  const mSales = monthSalesByMember.get(memberId) || [];
-  const mNormal = mSales.filter(s => s.rowType !== '追加決済');
-  const apo = mNormal.length;
-  const cancel = mNormal.filter(s => getResultOf(s) === 'キャンセル').length;
+  const pNormal = periodSales.filter(s => s.rowType !== '追加決済');
+  const apo = pNormal.length;
+  const cancel = pNormal.filter(s => getResultOf(s) === 'キャンセル').length;
   const mendan = apo - cancel;
-  const keiyaku = mNormal.filter(s => getResultOf(s).startsWith('成約')).length;
+  const keiyaku = pNormal.filter(s => getResultOf(s).startsWith('成約')).length;
   const seiyakuRate = mendan > 0 ? (keiyaku / mendan * 100) : null;
-  // 着金実績は「着金イベント単位」で対象月(mk)に着金した分を合計する（面談日ではなく着金日ベース）
-  const memberSales = allSalesByMember.get(memberId) || [];
-  const payment = memberSales.reduce((a,s) => a + paymentInMonth(s, mk), 0);
+  // 着金実績は「着金イベント単位」で対象期間に着金した分を合計する（面談日ではなく着金日ベース）
+  const payment = allSales.reduce((a,s) => a + sumPaymentOf(s), 0);
   const tanka = keiyaku > 0 ? Math.round(payment / keiyaku) : null;
 
   return { apo, mendan, keiyaku, seiyakuRate, tanka, payment };
+}
+
+// monthSalesByMember: 対象月(mk)に面談日があるsalesを memberId ごとにグループ化したMap（groupSalesByMemberIdで作成）
+// allSalesByMember: 全期間のsalesを memberId ごとにグループ化したMap（着金実績の計算に使う。groupSalesByMemberIdで作成）
+// 【リファクタ】計算式そのものは共通ヘルパーcalcKpiFromSalesに切り出し済み。ここでは対象月(mk)ぶんの
+// 配列をMapから取り出してcalcKpiFromSalesへ渡すだけになった（戻り値・計算結果は従来と完全に同一）。
+function calcMemberKpiActuals(memberId, mk, monthSalesByMember, allSalesByMember) {
+  const mSales = monthSalesByMember.get(memberId) || [];
+  const memberSales = allSalesByMember.get(memberId) || [];
+  return calcKpiFromSales(mSales, memberSales, s => paymentInMonth(s, mk));
 }
 
 function formatMonth(d) {
@@ -3293,6 +3342,130 @@ function copyDailyReport() {
   }
 }
 
+// =====================================================
+// 【週次レポート（レポートページの「週次レポート」タブ）】
+// 日次レポートと同じ導線区分別（広告／SNS／上記以外／セミナー／全体）の日報形式を、
+// 「対象月」ではなく「開始日〜終了日の任意期間（両端含む）」で集計して表示する機能。
+// 集計式は日次レポートと完全に共通（calcKpiFromSales）で、期間の絞り込み方法だけが異なる。
+// 【目標値について】目標管理ページの目標は月単位でしか設定されておらず、任意の週にそのまま
+// 当てはめると「月目標に対する週の達成率」のような誤解を招く数字になってしまうため、
+// 週次レポートでは目標・達成率の行は表示しない（日次レポートの「全体」セクションにある
+// 目標比較はそのまま残し、この省略は週次レポート側だけの仕様）。
+// =====================================================
+
+// 'YYYY-MM-DD'文字列に対してdays日を加算/減算した'YYYY-MM-DD'文字列を返す。
+// UTC基準のDateオブジェクトを計算専用に使うだけなので、ローカルタイムゾーンによる日付ズレは起きない。
+function addDaysToDateStr(dateStr, days) {
+  const [y, m, d] = String(dateStr).split('-').map(Number);
+  const dt = new Date(Date.UTC(y, (m || 1) - 1, d || 1));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().split('T')[0];
+}
+
+// 「今日」を'YYYY-MM-DD'文字列で返す（週次レポート専用）。
+// new Date().toISOString()はUTC基準のため、日本時間0時〜9時の間は
+// 前日の日付になってしまう（例: JST 9/17 3:00 = UTC 9/16 18:00）。
+// そのため9時間(ミリ秒換算で9*3600*1000)を加算してからUTC文字列化することで、
+// 実行端末のタイムゾーン設定に関係なく常に日本時間基準の日付を返すようにしている。
+// ※この関数は週次レポート専用。sale-dateの初期値など他箇所の日付ロジックには影響しない。
+function todayDateStr() {
+  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
+}
+
+// 週次レポートタブで現在表示中の期間（開始日・終了日、'YYYY-MM-DD'文字列）。
+// デフォルトは「今日を含む直近7日間」（今日から6日前〜今日）。
+let weeklyReportStart = addDaysToDateStr(todayDateStr(), -6);
+let weeklyReportEnd = todayDateStr();
+
+// 'YYYY-MM-DD' → '2026/9/10' 形式の表示用文字列に変換する
+function formatDateForWeeklyReport(dateStr) {
+  const [y, m, d] = String(dateStr).split('-').map(Number);
+  return `${y}/${m}/${d}`;
+}
+
+// 対象期間(startDate〜endDate、両端含む)・メンバー(memberId。空文字なら全員合計)・導線区分(category)の
+// KPIを計算する。メンバー・導線区分の絞り込みはcalcDailyReportKpiと全く同じロジック
+// （resolveSaleMemberでの再紐づけ・filterSalesByRouteCategoryでの区分判定）をそのまま使い、
+// 「対象月の判定(startsWith(mk))」の部分だけを「期間の範囲判定」に差し替えている。
+function calcPeriodReportKpi(startDate, endDate, memberId, category) {
+  // 【D対応】memberId一致だけでなく、名前で再紐づく売上(resolveSaleMember)も対象メンバーの実績に含める
+  let sales = memberId ? data.sales.filter(s => { const rm = resolveSaleMember(s); return rm && rm.id === memberId; }) : data.sales; // メンバー未選択＝全員合計
+  sales = filterSalesByRouteCategory(sales, category);
+  // 面談日(date)が対象期間内のレコードのみ抽出（アポ・面談・契約数はこちらの期間で数える）
+  const periodSales = sales.filter(s => s.date && s.date >= startDate && s.date <= endDate);
+  return calcKpiFromSales(periodSales, sales, s => paymentInPeriod(s, startDate, endDate));
+}
+
+// 【週報】テキストを組み立てる（コピー機能でもこの文字列をそのまま使う）
+function buildWeeklyReportText(startDate, endDate, memberId) {
+  const cats = [
+    { key: '広告', label: '◼️広告' },
+    { key: 'SNS', label: '◼️SNS' },
+    { key: '上記以外', label: '◼️上記以外' },
+    { key: 'セミナー', label: '◼️セミナー' },
+    { key: '全体', label: '◼️全体（セミナーは除く）' }, // 広告＋SNS＋上記以外の合計（＝セミナーを除いた全件）
+  ];
+  const lines = ['【週報】', `期間：${formatDateForWeeklyReport(startDate)}〜${formatDateForWeeklyReport(endDate)}`, ''];
+  cats.forEach((c, idx) => {
+    const kpi = calcPeriodReportKpi(startDate, endDate, memberId, c.key);
+    lines.push(c.label);
+    // 【目標値の扱い】月単位でしか目標が無いため、週次レポートでは目標・達成率の行を出さない
+    // （日次レポートの「全体」セクションのような目標比較は行わない。詳細は関数冒頭コメント参照）。
+    lines.push(`着金：${fmt(kpi.payment)}`);
+    lines.push(`面談数：${kpi.mendan}件`);
+    lines.push(`成約数：${kpi.keiyaku}件`);
+    lines.push(`成約率：${kpi.seiyakuRate !== null ? kpi.seiyakuRate.toFixed(1) + '%' : '-'}`);
+    if (idx < cats.length - 1) lines.push('');
+  });
+  return lines.join('\n');
+}
+
+function renderWeeklyReport() {
+  const startEl = document.getElementById('weekly-report-start');
+  const endEl = document.getElementById('weekly-report-end');
+  const memberSel = document.getElementById('weekly-report-member');
+  // メンバー選択肢がまだ空（初回表示時にupdateMemberSelectsより先に描画された等）なら、その場で作る
+  if (memberSel && memberSel.options.length === 0) {
+    memberSel.innerHTML = '<option value="">全員</option>' + data.members.map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
+  }
+  // 日付欄が未入力（初回表示）ならデフォルト（今日を含む直近7日間）を入れる
+  if (startEl && !startEl.value) startEl.value = weeklyReportStart;
+  if (endEl && !endEl.value) endEl.value = weeklyReportEnd;
+  const startDate = startEl ? startEl.value : weeklyReportStart;
+  const endDate = endEl ? endEl.value : weeklyReportEnd;
+  // 次にこのタブを開いたときのデフォルト表示にも、直前に選んでいた期間を引き継ぐ
+  if (startDate) weeklyReportStart = startDate;
+  if (endDate) weeklyReportEnd = endDate;
+  const memberId = memberSel ? memberSel.value : '';
+  const textEl = document.getElementById('weekly-report-text');
+  if (!textEl) return;
+  if (!startDate || !endDate) {
+    textEl.textContent = '開始日と終了日を指定してください。';
+    return;
+  }
+  if (startDate > endDate) {
+    textEl.textContent = '⚠️ 開始日が終了日より後になっています。開始日は終了日以前の日付を指定してください。';
+    return;
+  }
+  textEl.textContent = buildWeeklyReportText(startDate, endDate, memberId);
+}
+
+// 週報テキストをクリップボードへコピーする（既存のcopyDailyReport()と同じ方式で統一）
+function copyWeeklyReport() {
+  const text = document.getElementById('weekly-report-text')?.textContent || '';
+  const fallback = () => {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+  };
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(() => showSuccessToast('コピーしました！', '週報をそのまま貼り付けられます 📋')).catch(fallback);
+  } else {
+    fallback();
+    showSuccessToast('コピーしました！', '週報をそのまま貼り付けられます 📋');
+  }
+}
+
 function changeMonth(dir) {
   currentViewMonth = new Date(currentViewMonth.getFullYear(), currentViewMonth.getMonth() + dir, 1);
   renderDashboard();
@@ -3411,16 +3584,16 @@ function renderMemberList() {
 }
 
 function updateMemberSelects() {
-  // 【日次レポート】daily-report-memberも他のメンバーセレクトと同じ仕組みで生成する。
-  // ただしこのセレクトだけは、同期等でメンバーリストが更新されても選択中の担当者が
-  // 勝手に「全員」へ戻ってしまわないよう、直前に選ばれていた値を復元する。
-  ['sale-member', 'filter-member', 'daily-report-member'].forEach(id => {
+  // 【日次/週次レポート】daily-report-member・weekly-report-memberも他のメンバーセレクトと
+  // 同じ仕組みで生成する。ただしこの2つだけは、同期等でメンバーリストが更新されても選択中の
+  // 担当者が勝手に「全員」へ戻ってしまわないよう、直前に選ばれていた値を復元する。
+  ['sale-member', 'filter-member', 'daily-report-member', 'weekly-report-member'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     const prevValue = el.value;
-    const firstOpt = (id === 'filter-member' || id === 'daily-report-member') ? '<option value="">全員</option>' : '<option value="">選択してください</option>';
+    const firstOpt = (id === 'filter-member' || id === 'daily-report-member' || id === 'weekly-report-member') ? '<option value="">全員</option>' : '<option value="">選択してください</option>';
     el.innerHTML = firstOpt + data.members.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
-    if (id === 'daily-report-member' && data.members.some(m => m.id === prevValue)) el.value = prevValue;
+    if ((id === 'daily-report-member' || id === 'weekly-report-member') && data.members.some(m => m.id === prevValue)) el.value = prevValue;
   });
   // メンバーセレクト更新のついでに商品・動線セレクトも更新
   updateProductSelect();
