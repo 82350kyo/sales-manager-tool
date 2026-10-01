@@ -657,6 +657,7 @@
       <input type="password" id="auth-login-pw" placeholder="パスワードを入力" onkeydown="if(event.key==='Enter')submitAuthLogin()">
     </div>
     <button class="btn btn-primary" id="auth-login-submit-btn" onclick="submitAuthLogin()">ロック解除</button>
+    <div class="auth-card-desc">毎日12:00（日本時間）にログアウトします。再度ログインしてください。</div>
     <div class="auth-card-error" id="auth-login-error"></div>
   </div>
 </div>
@@ -1410,7 +1411,7 @@
       </div>
       <div class="card" style="margin-bottom:24px;">
         <div class="card-title">🔑 アクセス管理（パスワード）</div>
-        <p style="font-size:14px;color:var(--text-muted);margin-bottom:16px;">利用パスワード・管理者パスワードの変更ができます（管理者パスワードでの本人確認が必要です）。</p>
+        <p style="font-size:14px;color:var(--text-muted);margin-bottom:16px;">利用パスワード・管理者パスワードの変更ができます（管理者パスワードでの本人確認が必要です）。毎日12:00（日本時間）に自動ログアウトし、再ログインが必要になります。</p>
         <button class="btn btn-outline" onclick="openAuthAdminVerifyModal()">パスワードを変更する</button>
       </div>
       <div class="card" style="margin-bottom:24px;">
@@ -2209,7 +2210,7 @@
 // 絶対に書かないこと。checkForNewVersion()側の抽出は行頭アンカー付き正規表現で本物の定義行
 // だけを拾うよう修正済みだが、万一の二重の保険として、コメント側にも紛らわしい書き方をしない
 // ようにしている（過去に例文がコメント内の古い値を誤って拾ってしまう不具合があったため）。
-const APP_VERSION = '2026-10-01-auth-save';
+const APP_VERSION = '2026-10-01-noon-logout';
 
 // ==================== 2段階パスワード認証（管理者ログイン） ====================
 // 【重要】認証設定(authConfig)は SHARED_KEYS の汎用配列マージには絶対に含めない。
@@ -2359,13 +2360,62 @@ async function applyAuthConfig(cfg, adminHashForAuth) {
   }
 }
 
-// このブラウザタブのセッション内で認証済みかどうか（sessionStorageなので閉じると忘れる）
+// 毎日12:00（日本時間）でブラウザのログインセッションを期限切れにする。
+// UTC+9は夏時間がないため、端末のタイムゾーンに依存せずUTCの03:00で計算する。
+const AUTH_SESSION_EXPIRES_KEY = 'sales-manager-auth-expires-at';
+const AUTH_DAY_MS = 24 * 60 * 60 * 1000;
+const AUTH_NOON_UTC_MS = 3 * 60 * 60 * 1000;
+let _dailyLogoutTimer = null;
+let _dailyLogoutInProgress = false;
+function nextNoonJst(now = Date.now()) {
+  return (Math.floor((now - AUTH_NOON_UTC_MS) / AUTH_DAY_MS) + 1) * AUTH_DAY_MS + AUTH_NOON_UTC_MS;
+}
 function isSessionAuthed() {
-  return sessionStorage.getItem(AUTH_SESSION_KEY) === '1';
+  const expiresAt = Number(sessionStorage.getItem(AUTH_SESSION_EXPIRES_KEY));
+  const now = Date.now();
+  return sessionStorage.getItem(AUTH_SESSION_KEY) === '1'
+    && Number.isFinite(expiresAt) && expiresAt > now && expiresAt <= nextNoonJst(now);
+}
+function enforceDailyLogout() {
+  if (_dailyLogoutInProgress) return true;
+  if (sessionStorage.getItem(AUTH_SESSION_KEY) !== '1' || isSessionAuthed()) return false;
+  _dailyLogoutInProgress = true;
+  sessionStorage.removeItem(AUTH_SESSION_KEY);
+  sessionStorage.removeItem(AUTH_SESSION_EXPIRES_KEY);
+  clearTimeout(_dailyLogoutTimer);
+  clearTimeout(saveData._timer);
+  _adminVerified = false;
+  _adminVerifiedHash = null;
+  // 画面を即時に隠し、再読み込みで進行中の通信・定期同期・管理者モーダルも終了する。
+  document.getElementById('auth-gate-overlay').style.display = 'flex';
+  showAuthPanel('login');
+  location.reload();
+  return true;
+}
+function scheduleDailyLogout() {
+  clearTimeout(_dailyLogoutTimer);
+  if (enforceDailyLogout() || !isSessionAuthed()) return;
+  const expiresAt = Number(sessionStorage.getItem(AUTH_SESSION_EXPIRES_KEY));
+  _dailyLogoutTimer = setTimeout(() => {
+    if (!enforceDailyLogout()) scheduleDailyLogout();
+  }, Math.max(1, expiresAt - Date.now()));
 }
 function markSessionAuthed() {
+  // 再読み込みでは期限を延ばさない。パスワード照合成功時だけ次の正午まで有効にする。
+  sessionStorage.setItem(AUTH_SESSION_EXPIRES_KEY, String(nextNoonJst()));
   sessionStorage.setItem(AUTH_SESSION_KEY, '1');
+  scheduleDailyLogout();
 }
+window.addEventListener('focus', scheduleDailyLogout);
+window.addEventListener('pageshow', scheduleDailyLogout);
+document.addEventListener('visibilitychange', scheduleDailyLogout);
+// スリープ・バックグラウンドによるタイマー遅延時も、最初の操作より先にロックする。
+['pointerdown', 'keydown', 'submit'].forEach(type => document.addEventListener(type, event => {
+  if (enforceDailyLogout()) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+}, true));
 
 // ==================== ログインゲート表示・認証処理 ====================
 
@@ -2383,6 +2433,8 @@ async function renderAuthGate() {
   // _requireAuth に弾かれる（同期が気付かれずサイレント停止する）事故が起きるため。
   loadAuthConfigCache();
   if (isSessionAuthed()) return;
+  sessionStorage.removeItem(AUTH_SESSION_KEY);
+  sessionStorage.removeItem(AUTH_SESSION_EXPIRES_KEY);
   const overlay = document.getElementById('auth-gate-overlay');
   overlay.style.display = 'flex';
 
@@ -2491,6 +2543,7 @@ async function submitAuthSetup() {
 // POST(text/plain body)で送る共通ヘルパー。no-corsを使わないため、GAS側respond()の
 // JSONレスポンスをそのまま読み取れる（既存のGET系読み取り呼び出しと同じCORS前提）。
 function gasPostJSON(payloadObj, timeoutMs) {
+  if (enforceDailyLogout()) return Promise.reject(new Error('session_expired'));
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs || 8000);
   return fetch(GAS_URL, {
@@ -7568,6 +7621,7 @@ function mergeActionPlans(local, remote, deletedSet) {
 // 変更前の有効なハッシュを使ってリモートのマージ取得ができるようにするための引数）。
 // 通常の定期push（saveDataの2秒後デバウンス呼び出し等）はopts省略で従来通りno-cors送信のまま。
 async function pushSharedDataToGAS(opts) {
+  if (enforceDailyLogout()) return false;
   opts = opts || {};
   const shared = {};
   SHARED_KEYS.forEach(k => { shared[k] = data[k] || []; });
@@ -7716,6 +7770,8 @@ async function pushSharedDataToGAS(opts) {
       return false;
     }
   }
+
+  if (enforceDailyLogout()) return false;
 
   // 通常の定期push：従来通りno-corsのfire-and-forget（結果を待たず送信のみ行う）
   fetch(GAS_URL, {
@@ -9343,6 +9399,8 @@ if (isSessionAuthed()) {
 
 // 修正B: 認証確認後にだけ実行する初期化本体（売上データ取得・共有データ同期・定期syncの開始）
 function startAuthenticatedInit() {
+  if (!isSessionAuthed()) return;
+  scheduleDailyLogout();
   // 【修正1・QA指摘対応】以前はここに syncFromSheet() とほぼ同じ「getAllRows→data.sales再構築」
   // 処理が重複して実装されていた（2重取得）。この複製側は payment2/paymentDate2/payment3/
   // paymentDate3（2回目・3回目着金）を読み込んでおらず、起動/ログイン直後に syncFromSheet() と
