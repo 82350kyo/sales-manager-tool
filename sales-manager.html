@@ -2209,7 +2209,7 @@
 // 絶対に書かないこと。checkForNewVersion()側の抽出は行頭アンカー付き正規表現で本物の定義行
 // だけを拾うよう修正済みだが、万一の二重の保険として、コメント側にも紛らわしい書き方をしない
 // ようにしている（過去に例文がコメント内の古い値を誤って拾ってしまう不具合があったため）。
-const APP_VERSION = '2026-09-06-1';
+const APP_VERSION = '2026-10-01-auth-save';
 
 // ==================== 2段階パスワード認証（管理者ログイン） ====================
 // 【重要】認証設定(authConfig)は SHARED_KEYS の汎用配列マージには絶対に含めない。
@@ -2226,11 +2226,6 @@ const AUTH_SESSION_KEY = 'sales-manager-authed';      // 認証済みフラグ�
 // 検証済みハッシュの再照合が無ければ変更処理が通らないようにするための防御。
 let _adminVerified = false;
 let _adminVerifiedHash = null;
-
-// 修正4: authConfig自体を書き換えるsaveSharedData呼び出しの直前だけセットする一時変数。
-// GAS側で「管理者パスワードが正しいか」を再照合するためのパラメータとして一度だけ使い、
-// 送信後は必ずnullに戻す（通常の売上データ等の定期pushに紛れ込まないようにするため）。
-let _pendingAdminHash = null;
 
 // 修正3: 連続失敗によるクールダウン管理（総当たり対策）
 const AUTH_MAX_FAILS = 3;        // この回数失敗したらクールダウンに入る
@@ -2319,46 +2314,49 @@ function loadAuthConfigCache() {
 // パラメータ（＝直前に確認済みの現行管理者パスワードのハッシュ）。初回セットアップ時は
 // GAS側がまだ未設定(hasAuth:false)なので不要（省略可）。
 //
-// 修正A: 利用パスワードを変更すると、変更した瞬間にローカルのauthConfig.usePasswordHashが
-// 新しい値に書き換わる。しかしGASにはまだ「変更前のusePasswordHash」しか保存されていないため、
-// 直後のpushで新ハッシュをauthHashとして送っても本来はサーバー側で不一致になってしまう
-// （GAS側のゲート緩和＝authHash一致 or adminHash一致 のOR条件で救済されるが、念のため
-// 変更前のハッシュを明示してリモートとのマージ用GETにも使う）。
-// また、保存が本当に成功したかをレスポンスを読んで確認し、失敗時は変更前の状態へ
-// ロールバックする（楽観的更新のまま失敗すると、その端末が永久に同期エラーになるため）。
-// 戻り値: 保存に成功したかどうか(true/false)
+// 保存中は既存の設定を維持する。応答が途切れた場合も新設定でサーバー照合し、
+// 成功を確認した場合だけローカルへ確定する。書き込みの自動再送はしない。
+let _authConfigSaveInFlight = false;
+let _authConfigSaveError = '';
 async function applyAuthConfig(cfg, adminHashForAuth) {
-  const previousAuthConfig = authConfig; // ロールバック用に変更前の状態を保持
+  if (_authConfigSaveInFlight) return false;
+  _authConfigSaveInFlight = true;
+  _authConfigSaveError = '';
   const previousReadHash = (authConfig && authConfig.usePasswordHash) || '';
-
-  // 楽観的にローカルへ反映（GAS側の保存が失敗した場合は後段でロールバックする）
-  authConfig = cfg;
-  try { localStorage.setItem(AUTH_LOCAL_KEY, JSON.stringify(cfg)); } catch (e) {}
-  data.authConfig = cfg;
-
-  // 修正K: ここで saveData() を呼ぶと、2秒後デバウンスの pushSharedDataToGAS()（無引数）が
-  // 別途スケジュールされてしまい、直後に行う readResult:true 付きの明示pushと
-  // _pendingAdminHash（一時変数）を取り合って競合する恐れがあった。
-  // そのためここでは localStorage への保存だけを行い、保留中のデバウンスpushがあれば
-  // 明示的にキャンセルして、GASへの反映は下記の明示push一本に一本化する。
-  localStorage.setItem('sales-manager-data', JSON.stringify(data));
   clearTimeout(saveData._timer);
-
-  _pendingAdminHash = adminHashForAuth || null;
-  // 修正A: 結果を確認できるモードでpushし、GASが本当に{ok:true}を返したかどうかを見る
-  const success = await pushSharedDataToGAS({ readResult: true, authHashForRead: previousReadHash });
-
-  if (!success) {
-    // 保存に失敗した場合は変更前の状態へロールバックする（同期の永久失敗を防ぐ）
-    authConfig = previousAuthConfig;
-    data.authConfig = previousAuthConfig;
+  try {
+    // 管理者認証はこのリクエストに結び付ける（並行pushと一時変数を共有しない）。
+    await pushSharedDataToGAS({
+      readResult: true, authHashForRead: previousReadHash,
+      authConfigForWrite: cfg, adminHashForAuth: adminHashForAuth || ''
+    });
+    // GASは応答が途切れても処理を続けるため、書き込みを再送せず実際の認証結果で確認。
+    // saveSharedDataのokだけでは認証設定の更新成功は保証されない。
+    const checks = await Promise.all(['use', 'admin'].map(async role => {
+      try {
+        return await gasPostJSON({ type: 'verifyAuth', role,
+          hash: role === 'use' ? cfg.usePasswordHash : cfg.adminPasswordHash }, 30000);
+      } catch (_) { return null; }
+    }));
+    if (!checks.every(result => result && result.ok === true)) {
+      _authConfigSaveError = checks.some(result => result && result.error === 'locked')
+        ? '認証確認が一時制限されています。少し時間をおいて変更画面を開き直してください。'
+        : '保存結果を確認できませんでした。サーバーでは変更済みの可能性があります。新しい利用パスワードでログインできるか確認してください。';
+      return false;
+    }
+    authConfig = cfg;
+    data.authConfig = cfg;
     try {
-      if (previousAuthConfig) localStorage.setItem(AUTH_LOCAL_KEY, JSON.stringify(previousAuthConfig));
-      else localStorage.removeItem(AUTH_LOCAL_KEY);
-    } catch (e) {}
-    localStorage.setItem('sales-manager-data', JSON.stringify(data));
+      localStorage.setItem(AUTH_LOCAL_KEY, JSON.stringify(cfg));
+      localStorage.setItem('sales-manager-data', JSON.stringify(data));
+    } catch (_) { /* サーバーの保存・照合成功を端末容量エラーで取り消さない */ }
+    return true;
+  } catch (_) {
+    _authConfigSaveError = '保存結果を確認できませんでした。通信が復旧してから新しい利用パスワードでログインを確認してください。';
+    return false;
+  } finally {
+    _authConfigSaveInFlight = false;
   }
-  return success;
 }
 
 // このブラウザタブのセッション内で認証済みかどうか（sessionStorageなので閉じると忘れる）
@@ -2639,6 +2637,7 @@ function closeAuthAdminChangeModal() {
 // これにより、DevToolsコンソールからこの関数を直接呼び出しても、管理者パスワードを
 // 知らない限りパスワード変更が通らないようにする。
 async function submitAuthAdminChange() {
+  if (_authConfigSaveInFlight) return;
   const errEl = document.getElementById('auth-change-error');
   errEl.textContent = '';
 
@@ -2665,13 +2664,16 @@ async function submitAuthAdminChange() {
   // 修正4: GAS側でこの更新を認可してもらうため、直前に確認済みの管理者ハッシュを
   // closeAuthAdminChangeModal()でリセットされる前に保持しておき、applyAuthConfigへ渡す
   const verifiedAdminHash = _adminVerifiedHash;
-  errEl.textContent = '保存中...';
+  errEl.textContent = '保存・確認中…（最大約2分）';
   // 修正A: GASへの保存が本当に成功したことを確認してから完了扱いにする。
-  // 失敗時はローカルのauthConfigを変更前へロールバックし（applyAuthConfig内で実施済み）、
+  // 未確認の場合はローカルの設定を確定せず、
   // モーダルは閉じずに再試行できるようにする（_adminVerifiedは維持されたまま）。
+  const saveButton = document.querySelector('#auth-admin-change-modal button[onclick="submitAuthAdminChange()"]');
+  if (saveButton) saveButton.disabled = true;
   const success = await applyAuthConfig(cfg, verifiedAdminHash);
+  if (saveButton) saveButton.disabled = false;
   if (!success) {
-    errEl.textContent = '保存に失敗しました。通信環境を確認してもう一度お試しください。';
+    errEl.textContent = _authConfigSaveError || '保存結果を確認できませんでした。少し時間をおいて再度確認してください。';
     return;
   }
 
@@ -7636,7 +7638,7 @@ async function pushSharedDataToGAS(opts) {
   } catch (e) {}
 
   // authConfigは専用フィールドとしてshared payloadに含める（配列マージ対象外）
-  shared.authConfig = data.authConfig || null;
+  shared.authConfig = opts.authConfigForWrite || data.authConfig || null;
 
   const ts = Date.now();
   shared._updatedAt = ts;
@@ -7673,8 +7675,7 @@ async function pushSharedDataToGAS(opts) {
   const authHashForWrite = (authConfig && authConfig.usePasswordHash) || '';
   // 修正4: authConfig自体を書き換える保存（初回セットアップ／管理者によるパスワード変更）のときだけ
   // adminHashが設定されている。GAS側で管理者パスワードの再照合に使われる一時パラメータ。
-  const adminHashParam = _pendingAdminHash || '';
-  _pendingAdminHash = null; // 使い切ったら必ずリセット（次回以降の通常pushに紛れ込ませない）
+  const adminHashParam = opts.adminHashForAuth || '';
 
   const body = { type: 'saveSharedData', data: shared, authHash: authHashForWrite, adminHash: adminHashParam };
 
@@ -7701,7 +7702,7 @@ async function pushSharedDataToGAS(opts) {
   if (shouldConfirmResult) {
     // 修正A: パスワード変更等、結果を確実に確認したい場合はno-corsを使わずレスポンスを読み取る
     try {
-      const res = await gasPostJSON(body, 10000);
+      const res = await gasPostJSON(body, opts.authConfigForWrite ? 60000 : 10000);
       const ok = !!(res && res.ok === true);
       if (!ok) {
         // 【容量対策】結果確認付き送信で失敗を検知できた場合は、画面にも分かるように出す
